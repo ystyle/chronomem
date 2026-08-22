@@ -10,9 +10,14 @@ import stdx.net.http.*
 main() {
     let cfg = ChronomemConfig.fromEnv()
     let svc = MemoryService.open(cfg)
-    // 后台结构物化（每 60s，零 LLM；幂等、空窗口零成本）
+    // 后台结构物化（cron 墙钟，默认 @every 1m；零 LLM、幂等、空窗口零成本）
     let scheduler = MaterializeScheduler(svc.store)
-    spawn { => scheduler.run() }
+    scheduler.start(spec: cfg.materializeCron)
+    // 后台自动语义总结（cron，默认 */10 * * * *；仅 opt-in 类型；未配置 LLM 或 maxPerRun<=0 时不开）
+    if (svc.summarizer.isSome() && cfg.summaryMaxPerRun > 0) {
+        let sumScheduler = SummarizeScheduler.fromConfig(svc, cfg)
+        sumScheduler.start(spec: cfg.summaryCron)
+    }
     let httpServer = ServerBuilder()
         .addr("127.0.0.1")
         .port(cfg.port)

@@ -18,10 +18,12 @@
 
 - ✅ 自定义记忆类型（宽松 schema，任意 JSON + tags）
 - ✅ 每类型自定义**粒度链 levels**（10min/30min/1h/3h/day/week/month 子集）
+- ✅ **自然时间窗口（日历对齐）**：day=本地零点、week=周一起点、month=1 号零点（`CHRONOLOG_TIMEZONE`），非 epoch 锚定
 - ✅ 结构回想：最近/时间范围/tag 过滤 + 物化桶**精确下钻**（零 LLM）
 - ✅ 语义总结：窗口 → LLM 结构化摘要（决策/结论/待办/状态变更/关键词）→ 落 `SummaryRecord`，**可递归再总结**
+- ✅ **定时自动总结**（cron-cj 驱动，默认 `*/10 * * * *`）：opt-in 类型自动长摘要，带闭合+沉降+幂等+每轮上限护栏
 - ✅ 任务阶段总结：`from/to` 显式窗口任意不规则时段
-- ✅ 后台结构物化（每 60s，零 LLM，幂等）
+- ✅ 后台结构物化（cron-cj，默认 `@every 1m`，零 LLM，幂等）
 - ✅ 仅 streamable HTTP（2025-11-25 session），多客户端共享同一记忆库
 
 ## 构建与运行
@@ -40,6 +42,11 @@ LLM_BASE_URL=... LLM_API_KEY=... LLM_MODEL=... \
 |---|---|---|
 | `CHRONOLOG_DIR` | `~/.chronolog` | 存储根目录（内含 `tsdb/`） |
 | `CHRONOLOG_PORT` | `8900` | HTTP 监听端口 |
+| `CHRONOLOG_TIMEZONE` | 本地时区 | 自然窗口时区（IANA id，如 `Asia/Shanghai`） |
+| `CHRONOLOG_MATERIALIZE_CRON` | `@every 1m` | 结构物化 cron |
+| `CHRONOLOG_SUMMARY_CRON` | `*/10 * * * *` | 自动语义总结 cron |
+| `CHRONOLOG_SUMMARY_MAX_PER_RUN` | `5` | 每轮自动总结次数上限 |
+| `CHRONOLOG_SUMMARY_SETTLE` | `600000` | 窗口闭合沉降期（毫秒） |
 | `LLM_BASE_URL` | 无 | OpenAI 兼容端点（仅 summarize 需要） |
 | `LLM_API_KEY` | 无 | API Key |
 | `LLM_MODEL` | 无 | 默认模型 |
@@ -66,7 +73,7 @@ npx @modelcontextprotocol/inspector --url http://127.0.0.1:8900
 
 | 工具 | 作用 |
 |---|---|
-| `mem/type_create` | 创建记忆类型（`name` 必填；`levels`? 粒度链；`description`? `schema`? `retention`?） |
+| `mem/type_create` | 创建记忆类型（`name` 必填；`levels`? 粒度链；`auto_summarize`? 后台自动总结；`summary_levels`? 自动总结粒度；`description`? `schema`? `retention`?） |
 | `mem/list_types` | 类型列表（name/描述/条目数/粒度链） |
 | `mem/type_info` | 单类型详情（meta + 条目数 + 各粒度物化桶数） |
 | `mem/append` | 追加条目（`type` + `payload` 必填；`tags`? `ts`?） |
@@ -79,14 +86,13 @@ npx @modelcontextprotocol/inspector --url http://127.0.0.1:8900
 ## 示例：工作日志
 
 ```text
-mem/type_create { name: "worklog", levels: ["day", "week"], description: "工作日志" }
+mem/type_create { name: "worklog", levels: ["day", "week"], auto_summarize: true, description: "工作日志" }
 # 干活时随手记（可能一天 1 条，也可能一小时好几条）
 mem/append { type: "worklog", payload: { "task": "拆分忆时塔设计", "detail": "..." }, tags: { "proj": "chronomem" } }
 
-# 任务阶段结束 → 按阶段总结（不规则窗口）
+# 后台自动总结：day/week 窗口闭合后自动长摘要（opt-in 类型，默认 */10 * * * * 检查）
+# 任务阶段结束 → 按阶段手动总结（不规则窗口）
 mem/summarize { type: "worklog", from: <任务开始>, to: <任务结束>, instructions: "提炼本次任务的决策与待办" }
-# 按天/周规律总结
-mem/summarize { type: "worklog", granularity: "day" }
 
 # 回想
 mem/query  { type: "worklog", tag: "proj=chronomem" }          # 结构回想（零 LLM）
@@ -109,6 +115,7 @@ cjpm test -j 16 --no-progress
 | [`mcp`](../mcp-cj) | MCP 协议框架（streamable HTTP） |
 | [`tsdb`](../tsdb-cj) | 时序存储（series + 物化桶 + drillDown） |
 | [`llm_api`](../llm_api) | 自研薄层 LLM REST 库（OpenAI/Anthropic/Ollama） |
+| [`cron`](../cron-cj) | 定时调度（结构物化 + 自动语义总结） |
 | `jsonvalue` | 工具参数 / 动态字段 |
 
 ## License

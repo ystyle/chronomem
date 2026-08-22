@@ -13,15 +13,27 @@ public class ChronomemConfig {
     public let llmApiKey: String
     public let llmModel: String
     public let llmProvider: String
+    public let timeZoneId: String
+    public let materializeCron: String
+    public let summaryCron: String
+    public let summaryMaxPerRun: Int64
+    public let summarySettleMs: Int64
 
     public init(dir: String, port: UInt16, llmBaseUrl: String,
-        llmApiKey: String, llmModel: String, llmProvider: String) {
+        llmApiKey: String, llmModel: String, llmProvider: String,
+        timeZoneId: String, materializeCron: String, summaryCron: String,
+        summaryMaxPerRun: Int64, summarySettleMs: Int64) {
         this.dir = dir
         this.port = port
         this.llmBaseUrl = llmBaseUrl
         this.llmApiKey = llmApiKey
         this.llmModel = llmModel
         this.llmProvider = llmProvider
+        this.timeZoneId = timeZoneId
+        this.materializeCron = materializeCron
+        this.summaryCron = summaryCron
+        this.summaryMaxPerRun = summaryMaxPerRun
+        this.summarySettleMs = summarySettleMs
     }
 
     // 从进程环境变量构造（测试可通过 setVariable/removeVariable 控制）
@@ -37,12 +49,25 @@ public class ChronomemConfig {
             envOr("LLM_BASE_URL", ""),
             envOr("LLM_API_KEY", ""),
             envOr("LLM_MODEL", ""),
-            envOr("LLM_PROVIDER", "openai"))
+            envOr("LLM_PROVIDER", "openai"),
+            envOr("CHRONOLOG_TIMEZONE", ""),
+            envOr("CHRONOLOG_MATERIALIZE_CRON", "@every 1m"),
+            envOr("CHRONOLOG_SUMMARY_CRON", "*/10 * * * *"),
+            envIntOr("CHRONOLOG_SUMMARY_MAX_PER_RUN", 5),
+            envIntOr("CHRONOLOG_SUMMARY_SETTLE", 600000))
     }
 
     // 语义总结可用性：未配置 baseURL/model 时 summarize 应报错（其余工具不依赖 LLM）
     public func hasLlmConfig(): Bool {
         this.llmBaseUrl != "" && this.llmModel != ""
+    }
+}
+
+func envIntOr(name: String, fallback: Int64): Int64 {
+    match (getVariable(name)) {
+        case Some(v) =>
+            if (v == "") { fallback } else { try { Int64.parse(v) } catch (_) { fallback } }
+        case None => fallback
     }
 }
 

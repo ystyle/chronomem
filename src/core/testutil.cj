@@ -22,5 +22,6 @@ public func dayWeekLevels(): ArrayList<String> {
 }
 
 public func testMeta(name: String, levels: ArrayList<String>): TypeMeta {
-    TypeMeta(name, "desc " + name, Some("{\"a\":\"string\"}"), levels, None, TEST_BASE)
+    TypeMeta(name, "desc " + name, Some("{\"a\":\"string\"}"), levels, None,
+        false, None, TEST_BASE)
 }

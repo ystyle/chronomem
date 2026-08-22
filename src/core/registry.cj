@@ -4,23 +4,28 @@ import tsdb.*
 import std.collection.*
 import stdx.encoding.json.stream.*
 
-// 记忆类型元数据（固定结构，json.stream 序列化；schema/retention 可空）。
-// 落库于 tsdb `__meta` series（tag=name 定位），重启时重建注册表。
+// 记忆类型元数据（固定结构，json.stream 序列化；schema/retention/summaryLevels 可空）。
+// 落库于 tsdb `meta` series（tag=name 定位），重启时重建注册表。
 public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
     public let name: String                 // 类型名（白名单 [A-Za-z0-9_/-]，如 worklog、proj/decisions）
     public let description: String
     public let schema: Option<String>       // 可选字段描述（JSON 字符串；宽松模式，仅作文档/LLM 提示）
     public let levels: ArrayList<String>    // 粒度链（§5.1）
     public let retention: Option<String>    // 可选保留期（如 "30d"，后续接入 tsdb setRetention）
+    public let autoSummarize: Bool          // 后台自动语义总结（默认 false，opt-in；§7.3）
+    public let summaryLevels: Option<ArrayList<String>>  // 自动总结粒度（缺省 = 最粗 2 档）
     public let createdAt: Int64
 
     public init(name: String, description: String, schema: Option<String>,
-        levels: ArrayList<String>, retention: Option<String>, createdAt: Int64) {
+        levels: ArrayList<String>, retention: Option<String>,
+        autoSummarize: Bool, summaryLevels: Option<ArrayList<String>>, createdAt: Int64) {
         this.name = name
         this.description = description
         this.schema = schema
         this.levels = levels
         this.retention = retention
+        this.autoSummarize = autoSummarize
+        this.summaryLevels = summaryLevels
         this.createdAt = createdAt
     }
 
@@ -31,6 +36,8 @@ public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
         w.writeName("schema").writeValue(this.schema)
         w.writeName("levels").writeValue(this.levels)
         w.writeName("retention").writeValue(this.retention)
+        w.writeName("autoSummarize").writeValue(this.autoSummarize)
+        w.writeName("summaryLevels").writeValue(this.summaryLevels)
         w.writeName("createdAt").writeValue(this.createdAt)
         w.endObject()
     }
@@ -41,6 +48,8 @@ public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
         var schema: Option<String> = None
         var levels = ArrayList<String>()
         var retention: Option<String> = None
+        var autoSummarize = false
+        var summaryLevels: Option<ArrayList<String>> = None
         var createdAt = Int64(0)
         r.startObject()
         while (r.peek() != EndObject) {
@@ -50,12 +59,14 @@ public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
                 case "schema" => schema = r.readValue<Option<String>>()
                 case "levels" => levels = r.readValue<ArrayList<String>>()
                 case "retention" => retention = r.readValue<Option<String>>()
+                case "autoSummarize" => autoSummarize = r.readValue<Bool>()
+                case "summaryLevels" => summaryLevels = r.readValue<Option<ArrayList<String>>>()
                 case "createdAt" => createdAt = r.readValue<Int64>()
                 case _ => r.skip()
             }
         }
         r.endObject()
-        TypeMeta(name, description, schema, levels, retention, createdAt)
+        TypeMeta(name, description, schema, levels, retention, autoSummarize, summaryLevels, createdAt)
     }
 }
 
@@ -81,10 +92,11 @@ public class MemoryTypeRegistry {
         }
     }
 
-    // 创建记忆类型：校验 → 注册两个 series → 持久化 __meta。
+    // 创建记忆类型：校验 → 注册两个 series → 持久化 meta。
     public func create(meta: TypeMeta): Unit {
         MemoryTypeRegistry.validateTypeName(meta.name)
         Timeline.validateLevels(meta.levels)
+        MemoryTypeRegistry.validateSummaryLevels(meta)
         if (this.types.contains(meta.name)) {
             throw Exception("类型已存在: " + meta.name)
         }
@@ -128,6 +140,22 @@ public class MemoryTypeRegistry {
     // 某类型原始条目数
     public func countEntries(name: String): Int64 {
         this.store.rawTsdb().query(name).count()
+    }
+
+    // 校验 summaryLevels：须是类型 levels 的子集（升序无重复由类型自身保证）
+    public static func validateSummaryLevels(meta: TypeMeta): Unit {
+        match (meta.summaryLevels) {
+            case Some(ls) =>
+                if (ls.size == 0) {
+                    throw Exception("summary_levels 不能为空（不设则用缺省最粗 2 档）")
+                }
+                for (l in ls) {
+                    if (!meta.levels.contains(l)) {
+                        throw Exception("summary_levels 里的 " + l + " 不在类型 levels 内: " + Timeline.coarsestLevels(meta.levels, meta.levels.size).toString())
+                    }
+                }
+            case None => ()
+        }
     }
 
     public static func summarySeriesOf(name: String): String {

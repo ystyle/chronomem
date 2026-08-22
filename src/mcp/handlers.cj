@@ -225,13 +225,28 @@ public func handleTypeCreate(svc: MemoryService, args: HashMap<String, JsonValue
         case None => None
     }
     let retention: Option<String> = if (argStr(args, "retention") == "") { None } else { Some(argStr(args, "retention")) }
-    let meta = TypeMeta(name, argStr(args, "description"), schema, levels, retention, nowMs())
+    let autoSummarize = argBool(args, "auto_summarize", false)
+    let summaryLevels: Option<ArrayList<String>> = match (args.get("summary_levels")) {
+        case Some(JsonValue.Array(arr)) =>
+            let l = ArrayList<String>()
+            for (v in arr) {
+                match (v) {
+                    case JsonValue.String(s) => l.add(s)
+                    case _ => ()
+                }
+            }
+            if (l.size > 0) { Some(l) } else { None }
+        case _ => None
+    }
+    let meta = TypeMeta(name, argStr(args, "description"), schema, levels, retention,
+        autoSummarize, summaryLevels, nowMs())
     try {
         svc.registry.create(meta)
     } catch (e: Exception) {
         return toolError(e.toString())
     }
-    CallToolResult.text("已创建类型 " + name + "（粒度 " + levelsString(levels) + "）")
+    let autoTag = if (autoSummarize) { "，自动总结" } else { "" }
+    CallToolResult.text("已创建类型 " + name + "（粒度 " + levelsString(levels) + autoTag + "）")
 }
 
 public func handleListTypes(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
@@ -415,6 +430,8 @@ public func registerTools(server: McpServer, svc: MemoryService): Unit {
     s1.addField("description", "string", "类型描述")
     s1.addField("schema", "string", "可选字段描述（JSON 字符串，仅作文档/LLM 提示，宽松模式不校验）")
     s1.addField("retention", "string", "可选保留期（如 30d）")
+    s1.addField("auto_summarize", "boolean", "后台自动语义总结（默认 false，opt-in；已闭合窗口自动长摘要）")
+    s1.addField("summary_levels", "array", "自动总结粒度（可选；缺省 = 粒度链最粗 2 档，如 day/week）")
     let t1 = Tool("mem/type_create", "创建记忆类型（自动建 <type>.summary 总结 series）", s1)
     server.addTool(t1, { params => handleTypeCreate(svc, params.arguments) })
 

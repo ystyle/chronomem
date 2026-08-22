@@ -73,6 +73,8 @@ public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
     public let schema: Option<String>       // 可选字段描述（JSON 字符串；动态字段 → JsonValue/字符串载体）
     public let levels: ArrayList<String>    // 粒度链（结构物化层级 + 按粒度总结/回想档位）
     public let retention: Option<String>    // 可选保留期（如 "30d"）
+    public let autoSummarize: Bool          // 后台自动语义总结（默认 false，opt-in；§7.3）
+    public let summaryLevels: Option<ArrayList<String>>  // 自动总结粒度（缺省 = 最粗 2 档）
     public let createdAt: Int64
 }
 ```
@@ -89,11 +91,20 @@ public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
 - **week 为默认语义总结封顶**：周在年的尺度上已很小，一整年的周级摘要仅 ~52 条，加载成本低，且极少需要回忆整年；`month` 仅作长期归档的可选层，不默认。
 - **结构物化只按该类型声明的层级建桶**；`mem/recall` / `mem/summarize` 的 `granularity` 校验为「该类型已配置的粒度」，不在链上的粒度报错。
 
+### 5.2 自然时间窗口（日历对齐）
+
+**窗口按自然时间对齐，不是 epoch 锚定**（粒度落到墙上要遵循日历语义）：
+
+- **钟表对齐**：`10min / 30min / 1h / 3h` —— `ts - ts % windowMs`（epoch 锚定恰好 = 钟表对齐，:00/:10/:20…）。
+- **日历对齐**：`day` = **本地零点**；`week` = **周一起点**；`month` = **1 号零点**。时区由 `CHRONOLOG_TIMEZONE` 决定（默认本地时区；DST/大小月由日历计算正确处理）。
+- **桶 key** = 窗口起点按 UTC ISO 编码（`yyyy-MM-ddTHH:mm:ssZ`，与 tsdb.bucketKeyOf 同格式、可排序、对 tsdb 透明）；读写同用本套 `windowKeyOf` 生成，跨粒度一致。
+- **意义**：`day` 不再是 UTC 08:00 切、`week` 不再是周四起、`month` 不再是固定 30 天——工作日志「按天/按周」的日历语义成立。
+
 ## 6. MCP 工具集
 
 | 工具 | 作用 | 关键参数 |
 |---|---|---|
-| `mem/type_create` | 建类型（+ 自动建 `<type>.summary` series） | `name`(必填), `levels`?(粒度链，默认 §5.1), `description`?, `schema`?, `retention`? |
+| `mem/type_create` | 建类型（+ 自动建 `<type>.summary` series） | `name`(必填), `levels`?(粒度链，默认 §5.1), `description`?, `schema`?, `retention`?, `auto_summarize`?(默认false), `summary_levels`?(缺省=最粗2档) |
 | `mem/list_types` | 类型列表（name/description/count/updatedAt） | — |
 | `mem/type_info` | 单类型详情（meta + 条目数 + 各粒度物化桶数） | `name`(必填) |
 | `mem/append` | 追加一条原始条目 | `type`(必填), `payload`(对象,必填), `tags`?, `ts`?(缺省=now) |
@@ -149,10 +160,15 @@ public struct SummaryRecord <: JsonSerializable & JsonDeserializable<SummaryReco
 
 ### 7.3 触发策略（避免空转烧 token）
 
-- **手动为主**：`mem/summarize` 只在被调用时才烧 token——这是默认形态。
+- **手动为主**：`mem/summarize` 只在被调用时才烧 token——默认形态。
+- **后台自动总结（已落地）**：`SummarizeScheduler` 用 cron-cj 定时驱动（默认 `*/10 * * * *` 墙钟对齐），对 `auto_summarize=true` 的类型总结「最新已闭合且未总结」的**自然时间窗口**。成本护栏：
+  - **per-type opt-in**：`type_create` 传 `auto_summarize=true` 才参与（默认 false，未 opt-in 的类型零 LLM）；
+  - **目标粒度**：`summary_levels` 可配，缺省 = 粒度链最粗 2 档（如 day/week，呼应「总结到周」）；
+  - **窗口闭合 + 沉降**：只总结已结束且超过沉降期（默认 10min）的窗口，防漏窗口末尾条目；
+  - **幂等**：已覆盖摘要的窗口不重跑；
+  - **每轮上限**：`CHRONOLOG_SUMMARY_MAX_PER_RUN`（默认 5）次 LLM 调用/轮。
 - **语义回顾的懒计算**：`mem/recall mode=summary` 遇目标时段无摘要时，`summarize_on_miss=true` 会现算并落库（等同一次 `mem/summarize`，有 LLM 成本与写副作用）；`false`（默认）则提示「该时段尚无语义摘要，请先 summarize」。
-- **后台自动总结 = 后续**：可选「长时窗口自动语义总结」调度器（如每整点对上个 1h 窗口自动 summarize），受 token 预算约束；默认关闭，避免 liveboard 阶段即讨论的「空转烧 token」问题。
-- **结构物化 ≠ 语义总结**：后台每 60s 的**结构**物化（引用链 / 数值聚合）**零 LLM 成本**，照常自动跑；语义摘要不自动物化。
+- **结构物化 ≠ 语义总结**：结构物化（引用链/数值聚合）由 `MaterializeScheduler`（cron-cj，默认 `@every 1m`）自动跑，**零 LLM 成本**、幂等、空窗口零成本。
 
 ## 8. 分层物化（三种模式）
 
@@ -194,6 +210,11 @@ public struct SummaryRecord <: JsonSerializable & JsonDeserializable<SummaryReco
 |---|---|---|
 | `CHRONOLOG_DIR` | `~/.chronolog` | 存储根目录 |
 | `CHRONOLOG_PORT` | `8900` | HTTP 监听端口 |
+| `CHRONOLOG_TIMEZONE` | 本地时区 | 自然窗口时区（IANA id，如 `Asia/Shanghai`） |
+| `CHRONOLOG_MATERIALIZE_CRON` | `@every 1m` | 结构物化 cron |
+| `CHRONOLOG_SUMMARY_CRON` | `*/10 * * * *` | 自动语义总结 cron |
+| `CHRONOLOG_SUMMARY_MAX_PER_RUN` | `5` | 每轮自动总结次数上限 |
+| `CHRONOLOG_SUMMARY_SETTLE` | `600000`(10min) | 窗口闭合沉降期（毫秒） |
 | `LLM_BASE_URL` | 无（必填以启用 summarize） | OpenAI 兼容端点基址 |
 | `LLM_API_KEY` | 无 | API Key |
 | `LLM_MODEL` | 无 | 默认模型名 |

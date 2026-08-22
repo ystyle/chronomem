@@ -1,5 +1,6 @@
 package chronomem.core
 
+import cron.*
 import tsdb.*
 import std.collection.*
 
@@ -43,11 +44,11 @@ func timeline_materializeAndDrillDown() {
     tl.materialize(TEST_BASE, "测试")   // now = TEST_BASE 正好是 10min 窗口起点
 
     // 最细层 10min 桶下钻 → 原始 3 条
-    let tenKey = tl.bucketKeyOf(TEST_BASE, Timeline.windowMs("10min"))
+    let tenKey = tl.windowKeyOf(TEST_BASE, "10min")
     let ten = tl.drillDown("10min", tenKey)
     @Expect(ten.size, Int64(3))
     // 逐层上钻：1h 桶下钻 → 同一 3 条（经 30min 桶链）
-    let oneKey = tl.bucketKeyOf(TEST_BASE, Timeline.windowMs("1h"))
+    let oneKey = tl.windowKeyOf(TEST_BASE, "1h")
     let one = tl.drillDown("1h", oneKey)
     @Expect(one.size, Int64(3))
     // 桶摘要存在
@@ -67,7 +68,7 @@ func timeline_bucketAtFallsBackToEarlierBucket() {
     // 锚点在下一个 10min 窗口（未物化）→ 回退到 TEST_BASE 的桶
     let anchor = TEST_BASE + Timeline.windowMs("10min") + 1000
     match (tl.bucketAt("10min", anchor)) {
-        case Some(key) => @Expect(key, tl.bucketKeyOf(TEST_BASE, Timeline.windowMs("10min")))
+        case Some(key) => @Expect(key, tl.windowKeyOf(TEST_BASE, "10min"))
         case None => @Fail("bucketAt 应回退到更早桶")
     }
     store.close()
@@ -81,7 +82,7 @@ func timeline_listBuckets() {
     tl.materialize(TEST_BASE, "测试")
     let buckets = tl.listBuckets("10min", None, None)
     @Expect(buckets.size >= 1, true)
-    @Expect(buckets[0].bucketKey, tl.bucketKeyOf(TEST_BASE, Timeline.windowMs("10min")))
+    @Expect(buckets[0].bucketKey, tl.windowKeyOf(TEST_BASE, "10min"))
     store.close()
 }
 
@@ -115,4 +116,14 @@ func timeline_windowMsMapping() {
     @Expect(Timeline.windowMs("day"), Int64(86400000))
     @Expect(Timeline.windowMs("week"), Int64(604800000))
     @Expect(Timeline.windowMs("nope"), Int64(0))
+}
+
+@Test
+func timeline_addCronEntrySupportsEveryAndCron() {
+    let c = Cron()
+    // @every <duration> → ConstantDelaySchedule；标准 cron 表达式 → 墙钟
+    addCronEntry(c, "@every 1m", { => () })
+    addCronEntry(c, "*/5 * * * *", { => () })
+    @Expect(c.getEntries().size, Int64(2))
+    c.stop()
 }

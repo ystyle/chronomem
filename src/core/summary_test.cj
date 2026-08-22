@@ -6,7 +6,8 @@ import std.collection.*
 
 @Test
 func typeMeta_jsonRoundtrip() {
-    let m = TypeMeta("worklog", "desc", Some("{\"a\":\"s\"}"), dayWeekLevels(), Some("30d"), TEST_BASE)
+    let m = TypeMeta("worklog", "desc", Some("{\"a\":\"s\"}"), dayWeekLevels(), Some("30d"),
+        true, Some(dayWeekLevels()), TEST_BASE)
     let json = toJsonString(m)
     let back = fromJsonString<TypeMeta>(json)
     @Expect(back.name, "worklog")
@@ -20,15 +21,25 @@ func typeMeta_jsonRoundtrip() {
         case Some(r) => @Expect(r, "30d")
         case None => @Fail("retention 丢失")
     }
+    @Expect(back.autoSummarize, true)
+    match (back.summaryLevels) {
+        case Some(ls) => @Expect(ls.size, Int64(2))
+        case None => @Fail("summaryLevels 丢失")
+    }
     @Expect(back.createdAt, TEST_BASE)
 }
 
 @Test
 func typeMeta_jsonRoundtrip_nullableMissing() {
-    let m = TypeMeta("t", "", None, dayWeekLevels(), None, TEST_BASE)
+    let m = TypeMeta("t", "", None, dayWeekLevels(), None, false, None, TEST_BASE)
     let back = fromJsonString<TypeMeta>(toJsonString(m))
     @Expect(back.schema, None)
     @Expect(back.retention, None)
+    @Expect(back.autoSummarize, false)
+    match (back.summaryLevels) {
+        case None => ()
+        case Some(_) => @Fail("summaryLevels 应为 None")
+    }
 }
 
 @Test

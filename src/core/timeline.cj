@@ -1,31 +1,35 @@
 package chronomem.core
 
+import cron.*
 import tsdb.*
 import std.collection.*
-import std.core.{Duration, sleep}
 import std.time.*
 
 // 通用分层时间线：一个 tsdb series 的 append-only 时序记录 + 分层物化桶链。
 // 从 liveboard.core.Timeline 泛化：
 //  - 粒度链（levels）改为每 series 配置（design.md §5.1），非全局写死；
 //  - 不耦合 atelier.message（payload 一律字符串载体）；
-//  - 新增 listBuckets（mem/buckets 发现窗口用）。
+//  - 新增 listBuckets（mem/buckets 发现窗口用）；
+//  - **自然时间窗口（日历对齐，design.md §5.2）**：10min/30min/1h/3h 钟表对齐；
+//    day/week/month 按本地日历（日=本地零点、周=周一起点、月=1 号零点）对齐，非 epoch 锚定。
 // 数据归属 TimelineStore（共享同一 tsdb）；Timeline 是非持有句柄（close 走 store）。
 public class Timeline {
     private let tsdb: Tsdb
     private let series: String
     private let levels: ArrayList<String>
+    private let timeZone: TimeZone
 
-    public init(tsdb: Tsdb, series: String, levels: ArrayList<String>) {
+    public init(tsdb: Tsdb, series: String, levels: ArrayList<String>, timeZone: TimeZone) {
         this.tsdb = tsdb
         this.series = series
         this.levels = levels
+        this.timeZone = timeZone
     }
 
     public func seriesName(): String { this.series }
     public func levelsOf(): ArrayList<String> { this.levels }
 
-    // ---------- 静态：粒度集 / 校验 / 窗口 ----------
+    // ---------- 静态：粒度集 / 校验 / 名义窗口 ----------
 
     // 允许粒度集（§5.1）：10min/30min/1h/3h/day/week/month
     public static func allowedLevels(): ArrayList<String> {
@@ -51,6 +55,7 @@ public class Timeline {
         l
     }
 
+    // 名义窗口毫秒（钟表对齐粒度用精确值；day/week/month 为名义值，实际窗口按日历对齐计算）
     public static func windowMs(level: String): Int64 {
         match (level) {
             case "10min" => 10 * 60 * 1000
@@ -64,7 +69,7 @@ public class Timeline {
         }
     }
 
-    // 校验粒度链：全部在允许集内、严格升序（按窗口毫秒）、无重复、至少 1 档。非法抛异常。
+    // 校验粒度链：全部在允许集内、严格升序（按名义窗口毫秒）、无重复、至少 1 档。非法抛异常。
     public static func validateLevels(levels: ArrayList<String>): Unit {
         if (levels.size == 0) {
             throw Exception("levels 不能为空")
@@ -80,6 +85,103 @@ public class Timeline {
             }
             prev = w
         }
+    }
+
+    // 取粒度链最粗 n 档（自动语义总结目标粒度缺省值，§7.3）
+    public static func coarsestLevels(levels: ArrayList<String>, n: Int64): ArrayList<String> {
+        let out = ArrayList<String>()
+        var i = levels.size - 1
+        var taken = Int64(0)
+        while (i >= 0 && taken < n) {
+            out.add(levels[Int64(i)])
+            i -= 1
+            taken += 1
+        }
+        // 反转成升序
+        let sorted = ArrayList<String>()
+        var j = out.size - 1
+        while (j >= 0) {
+            sorted.add(out[Int64(j)])
+            j -= 1
+        }
+        sorted
+    }
+
+    // ---------- 自然时间窗口（日历对齐，§5.2） ----------
+
+    // ts 所在窗口的起点（毫秒）
+    public func windowStartOf(ts: Int64, level: String): Int64 {
+        let w = Timeline.windowMs(level)
+        if (w <= 0) {
+            throw Exception("非法粒度: " + level)
+        }
+        match (level) {
+            case "day" | "week" | "month" =>
+                this.calendarStartMs(this.dateTimeOf(ts), level)
+            case _ =>
+                ts - (ts % w)
+        }
+    }
+
+    // start 所在窗口的下一窗口起点（毫秒）；day/week/month 按日历计算（正确处理 DST/大小月）
+    public func nextWindowStartMs(start: Int64, level: String): Int64 {
+        let w = Timeline.windowMs(level)
+        if (w <= 0) {
+            throw Exception("非法粒度: " + level)
+        }
+        match (level) {
+            case "day" =>
+                this.dateTimeOf(start).addDays(1).toUnixTimeStamp().toMilliseconds()
+            case "week" =>
+                this.dateTimeOf(start).addDays(7).toUnixTimeStamp().toMilliseconds()
+            case "month" =>
+                this.dateTimeOf(start).addMonths(1).toUnixTimeStamp().toMilliseconds()
+            case _ =>
+                start + w
+        }
+    }
+
+    // 桶 key：窗口起点按 UTC ISO 编码（与 tsdb.bucketKeyOf 同格式，可排序、对 tsdb 透明）
+    public func windowKeyOf(ts: Int64, level: String): String {
+        this.formatUtcIso(this.windowStartOf(ts, level))
+    }
+
+    // 窗口 [start, end]（end = 下一窗口起点 - 1）
+    public func windowRangeOf(ts: Int64, level: String): (Int64, Int64) {
+        let start = this.windowStartOf(ts, level)
+        let end = this.nextWindowStartMs(start, level) - 1
+        (start, end)
+    }
+
+    private func dateTimeOf(ms: Int64): DateTime {
+        DateTime.ofEpoch(second: ms / 1000, nanosecond: (ms % 1000) * 1000000).inTimeZone(this.timeZone)
+    }
+
+    private func calendarStartMs(dt: DateTime, level: String): Int64 {
+        let (y, m, d) = dt.date
+        match (level) {
+            case "day" =>
+                DateTime.of(year: y, month: m, dayOfMonth: d, timeZone: this.timeZone)
+                    .toUnixTimeStamp().toMilliseconds()
+            case "week" =>
+                // 周一起点（ISO8601 习惯；周一=0 … 周日=6）
+                let offset = dayOfWeekOffset(dt.dayOfWeek)
+                let monday = dt.addDays(-offset)
+                let (my, mm, md) = monday.date
+                DateTime.of(year: my, month: mm, dayOfMonth: md, timeZone: this.timeZone)
+                    .toUnixTimeStamp().toMilliseconds()
+            case "month" =>
+                DateTime.of(year: y, month: m, dayOfMonth: 1, timeZone: this.timeZone)
+                    .toUnixTimeStamp().toMilliseconds()
+            case _ =>
+                DateTime.of(year: y, month: m, dayOfMonth: d, timeZone: this.timeZone)
+                    .toUnixTimeStamp().toMilliseconds()
+        }
+    }
+
+    private func formatUtcIso(ms: Int64): String {
+        let dt = DateTime.ofEpoch(second: ms / 1000, nanosecond: (ms % 1000) * 1000000).inUTC()
+        dt.format("yyyy-MM-dd") + "T" + dt.format("HH:mm:ss") + "Z"
     }
 
     // ---------- 写入 ----------
@@ -111,16 +213,16 @@ public class Timeline {
 
     // ---------- 分层物化（幂等覆盖，每层落盘不删下层） ----------
 
-    // 物化 now 所在时间窗口的分层桶链（按本 series 的 levels）：
+    // 物化 ts 所在时间窗口的分层桶链（按本 series 的 levels）：
     // 最细层（当前窗口内全部点 → PointRef）→ 逐层向上（当前窗口内已存在的下一层子桶 → BucketRef）。
     // 空窗口不建桶；label 用于桶摘要文案（如「对话」「工具调用」）。
-    public func materialize(now: Int64, label: String): Unit {
+    public func materialize(ts: Int64, label: String): Unit {
         let levels = this.levels
-        // 最细层：当前 10min 窗口内的所有点 → PointRef
-        let fWin = Timeline.windowMs(levels[0])
-        let fStart = now - (now % fWin)
-        let fKey = this.tsdb.bucketKeyOf(now, fWin)
-        let points = this.tsdb.query(this.series).range(fStart, fStart + fWin - 1).find()
+        // 最细层
+        let fStart = this.windowStartOf(ts, levels[0])
+        let fEnd = this.nextWindowStartMs(fStart, levels[0]) - 1
+        let fKey = this.windowKeyOf(ts, levels[0])
+        let points = this.tsdb.query(this.series).range(fStart, fEnd).find()
         if (points.size > 0) {
             let refs = ArrayList<Ref>()
             for (p in points) { refs.add(Ref.PointRef(this.series, p.ts)) }
@@ -131,17 +233,18 @@ public class Timeline {
         for (i in 1..levels.size) {
             let level = levels[i]
             let finer = levels[i - 1]
-            let win = Timeline.windowMs(level)
-            let start = now - (now % win)
-            let key = this.tsdb.bucketKeyOf(now, win)
+            let start = this.windowStartOf(ts, level)
+            let end = this.nextWindowStartMs(start, level) - 1
+            let key = this.windowKeyOf(ts, level)
             let refs = ArrayList<Ref>()
             var sub = start
-            while (sub < start + win) {
-                let subKey = this.tsdb.bucketKeyOf(sub, Timeline.windowMs(finer))
+            while (sub <= end) {
+                let subStart = this.windowStartOf(sub, finer)
+                let subKey = this.windowKeyOf(subStart, finer)
                 if (this.tsdb.bucketSummary(this.series, finer, subKey).isSome()) {
                     refs.add(Ref.BucketRef(this.series, finer, subKey))
                 }
-                sub += Timeline.windowMs(finer)
+                sub = this.nextWindowStartMs(subStart, finer)
             }
             if (refs.size > 0) {
                 this.tsdb.bucket(this.series, level, key,
@@ -183,16 +286,9 @@ public class Timeline {
         this.tsdb.listBuckets(this.series, granularity, from, to)
     }
 
-    // 窗口桶键（可排序 UTC 键；recall/物化用同一算法）
-    public func bucketKeyOf(ts: Int64, windowMs: Int64): String {
-        this.tsdb.bucketKeyOf(ts, windowMs)
-    }
-
     // 某粒度下「覆盖 anchor」的物化桶键；anchor 所在桶未物化时回退到最近的更早桶
     public func bucketAt(granularity: String, anchor: Int64): Option<String> {
-        let win = Timeline.windowMs(granularity)
-        if (win <= 0) { return None }
-        let key = this.tsdb.bucketKeyOf(anchor, win)
+        let key = this.windowKeyOf(anchor, granularity)
         if (this.tsdb.bucketSummary(this.series, granularity, key).isSome()) {
             return Some(key)
         }
@@ -203,67 +299,95 @@ public class Timeline {
     }
 }
 
+// DayOfWeek → 周一偏移（Mon=0, Tue=1, …, Sun=6）
+func dayOfWeekOffset(d: DayOfWeek): Int64 {
+    match (d) {
+        case DayOfWeek.Monday => 0
+        case DayOfWeek.Tuesday => 1
+        case DayOfWeek.Wednesday => 2
+        case DayOfWeek.Thursday => 3
+        case DayOfWeek.Friday => 4
+        case DayOfWeek.Saturday => 5
+        case DayOfWeek.Sunday => 6
+        case _ => 0
+    }
+}
+
 // 分层时间线共享容器：一个 tsdb 实例承载多个 series（<type> 与 <type>.summary）。
-// 每 series 带 label（物化桶摘要文案）与 levels（粒度链，§5.1）。
+// 每 series 带 label（物化桶摘要文案）、levels（粒度链，§5.1）与统一时区（自然窗口，§5.2）。
 // 注册的 series 由 MaterializeScheduler 统一分层物化（定时推进，不依赖事件发生）。
 public class TimelineStore {
     private let tsdb: Tsdb
+    private let timeZone: TimeZone
     private let seriesLabels = HashMap<String, String>()
     private let seriesLevels = HashMap<String, ArrayList<String>>()
 
-    public static func open(path: String): TimelineStore {
-        TimelineStore(Tsdb.open(path))
+    public static func open(path: String, timeZone!: TimeZone = TimeZone.Local): TimelineStore {
+        TimelineStore(Tsdb.open(path), timeZone)
     }
 
-    public static func openInMemory(): TimelineStore {
-        TimelineStore(Tsdb.openInMemory())
+    public static func openInMemory(timeZone!: TimeZone = TimeZone.Local): TimelineStore {
+        TimelineStore(Tsdb.openInMemory(), timeZone)
     }
 
-    private init(tsdb: Tsdb) {
+    private init(tsdb: Tsdb, timeZone: TimeZone) {
         this.tsdb = tsdb
+        this.timeZone = timeZone
     }
 
     public func close(): Unit { this.tsdb.close() }
     public func isClosed(): Bool { this.tsdb.isClosed() }
 
-    // 底层 tsdb（注册表等需要直接读写 __meta / count 用）
+    // 底层 tsdb（注册表等需要直接读写 meta / count 用）
     public func rawTsdb(): Tsdb { this.tsdb }
+
+    // 自然时间窗口时区（§5.2；调度器 cron 墙钟对齐用）
+    public func timeZoneOf(): TimeZone { this.timeZone }
 
     // 取某 series 的句柄（共享同一 tsdb；句柄不持有所有权，close 走 store）；
     // label 用于物化桶摘要文案；levels 为该 series 的粒度链。
     public func timeline(series: String, label: String, levels: ArrayList<String>): Timeline {
         this.seriesLabels[series] = label
         this.seriesLevels[series] = levels
-        Timeline(this.tsdb, series, levels)
+        Timeline(this.tsdb, series, levels, this.timeZone)
     }
 
     // 全部已注册 series 统一分层物化（MaterializeScheduler 每 60s 调用；幂等、空窗口零成本）
     public func materializeAll(now: Int64): Unit {
         for ((series, label) in this.seriesLabels) {
-            Timeline(this.tsdb, series, this.seriesLevels[series]).materialize(now, label)
+            Timeline(this.tsdb, series, this.seriesLevels[series], this.timeZone).materialize(now, label)
         }
     }
 }
 
-// 定时分层物化（后台线程）：每 60s 一次；幂等、空窗口零成本。
+// 定时分层物化（cron-cj 后台调度，默认 @every 1m）：幂等、空窗口零成本。
 // 只做结构物化（引用链桶），零 LLM 成本；语义摘要不自动物化（见 design.md §7.3）。
 public class MaterializeScheduler {
     private let store: TimelineStore
+    private var cron: Option<Cron> = None
 
     public init(store: TimelineStore) {
         this.store = store
     }
 
-    // 单次物化（定时循环与测试共用）
+    // 单次物化（cron 触发与测试共用）
     public func materializeNow(): Unit {
         this.store.materializeAll(nowMs())
     }
 
-    // 周期物化循环（后台线程运行）
-    public func run(): Unit {
-        while (true) {
-            sleep(Duration.minute)
-            this.materializeNow()
+    // 启动后台周期物化（cron 表达式或 @every <duration>，缺省 @every 1m；与结构物化时区对齐）
+    public func start(spec!: String = "@every 1m"): Unit {
+        let c = Cron()
+        c.setLocation(this.store.timeZoneOf())
+        addCronEntry(c, spec, { => this.materializeNow() })
+        c.start()
+        this.cron = Some(c)
+    }
+
+    public func stop(): Unit {
+        match (this.cron) {
+            case Some(c) => c.stop()
+            case None => ()
         }
     }
 }
@@ -271,4 +395,14 @@ public class MaterializeScheduler {
 // 当前时间戳（毫秒）
 public func nowMs(): Int64 {
     DateTime.now().toUnixTimeStamp().toMilliseconds()
+}
+
+// cron 任务注册辅助：支持 `@every <duration>`（→ ConstantDelaySchedule，间隔调度）
+// 与标准 cron 表达式（→ 墙钟调度）。cron-cj 的 addFunc 不解析 @every 描述符，需走 addSchedule。
+public func addCronEntry(c: Cron, spec: String, cmd: () -> Unit): Unit {
+    if (spec.startsWith("@every ")) {
+        c.addSchedule(Every(spec[7..]), FuncJob(cmd))
+    } else {
+        c.addFunc(spec, cmd)
+    }
 }

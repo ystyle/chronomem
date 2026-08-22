@@ -55,5 +55,8 @@ LLM_BASE_URL=... LLM_API_KEY=... LLM_MODEL=... \
 - **`Rune` 比较**：字符字面量在仓颉是 String，需 `UInt32(rune)` 转数值比较。
 - **`@Expect` 需 Equatable**：`Option<非Equatable>` 不能直接与 None 比较，用 match。
 - **默认参数**用 `name!: Type = default` 命名参数语法，调用须带 `name:` 前缀。
+- **`Duration(second, nanosecond)` 第二参是 `UInt32`**：`Duration(8*3600, 0)` 编译不过，用 `Duration.hour * 8` 或 `0u32`。
+- **自然窗口（§5.2）**：day/week/month 按日历对齐（`CHRONOLOG_TIMEZONE`），桶 key 用 `windowKeyOf`（非 tsdb.bucketKeyOf）；只有 10min/30min/1h/3h 才用 `ts % windowMs`。
+- **cron-cj 增量缓存损坏**：`cjpm build` 报 `DataModelException: This data is not DataModelSeq` 时 `cjpm clean` 可解（badgercj 同样出现过）。
 - **`--static` 仅对可执行文件生效**：库包会出现无害 warning（-Woff driver-arg 可压）。
 - **`-lstdx.crypto.digest`**：stdx.net.http 链接符号，chronomem [package] link-option 已带。
