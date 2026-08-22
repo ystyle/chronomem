@@ -12,6 +12,7 @@ repository = "https://git.mini.ystyle.top:2024/ystyle/chronomem.git"
 [dependencies]
 mcp = { path = "../mcp-cj" }
 tsdb = { path = "../tsdb-cj" }
+llm_api = { path = "../llm_api" }
 jsonvalue = "1.1.0"
 "ystyle::jsonrpc" = "0.7.1"
 
