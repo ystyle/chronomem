@@ -1,0 +1,26 @@
+[package]
+name = "chronomem"
+version = "0.1.0"
+cjc-version = "1.1.0"
+output-type = "static"
+compile-option = "-Woff unused"
+link-option = "-lstdx.crypto.digest"
+license = ["MIT"]
+authors = ["ystyle"]
+repository = "https://git.mini.ystyle.top:2024/ystyle/chronomem.git"
+
+[dependencies]
+mcp = { path = "../mcp-cj" }
+tsdb = { path = "../tsdb-cj" }
+jsonvalue = "1.1.0"
+"ystyle::jsonrpc" = "0.7.1"
+
+[package.package-configuration."chronomem.cli"]
+output-type = "executable"
+compile-option = "--static -Woff unused"
+
+[target.x86_64-unknown-linux-gnu.bin-dependencies]
+path-option = ["${CANGJIE_STDX_PATH}"]
+
+[target.x86_64-unknown-linux-gnu]
+link-option = "-luring"
