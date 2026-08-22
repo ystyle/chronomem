@@ -1,0 +1,490 @@
+package chronomem.mcp
+
+import chronomem.core.*
+import jsonvalue.*
+import mcp.*
+import std.collection.*
+import std.time.*
+import tsdb.*
+
+// ---------- 参数解析 / 结果辅助 ----------
+
+func argStr(args: HashMap<String, JsonValue>, name: String): String {
+    match (args.get(name)) {
+        case Some(JsonValue.String(s)) => s
+        case _ => ""
+    }
+}
+
+func argInt(args: HashMap<String, JsonValue>, name: String): Int64 {
+    match (args.get(name)) {
+        case Some(JsonValue.Number(n)) => Int64(n)
+        case _ => 0
+    }
+}
+
+func argBool(args: HashMap<String, JsonValue>, name: String, def: Bool): Bool {
+    match (args.get(name)) {
+        case Some(JsonValue.Boolean(b)) => b
+        case _ => def
+    }
+}
+
+func argLevels(args: HashMap<String, JsonValue>, name: String, def: ArrayList<String>): ArrayList<String> {
+    match (args.get(name)) {
+        case Some(JsonValue.Array(arr)) =>
+            let l = ArrayList<String>()
+            for (v in arr) {
+                match (v) {
+                    case JsonValue.String(s) => l.add(s)
+                    case _ => ()
+                }
+            }
+            if (l.size > 0) { l } else { def }
+        case _ => def
+    }
+}
+
+func argTags(args: HashMap<String, JsonValue>, name: String): HashMap<String, String> {
+    let out = HashMap<String, String>()
+    match (args.get(name)) {
+        case Some(JsonValue.Map(m)) =>
+            for ((k, v) in m) {
+                match (v) {
+                    case JsonValue.String(s) => out[k] = s
+                    case _ => ()
+                }
+            }
+        case _ => ()
+    }
+    out
+}
+
+// tag 参数：接受 "key=value" 字符串（返回 (key, value)）
+func argTagPair(args: HashMap<String, JsonValue>, name: String): Option<(String, String)> {
+    let s = argStr(args, name)
+    if (s == "") { return None }
+    match (s.indexOf("=")) {
+        case Some(i) => Some((s[0..i], s[i + 1..]))
+        case None => Some((s, ""))
+    }
+}
+
+func toolError(msg: String): CallToolResult {
+    let r = CallToolResult.text(msg)
+    r.isError = true
+    r
+}
+
+func levelsString(levels: ArrayList<String>): String {
+    let sb = StringBuilder()
+    var first = true
+    for (l in levels) {
+        if (!first) { sb.append(" → ") }
+        sb.append(l)
+        first = false
+    }
+    sb.toString()
+}
+
+func fmtTs(ts: Int64): String {
+    DateTime.ofEpoch(second: ts / 1000, nanosecond: (ts % 1000) * 1000000)
+        .inLocal().format("MM-dd HH:mm:ss")
+}
+
+func pointTags(p: Point): String {
+    if (p.tags == "{}" || p.tags == "") { return "" }
+    let sb = StringBuilder()
+    try {
+        let v = JsonValue.parse(p.tags)
+        match (v) {
+            case JsonValue.Map(m) =>
+                var first = true
+                for ((k, tv) in m) {
+                    if (!first) { sb.append(",") }
+                    sb.append(k + "=" + tv.toString())
+                    first = false
+                }
+            case _ => ()
+        }
+    } catch (_) {}
+    if (sb.toString() == "") { "" } else { " <" + sb.toString() + ">" }
+}
+
+func formatPoint(p: Point): String {
+    "[" + fmtTs(p.ts) + "] " + p.payload + pointTags(p)
+}
+
+func formatPoints(points: ArrayList<Point>): String {
+    let sb = StringBuilder()
+    for (p in points) {
+        sb.append(formatPoint(p))
+        sb.append("\n")
+    }
+    sb.toString()
+}
+
+// 类型必须存在；不存在返回 toolError
+func requireType(svc: MemoryService, name: String): Option<CallToolResult> {
+    if (name == "") { return Some(toolError("缺少参数 type")) }
+    if (!svc.registry.has(name)) { return Some(toolError("类型不存在: " + name + "（先 mem/type_create）")) }
+    None
+}
+
+// 校验粒度在该类型的 levels 内；不在返回 toolError
+func requireGranularity(svc: MemoryService, name: String, granularity: String): Option<CallToolResult> {
+    if (granularity == "") { return Some(toolError("缺少参数 granularity（10min/30min/1h/3h/day/week/month）")) }
+    let meta = svc.registry.get(name)
+    match (meta) {
+        case Some(m) => if (!m.levels.contains(granularity)) {
+            return Some(toolError("粒度 " + granularity + " 不在类型 " + name + " 的 levels 内: " + levelsString(m.levels)))
+        }
+        case None => ()
+    }
+    None
+}
+
+// ---------- 语义总结核心（mem/summarize 与 recall mode=summary 共用） ----------
+
+// 对 [winFrom, winTo] 窗口做语义总结；store=true 时落 <type>.summary，返回结果文本。
+func doSummarize(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64,
+    instructions: String, store: Bool): CallToolResult {
+    match (svc.summarizer) {
+        case None => return toolError("未配置 LLM（LLM_BASE_URL / LLM_API_KEY / LLM_MODEL）")
+        case Some(_) => ()
+    }
+    let tl = svc.registry.timelineOf(name).getOrThrow()
+    let points = tl.queryPoints(winFrom, winTo, 0, None)
+    if (points.size == 0) {
+        return CallToolResult.text("该窗口无条目，无需总结")
+    }
+    let entries = ArrayList<EntryText>()
+    for (p in points) { entries.add(EntryText(p.ts, p.payload)) }
+    let rec = svc.summarizer.getOrThrow().summarize(winFrom, winTo, entries, instructions)
+    if (store) {
+        let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
+        stl.append(rec.ts, toJsonString(rec), HashMap<String, String>())
+    }
+    let head = if (store) { "已生成总结 @" + fmtTs(rec.ts) + "（窗口 " + winFrom.toString() + "~" + winTo.toString() + "，模型 " + rec.model + "）\n" } else { "总结（未落库）:\n" }
+    CallToolResult.text(head + rec.text)
+}
+
+// 找覆盖 [winFrom, winTo] 的最新一条 SummaryRecord
+func latestOverlappingSummary(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64): Option<SummaryRecord> {
+    let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
+    let points = stl.queryPoints(0, 0, 50, None)
+    for (p in points) {
+        let rec = fromJsonString<SummaryRecord>(p.payload)
+        if (rec.windowFrom <= winTo && rec.windowTo >= winFrom) {
+            return Some(rec)
+        }
+    }
+    None
+}
+
+// CallToolResult → 纯文本（拼 Text 块）
+func resultText(r: CallToolResult): String {
+    let sb = StringBuilder()
+    for (c in r.content) {
+        match (c) {
+            case ContentBlock.Text(tc) => sb.append(tc.text)
+            case _ => ()
+        }
+    }
+    sb.toString()
+}
+
+// 窗口计算：显式 from/to 或 granularity+anchor；返回 (winFrom, winTo) 或 None（无法解析）
+func resolveWindow(svc: MemoryService, name: String, args: HashMap<String, JsonValue>): Option<(Int64, Int64)> {
+    let from = argInt(args, "from")
+    let to = argInt(args, "to")
+    if (from > 0 && to > 0) { return Some((from, to)) }
+    let granularity = argStr(args, "granularity")
+    if (granularity == "") { return None }
+    let gErr = requireGranularity(svc, name, granularity)
+    if (let Some(e) <- gErr) { return None }
+    let anchor = argInt(args, "windowStartMs")
+    let anchorFinal = if (anchor > 0) { anchor } else { nowMs() }
+    let w = Timeline.windowMs(granularity)
+    let winFrom = anchorFinal - (anchorFinal % w)
+    Some((winFrom, winFrom + w - 1))
+}
+
+// ---------- 工具 handler ----------
+
+public func handleTypeCreate(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
+    let name = argStr(args, "name")
+    if (name == "") { return toolError("缺少参数 name（类型名，如 worklog 或 proj/decisions）") }
+    let levels = argLevels(args, "levels", Timeline.defaultLevels())
+    let schema: Option<String> = match (args.get("schema")) {
+        case Some(v) =>
+            match (v) {
+                case JsonValue.String(s) => Some(s)
+                case _ => Some(v.stringify())
+            }
+        case None => None
+    }
+    let retention: Option<String> = if (argStr(args, "retention") == "") { None } else { Some(argStr(args, "retention")) }
+    let meta = TypeMeta(name, argStr(args, "description"), schema, levels, retention, nowMs())
+    try {
+        svc.registry.create(meta)
+    } catch (e: Exception) {
+        return toolError(e.toString())
+    }
+    CallToolResult.text("已创建类型 " + name + "（粒度 " + levelsString(levels) + "）")
+}
+
+public func handleListTypes(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
+    let types = svc.registry.list()
+    if (types.size == 0) {
+        return CallToolResult.text("（暂无记忆类型；用 mem/type_create 创建）")
+    }
+    let sb = StringBuilder()
+    for (m in types) {
+        sb.append("- " + m.name)
+        if (m.description != "") { sb.append(": " + m.description) }
+        sb.append("（条目 " + svc.registry.countEntries(m.name).toString() + "，粒度 " + levelsString(m.levels) + "）\n")
+    }
+    CallToolResult.text(sb.toString())
+}
+
+public func handleTypeInfo(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
+    let name = argStr(args, "name")
+    if (name == "") { return toolError("缺少参数 name") }
+    match (svc.registry.get(name)) {
+        case None => return toolError("类型不存在: " + name)
+        case Some(m) => ()
+    }
+    let sb = StringBuilder()
+    sb.append("类型: " + name + "\n")
+    sb.append("描述: " + svc.registry.get(name).getOrThrow().description + "\n")
+    sb.append("粒度链: " + levelsString(svc.registry.get(name).getOrThrow().levels) + "\n")
+    sb.append("条目数: " + svc.registry.countEntries(name).toString() + "\n")
+    let tl = svc.registry.timelineOf(name).getOrThrow()
+    for (l in svc.registry.get(name).getOrThrow().levels) {
+        sb.append(l + " 桶: " + tl.listBuckets(l, None, None).size.toString() + "\n")
+    }
+    CallToolResult.text(sb.toString())
+}
+
+public func handleAppend(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
+    let name = argStr(args, "type")
+    if (let Some(e) <- requireType(svc, name)) { return e }
+    match (args.get("payload")) {
+        case None => return toolError("缺少参数 payload（条目 JSON 对象）")
+        case Some(JsonValue.Null) => return toolError("缺少参数 payload（条目 JSON 对象）")
+        case Some(_) => ()
+    }
+    let payloadJson = args.get("payload").getOrThrow().stringify()
+    let ts = argInt(args, "ts")
+    let tsFinal = if (ts > 0) { ts } else { nowMs() }
+    let tags = argTags(args, "tags")
+    let tl = svc.registry.timelineOf(name).getOrThrow()
+    tl.append(tsFinal, payloadJson, tags)
+    CallToolResult.text("已追加 " + name + " @" + fmtTs(tsFinal))
+}
+
+public func handleQuery(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
+    let name = argStr(args, "type")
+    if (let Some(e) <- requireType(svc, name)) { return e }
+    let from = argInt(args, "from")
+    let to = argInt(args, "to")
+    let limit = argInt(args, "limit")
+    let tagFilter = argTagPair(args, "tag")
+    let tl = svc.registry.timelineOf(name).getOrThrow()
+    let points = tl.queryPoints(from, to, if (limit > 0) { limit } else { 20 }, tagFilter)
+    if (points.size == 0) { return CallToolResult.text("（无匹配条目）") }
+    CallToolResult.text(formatPoints(points))
+}
+
+public func handleRecall(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
+    let name = argStr(args, "type")
+    if (let Some(e) <- requireType(svc, name)) { return e }
+    let granularity = argStr(args, "granularity")
+    if (let Some(e) <- requireGranularity(svc, name, granularity)) { return e }
+    let mode = argStr(args, "mode")
+    let isSummary = mode == "summary"
+    let anchor = argInt(args, "windowStartMs")
+    let summarizeOnMiss = argBool(args, "summarize_on_miss", false)
+    let tl = svc.registry.timelineOf(name).getOrThrow()
+
+    // 目标窗口
+    let w = Timeline.windowMs(granularity)
+    let anchorFinal = if (anchor > 0) { anchor } else { nowMs() }
+    let winFrom = anchorFinal - (anchorFinal % w)
+    let winTo = winFrom + w - 1
+
+    if (isSummary) {
+        // 语义回顾：返回覆盖窗口的最新摘要；无摘要时按 summarize_on_miss 决定现算
+        match (latestOverlappingSummary(svc, name, winFrom, winTo)) {
+            case Some(rec) => return CallToolResult.text(rec.text)
+            case None => ()
+        }
+        if (summarizeOnMiss) {
+            return doSummarize(svc, name, winFrom, winTo, "", true)
+        }
+        return CallToolResult.text("该时段尚无语义摘要，请先 mem/summarize（或设 summarize_on_miss=true 现算）")
+    }
+    // 精确下钻（零 LLM）
+    match (tl.bucketAt(granularity, anchorFinal)) {
+        case Some(key) =>
+            let points = tl.drillDown(granularity, key)
+            if (points.size == 0) { return CallToolResult.text("该时间窗无记录") }
+            CallToolResult.text(formatPoints(points))
+        case None => CallToolResult.text("该粒度没有可用的物化桶（历史可能太短或未物化）")
+    }
+}
+
+public func handleBuckets(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
+    let name = argStr(args, "type")
+    if (let Some(e) <- requireType(svc, name)) { return e }
+    let granularity = argStr(args, "granularity")
+    if (let Some(e) <- requireGranularity(svc, name, granularity)) { return e }
+    let tl = svc.registry.timelineOf(name).getOrThrow()
+    let buckets = tl.listBuckets(granularity, None, None)
+    if (buckets.size == 0) { return CallToolResult.text("该粒度暂无物化桶") }
+    let sb = StringBuilder()
+    for (b in buckets) {
+        sb.append(b.bucketKey + " | " + b.summary + "\n")
+    }
+    CallToolResult.text(sb.toString())
+}
+
+public func handleSummarize(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
+    let name = argStr(args, "type")
+    if (let Some(e) <- requireType(svc, name)) { return e }
+    let instructions = argStr(args, "instructions")
+    let store = argBool(args, "store", true)
+    let from = argInt(args, "from")
+    let to = argInt(args, "to")
+    var winFrom = Int64(0)
+    var winTo = Int64(0)
+    if (from > 0 && to > 0) {
+        winFrom = from
+        winTo = to
+    } else {
+        let granularity = argStr(args, "granularity")
+        if (granularity == "") {
+            return toolError("需提供 from/to（显式窗口，任务阶段）或 granularity（按粒度窗口）")
+        }
+        if (let Some(e) <- requireGranularity(svc, name, granularity)) { return e }
+        let anchor = argInt(args, "windowStartMs")
+        let anchorFinal = if (anchor > 0) { anchor } else { nowMs() }
+        let w = Timeline.windowMs(granularity)
+        winFrom = anchorFinal - (anchorFinal % w)
+        winTo = winFrom + w - 1
+    }
+    let modelOverride = argStr(args, "model")
+    var r = doSummarize(svc, name, winFrom, winTo, instructions, store)
+    // model 覆盖：当前恒用配置模型；非配置模型暂不支持单次覆盖（见 design.md §7.1）
+    if (modelOverride != "" && svc.summarizer.isSome() && svc.summarizer.getOrThrow().modelName() != modelOverride) {
+        r = CallToolResult.text(resultText(r) + "\n（注：model=" + modelOverride + " 覆盖暂未生效，使用配置模型 " + svc.summarizer.getOrThrow().modelName() + "）")
+    }
+    r
+}
+
+public func handleSummaries(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
+    let name = argStr(args, "type")
+    if (let Some(e) <- requireType(svc, name)) { return e }
+    let from = argInt(args, "from")
+    let to = argInt(args, "to")
+    let limit = argInt(args, "limit")
+    let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
+    let points = stl.queryPoints(from, to, if (limit > 0) { limit } else { 10 }, None)
+    if (points.size == 0) { return CallToolResult.text("（暂无总结记录）") }
+    let sb = StringBuilder()
+    for (p in points) {
+        let rec = fromJsonString<SummaryRecord>(p.payload)
+        sb.append("[" + fmtTs(rec.ts) + " 窗口 " + rec.windowFrom.toString() + "~" + rec.windowTo.toString() + " " + rec.model + "]\n")
+        sb.append(rec.text + "\n\n")
+    }
+    CallToolResult.text(sb.toString())
+}
+
+// ---------- 工具注册 ----------
+
+func schemaBuilder(): ToolInputSchema {
+    ToolInputSchema("object", HashMap<String, JsonValue>(), [])
+}
+
+public func registerTools(server: McpServer, svc: MemoryService): Unit {
+    // mem/type_create
+    let s1 = schemaBuilder()
+    s1.addField("name", "string", "类型名（白名单 [A-Za-z0-9_/-]，如 worklog、proj/decisions）", required: true)
+    s1.addField("levels", "array", "粒度链（可选，默认 10min/30min/1h/day/week；低频类型可收敛到 day/week）")
+    s1.addField("description", "string", "类型描述")
+    s1.addField("schema", "string", "可选字段描述（JSON 字符串，仅作文档/LLM 提示，宽松模式不校验）")
+    s1.addField("retention", "string", "可选保留期（如 30d）")
+    let t1 = Tool("mem/type_create", "创建记忆类型（自动建 <type>.summary 总结 series）", s1)
+    server.addTool(t1, { params => handleTypeCreate(svc, params.arguments) })
+
+    // mem/list_types
+    let s2 = schemaBuilder()
+    let t2 = Tool("mem/list_types", "列出全部记忆类型（name/描述/条目数/粒度链）", s2)
+    server.addTool(t2, { params => handleListTypes(svc, params.arguments) })
+
+    // mem/type_info
+    let s3 = schemaBuilder()
+    s3.addField("name", "string", "类型名", required: true)
+    let t3 = Tool("mem/type_info", "单类型详情（meta + 条目数 + 各粒度物化桶数）", s3)
+    server.addTool(t3, { params => handleTypeInfo(svc, params.arguments) })
+
+    // mem/append
+    let s4 = schemaBuilder()
+    s4.addField("type", "string", "类型名", required: true)
+    s4.addField("payload", "object", "条目 JSON 对象", required: true)
+    s4.addField("tags", "object", "标签（string→string）")
+    s4.addField("ts", "integer", "时间戳毫秒（缺省=当前时间）")
+    let t4 = Tool("mem/append", "追加一条原始条目到记忆类型", s4)
+    server.addTool(t4, { params => handleAppend(svc, params.arguments) })
+
+    // mem/query
+    let s5 = schemaBuilder()
+    s5.addField("type", "string", "类型名", required: true)
+    s5.addField("from", "integer", "起始时间（毫秒，0=不限）")
+    s5.addField("to", "integer", "结束时间（毫秒，0=不限）")
+    s5.addField("limit", "integer", "条数（默认 20）")
+    s5.addField("tag", "string", "标签过滤 key=value")
+    let t5 = Tool("mem/query", "结构回想：最近/时间范围/tag 过滤原始条目（零 LLM）", s5)
+    server.addTool(t5, { params => handleQuery(svc, params.arguments) })
+
+    // mem/recall
+    let s6 = schemaBuilder()
+    s6.addField("type", "string", "类型名", required: true)
+    s6.addField("granularity", "string", "粒度（须在类型 levels 内）", required: true)
+    s6.addField("windowStartMs", "integer", "锚点毫秒时间戳（缺省=当前时间）")
+    s6.addField("mode", "string", "exact=下钻原始（零 LLM）/ summary=语义回顾")
+    s6.addField("summarize_on_miss", "boolean", "summary 模式无摘要时是否现算落库（默认 false）")
+    let t6 = Tool("mem/recall", "回想：mode=exact 沿物化桶下钻原始条目（零 LLM）；mode=summary 返回时段语义摘要", s6)
+    server.addTool(t6, { params => handleRecall(svc, params.arguments) })
+
+    // mem/buckets
+    let s7 = schemaBuilder()
+    s7.addField("type", "string", "类型名", required: true)
+    s7.addField("granularity", "string", "粒度（须在类型 levels 内）", required: true)
+    let t7 = Tool("mem/buckets", "列出某粒度的物化桶（发现可用窗口 + 桶摘要）", s7)
+    server.addTool(t7, { params => handleBuckets(svc, params.arguments) })
+
+    // mem/summarize
+    let s8 = schemaBuilder()
+    s8.addField("type", "string", "类型名", required: true)
+    s8.addField("from", "integer", "窗口起始（毫秒）")
+    s8.addField("to", "integer", "窗口结束（毫秒）")
+    s8.addField("granularity", "string", "按粒度窗口（须在类型 levels 内；与 from/to 二选一）")
+    s8.addField("windowStartMs", "integer", "granularity 模式的锚点（缺省=当前时间）")
+    s8.addField("instructions", "string", "额外总结要求")
+    s8.addField("model", "string", "模型覆盖（当前用配置模型）")
+    s8.addField("recompute", "boolean", "强制基于原始条目重算（当前恒为原始基）")
+    s8.addField("store", "boolean", "是否落库为总结记录（默认 true）")
+    let t8 = Tool("mem/summarize", "语义总结：窗口条目 → LLM 结构化摘要（决策/结论/待办/状态变更）→ 落 <type>.summary", s8)
+    server.addTool(t8, { params => handleSummarize(svc, params.arguments) })
+
+    // mem/summaries
+    let s9 = schemaBuilder()
+    s9.addField("type", "string", "类型名", required: true)
+    s9.addField("from", "integer", "起始时间（毫秒，0=不限）")
+    s9.addField("to", "integer", "结束时间（毫秒，0=不限）")
+    s9.addField("limit", "integer", "条数（默认 10）")
+    let t9 = Tool("mem/summaries", "查某类型的语义总结记录（最新在前）", s9)
+    server.addTool(t9, { params => handleSummaries(svc, params.arguments) })
+}

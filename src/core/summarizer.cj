@@ -58,16 +58,22 @@ public class Summarizer {
     }
 
     // 总结窗口：entries（ts + 文本）→ 结构化摘要 → SummaryRecord（refs = 条目 ts）
+    // model 可选覆盖（缺省用配置模型）
     public func summarize(windowFrom: Int64, windowTo: Int64,
-        entries: ArrayList<EntryText>, instructions: String): SummaryRecord {
+        entries: ArrayList<EntryText>, instructions: String,
+        model!: Option<String> = None): SummaryRecord {
+        let useModel = match (model) {
+            case Some(m) => m
+            case None => this.model
+        }
         let prompt = buildPrompt(windowFrom, windowTo, entries, instructions)
         let msgs = ArrayList<Message>()
         msgs.add(UserMessage(ContentList.ofText(prompt), nowMs()))
-        let req = ChatRequest(this.model, msgs, 0.2, 2000, None, ArrayList<OpenAITool>())
+        let req = ChatRequest(useModel, msgs, 0.2, 2000, None, ArrayList<OpenAITool>())
         let resp = this.provider.chat(req)
         let refs = ArrayList<Int64>()
         for (e in entries) { refs.add(e.ts) }
-        SummaryRecord(nowMs(), windowFrom, windowTo, this.model, refs, instructions, messageText(resp.message))
+        SummaryRecord(nowMs(), windowFrom, windowTo, useModel, refs, instructions, messageText(resp.message))
     }
 }
 

@@ -8,14 +8,15 @@ import stdx.net.http.*
 // 忆时塔入口：`chronomem.cli serve` —— 常驻 streamable HTTP MCP 守护进程。
 main() {
     let cfg = ChronomemConfig.fromEnv()
+    let svc = MemoryService.open(cfg)
     let httpServer = ServerBuilder()
         .addr("127.0.0.1")
         .port(cfg.port)
         .build()
     let transport = SessionHttpServerTransport()
     transport.registerRoutes(httpServer.distributor)
-    let mcpServer = buildServer(transport, cfg)
+    let mcpServer = buildServer(transport, svc)
     mcpServer.start()
-    println("忆时塔 chronomem 监听 http://127.0.0.1:" + cfg.port.toString())
+    println("忆时塔 chronomem 监听 http://127.0.0.1:" + cfg.port.toString() + "（存储 " + cfg.dir + "）")
     httpServer.serve()
 }

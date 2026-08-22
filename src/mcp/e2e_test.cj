@@ -13,7 +13,7 @@ class PortHolder {
     var value: UInt16 = 0
 }
 
-// Phase 0 连通性 e2e：起 streamable HTTP server → MCP client 连接 → tools/list 拿到 mem/ping。
+// Phase 0 连通性 e2e：起 streamable HTTP server → MCP client 连接 → tools/list → type_create 往返。
 @Test
 func chronomem_e2e_connectAndListTools() {
     let portLock = Mutex()
@@ -33,8 +33,8 @@ func chronomem_e2e_connectAndListTools() {
 
     let transport = SessionHttpServerTransport()
     transport.registerRoutes(httpServer.distributor)
-    let cfg = ChronomemConfig("/tmp/chronomem_e2e", UInt16(8900), "", "", "", "openai")
-    let mcpServer = buildServer(transport, cfg)
+    let svc = MemoryService.openInMemory()
+    let mcpServer = buildServer(transport, svc)
     mcpServer.start()
     spawn { => httpServer.serve() }
 
@@ -50,17 +50,27 @@ func chronomem_e2e_connectAndListTools() {
         case Result.Ok(initResult) => @Expect(initResult.serverInfo.name, "chronomem")
         case Result.Err(e) => @Fail("connect 失败: " + e.toString())
     }
+    // tools/list：真实工具集已注册
     match (client.listTools()) {
         case Result.Ok(result) =>
-            var found = false
+            var foundCreate = false
+            var foundRecall = false
+            var foundSummarize = false
             for (t in result.tools) {
-                if (t.name == "mem/ping") { found = true }
+                if (t.name == "mem/type_create") { foundCreate = true }
+                if (t.name == "mem/recall") { foundRecall = true }
+                if (t.name == "mem/summarize") { foundSummarize = true }
             }
-            @Expect(found, true)
+            @Expect(foundCreate, true)
+            @Expect(foundRecall, true)
+            @Expect(foundSummarize, true)
         case Result.Err(e) => @Fail("listTools 失败: " + e.toString())
     }
-    // 顺手验证 mem/ping 可调用
-    match (client.callTool("mem/ping", arguments: HashMap<String, JsonValue>())) {
+    // type_create → list_types 往返
+    let createArgs = HashMap<String, JsonValue>()
+    createArgs.add("name", JsonValue.String("e2e/worklog"))
+    createArgs.add("levels", JsonValue.parse("[\"day\",\"week\"]"))
+    match (client.callTool("mem/type_create", arguments: createArgs)) {
         case Result.Ok(result) =>
             var text = ""
             for (c in result.content) {
@@ -69,8 +79,20 @@ func chronomem_e2e_connectAndListTools() {
                     case _ => ()
                 }
             }
-            @Expect(text, "pong")
-        case Result.Err(e) => @Fail("callTool(mem/ping) 失败: " + e.toString())
+            @Expect(text.indexOf("已创建") != None, true)
+        case Result.Err(e) => @Fail("type_create 失败: " + e.toString())
+    }
+    match (client.callTool("mem/list_types", arguments: HashMap<String, JsonValue>())) {
+        case Result.Ok(result) =>
+            var text = ""
+            for (c in result.content) {
+                match (c) {
+                    case ContentBlock.Text(tc) => text = tc.text
+                    case _ => ()
+                }
+            }
+            @Expect(text.indexOf("e2e/worklog") != None, true)
+        case Result.Err(e) => @Fail("list_types 失败: " + e.toString())
     }
 
     client.close()
