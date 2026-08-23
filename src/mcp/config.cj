@@ -4,10 +4,12 @@ import std.env.*
 import std.fs.*
 import std.convert.*
 
-// 忆时塔配置：环境变量解析（CHRONOLOG_DIR / CHRONOLOG_PORT / LLM_*）。
-// 默认值：目录 ~/.chronolog，端口 8900，LLM 走 OpenAI 兼容端点（LLM_PROVIDER=openai/anthropic/ollama）。
+// 忆时塔配置：环境变量解析（CHRONOLOG_DIR / CHRONOLOG_ADDR / CHRONOLOG_PORT / LLM_*）。
+// 默认值：目录 ~/.chronolog，绑定 127.0.0.1（本地安全；容器/远程需 CHRONOLOG_ADDR=0.0.0.0），端口 8900，
+// LLM 走 OpenAI 兼容端点（LLM_PROVIDER=openai/anthropic/ollama）。
 public class ChronomemConfig {
     public let dir: String
+    public let addr: String
     public let port: UInt16
     public let llmBaseUrl: String
     public let llmApiKey: String
@@ -19,11 +21,12 @@ public class ChronomemConfig {
     public let summaryMaxPerRun: Int64
     public let summarySettleMs: Int64
 
-    public init(dir: String, port: UInt16, llmBaseUrl: String,
+    public init(dir: String, addr: String, port: UInt16, llmBaseUrl: String,
         llmApiKey: String, llmModel: String, llmProvider: String,
         timeZoneId: String, materializeCron: String, summaryCron: String,
         summaryMaxPerRun: Int64, summarySettleMs: Int64) {
         this.dir = dir
+        this.addr = addr
         this.port = port
         this.llmBaseUrl = llmBaseUrl
         this.llmApiKey = llmApiKey
@@ -45,7 +48,9 @@ public class ChronomemConfig {
             case None => ()
         }
         ChronomemConfig(
-            dir, port,
+            dir,
+            envOr("CHRONOLOG_ADDR", "127.0.0.1"),
+            port,
             envOr("LLM_BASE_URL", ""),
             envOr("LLM_API_KEY", ""),
             envOr("LLM_MODEL", ""),

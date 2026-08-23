@@ -1,0 +1,10 @@
+# 构建上下文最小化：只打包 chronomem.cli
+.git
+.gitignore
+docs
+*.md
+node_modules
+target
+!target/release/
+!target/release/bin/
+!target/release/bin/chronomem.cli

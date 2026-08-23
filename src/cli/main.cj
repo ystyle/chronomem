@@ -19,13 +19,13 @@ main() {
         sumScheduler.start(spec: cfg.summaryCron)
     }
     let httpServer = ServerBuilder()
-        .addr("127.0.0.1")
+        .addr(cfg.addr)
         .port(cfg.port)
         .build()
     let transport = SessionHttpServerTransport()
     transport.registerRoutes(httpServer.distributor)
     let mcpServer = buildServer(transport, svc)
     mcpServer.start()
-    println("忆时塔 chronomem 监听 http://127.0.0.1:" + cfg.port.toString() + "（存储 " + cfg.dir + "）")
+    println("忆时塔 chronomem 监听 http://" + cfg.addr + ":" + cfg.port.toString() + "（存储 " + cfg.dir + "）")
     httpServer.serve()
 }

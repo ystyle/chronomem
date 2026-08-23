@@ -209,6 +209,7 @@ public struct SummaryRecord <: JsonSerializable & JsonDeserializable<SummaryReco
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `CHRONOLOG_DIR` | `~/.chronolog` | 存储根目录 |
+| `CHRONOLOG_ADDR` | `127.0.0.1` | 绑定地址（本地安全；容器/远程用 `0.0.0.0`） |
 | `CHRONOLOG_PORT` | `8900` | HTTP 监听端口 |
 | `CHRONOLOG_TIMEZONE` | 本地时区 | 自然窗口时区（IANA id，如 `Asia/Shanghai`） |
 | `CHRONOLOG_MATERIALIZE_CRON` | `@every 1m` | 结构物化 cron |
