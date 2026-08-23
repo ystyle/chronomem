@@ -69,7 +69,8 @@ public class Summarizer {
         let prompt = buildPrompt(windowFrom, windowTo, entries, instructions)
         let msgs = ArrayList<Message>()
         msgs.add(UserMessage(ContentList.ofText(prompt), nowMs()))
-        let req = ChatRequest(useModel, msgs, 0.2, 2000, None, ArrayList<OpenAITool>())
+        // maxTokens 32768：兼容推理模型（reasoning_content 思考过程 + 正文摘要都留足预算）
+        let req = ChatRequest(useModel, msgs, 0.2, 32768, None, ArrayList<OpenAITool>())
         let resp = this.provider.chat(req)
         let refs = ArrayList<Int64>()
         for (e in entries) { refs.add(e.ts) }
