@@ -20,11 +20,12 @@ public class ChronomemConfig {
     public let summaryCron: String
     public let summaryMaxPerRun: Int64
     public let summarySettleMs: Int64
+    public let seedWorklog: Bool
 
     public init(dir: String, addr: String, port: UInt16, llmBaseUrl: String,
         llmApiKey: String, llmModel: String, llmProvider: String,
         timeZoneId: String, materializeCron: String, summaryCron: String,
-        summaryMaxPerRun: Int64, summarySettleMs: Int64) {
+        summaryMaxPerRun: Int64, summarySettleMs: Int64, seedWorklog: Bool) {
         this.dir = dir
         this.addr = addr
         this.port = port
@@ -37,6 +38,7 @@ public class ChronomemConfig {
         this.summaryCron = summaryCron
         this.summaryMaxPerRun = summaryMaxPerRun
         this.summarySettleMs = summarySettleMs
+        this.seedWorklog = seedWorklog
     }
 
     // 从进程环境变量构造（测试可通过 setVariable/removeVariable 控制）
@@ -59,7 +61,8 @@ public class ChronomemConfig {
             envOr("CHRONOLOG_MATERIALIZE_CRON", "@every 1m"),
             envOr("CHRONOLOG_SUMMARY_CRON", "*/10 * * * *"),
             envIntOr("CHRONOLOG_SUMMARY_MAX_PER_RUN", 5),
-            envIntOr("CHRONOLOG_SUMMARY_SETTLE", 600000))
+            envIntOr("CHRONOLOG_SUMMARY_SETTLE", 600000),
+            envBoolOr("CHRONOLOG_SEED_WORKLOG", true))
     }
 
     // 语义总结可用性：未配置 baseURL/model 时 summarize 应报错（其余工具不依赖 LLM）
@@ -72,6 +75,16 @@ func envIntOr(name: String, fallback: Int64): Int64 {
     match (getVariable(name)) {
         case Some(v) =>
             if (v == "") { fallback } else { try { Int64.parse(v) } catch (_) { fallback } }
+        case None => fallback
+    }
+}
+
+func envBoolOr(name: String, fallback: Bool): Bool {
+    match (getVariable(name)) {
+        case Some(v) =>
+            if (v == "true" || v == "1" || v == "yes") { true }
+            else if (v == "false" || v == "0" || v == "no") { false }
+            else { fallback }
         case None => fallback
     }
 }

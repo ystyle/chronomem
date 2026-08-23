@@ -60,6 +60,7 @@ CHRONOLOG_DIR（默认 ~/.chronolog/）
 `type` = 一个 tsdb series + 可选描述 + 可选 schema + 可选保留期 + **自定义粒度链（levels）**。
 
 - **宽松模式**：`mem/append` 接受任意 JSON payload + tags，**不做字段强校验**；schema 仅作文档 / LLM 提示，供客户端或 LLM 生成符合预期的 payload。
+- **开箱即用默认类型**：服务启动自动播种 `worklog`（`levels: [day, week]` + `auto_summarize: true` + 建议 schema，见工作区 AGENTS.md 约定），`CHRONOLOG_SEED_WORKLOG=false` 可关；幂等不覆盖已存在类型。
 - **命名**：白名单 `[A-Za-z0-9_/-]`，建议 `namespace/name`（如 `work/chat`、`proj/decisions`），多工具逻辑隔离；禁止 `..` 与绝对路径（防路径穿越，与 liveboard 同约定）。
 - **保留期**：可选（如 `30d`），走 `tsdb.setRetention` + `clean()`；不设默认淘汰，MVP 全量保留，淘汰策略后续再设计。
 - **粒度链（levels）**：自定义物化层级与按粒度总结/回想的档位，见 §5.1。
@@ -216,6 +217,7 @@ public struct SummaryRecord <: JsonSerializable & JsonDeserializable<SummaryReco
 | `CHRONOLOG_SUMMARY_CRON` | `*/10 * * * *` | 自动语义总结 cron |
 | `CHRONOLOG_SUMMARY_MAX_PER_RUN` | `5` | 每轮自动总结次数上限 |
 | `CHRONOLOG_SUMMARY_SETTLE` | `600000`(10min) | 窗口闭合沉降期（毫秒） |
+| `CHRONOLOG_SEED_WORKLOG` | `true` | 启动自动播种默认 `worklog` 类型（幂等，可关） |
 | `LLM_BASE_URL` | 无（必填以启用 summarize） | OpenAI 兼容端点基址 |
 | `LLM_API_KEY` | 无 | API Key |
 | `LLM_MODEL` | 无 | 默认模型名 |

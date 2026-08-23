@@ -1,6 +1,7 @@
 package chronomem.mcp
 
 import chronomem.core.*
+import std.collection.*
 import std.fs.*
 import std.time.TimeZone
 
@@ -28,6 +29,10 @@ public class MemoryService {
         // syncWrites: true —— 记忆服务写低频，同步落盘换「进程被 SIGTERM/SIGKILL 也不丢数据」
         let store = TimelineStore.open(tsdbDir, timeZone: tz, syncWrites: true)
         let registry = MemoryTypeRegistry(store)
+        // 开箱即用：默认播种 worklog 类型（幂等；CHRONOLOG_SEED_WORKLOG=false 可关）
+        if (cfg.seedWorklog) {
+            seedWorklog(registry)
+        }
         let summarizer = Summarizer.fromSettings(
             LlmSettings(cfg.llmBaseUrl, cfg.llmApiKey, cfg.llmModel, cfg.llmProvider))
         MemoryService(store, registry, summarizer)
@@ -51,4 +56,19 @@ func resolveTimeZone(id: String): TimeZone {
     } catch (_) {
         TimeZone.Local
     }
+}
+
+// 开箱即用默认类型：worklog 工作日志（levels [day,week] + auto_summarize + 建议 schema）。
+// 幂等：已存在则跳过。任务阶段/任务完成时追加一条 + 总结，见工作区 AGENTS.md 约定。
+func seedWorklog(registry: MemoryTypeRegistry): Unit {
+    if (registry.has("worklog")) { return }
+    let levels = ArrayList<String>()
+    levels.add("day")
+    levels.add("week")
+    let meta = TypeMeta(
+        "worklog",
+        "工作日志（默认类型）：任务阶段/任务完成时追加一条工作日志，随任务窗口总结",
+        Some("{\"payload\":{\"task\":\"string\",\"status\":\"string\",\"outcome\":\"string\",\"decisions\":\"string\",\"next\":\"string\"},\"tags\":{\"proj\":\"string\",\"branch\":\"string\"}}"),
+        levels, None, true, None, nowMs())
+    registry.create(meta)
 }

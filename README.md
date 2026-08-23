@@ -17,6 +17,7 @@
 ## 特性
 
 - ✅ 自定义记忆类型（宽松 schema，任意 JSON + tags）
+- ✅ **开箱即用默认 `worklog` 类型**（启动自动播种，`CHRONOLOG_SEED_WORKLOG` 可关）
 - ✅ 每类型自定义**粒度链 levels**（10min/30min/1h/3h/day/week/month 子集）
 - ✅ **自然时间窗口（日历对齐）**：day=本地零点、week=周一起点、month=1 号零点（`CHRONOLOG_TIMEZONE`），非 epoch 锚定
 - ✅ 结构回想：最近/时间范围/tag 过滤 + 物化桶**精确下钻**（零 LLM）
@@ -48,6 +49,7 @@ LLM_BASE_URL=... LLM_API_KEY=... LLM_MODEL=... \
 | `CHRONOLOG_SUMMARY_CRON` | `*/10 * * * *` | 自动语义总结 cron |
 | `CHRONOLOG_SUMMARY_MAX_PER_RUN` | `5` | 每轮自动总结次数上限 |
 | `CHRONOLOG_SUMMARY_SETTLE` | `600000` | 窗口闭合沉降期（毫秒） |
+| `CHRONOLOG_SEED_WORKLOG` | `true` | 启动自动创建默认 `worklog` 类型（可关） |
 | `LLM_BASE_URL` | 无 | OpenAI 兼容端点（仅 summarize 需要） |
 | `LLM_API_KEY` | 无 | API Key |
 | `LLM_MODEL` | 无 | 默认模型 |
@@ -109,12 +111,13 @@ npx @modelcontextprotocol/inspector --url http://127.0.0.1:8900
 
 ## 示例：工作日志
 
-```text
-mem/type_create { name: "worklog", levels: ["day", "week"], auto_summarize: true, description: "工作日志" }
-# 干活时随手记（可能一天 1 条，也可能一小时好几条）
-mem/append { type: "worklog", payload: { "task": "拆分忆时塔设计", "detail": "..." }, tags: { "proj": "chronomem" } }
+> `worklog` 类型**开箱即用**：服务启动时自动创建（`levels: [day, week]` + `auto_summarize: true`），无需手动建类型。
 
-# 后台自动总结：day/week 窗口闭合后自动长摘要（opt-in 类型，默认 */10 * * * * 检查）
+```text
+# 干活时随手记（可能一天 1 条，也可能一小时好几条）
+mem/append { type: "worklog", payload: { "task": "拆分忆时塔设计", "status": "完成", "outcome": "..." }, tags: { "proj": "chronomem" } }
+
+# 后台自动总结：day/week 窗口闭合后自动长摘要（默认 */10 * * * * 检查）
 # 任务阶段结束 → 按阶段手动总结（不规则窗口）
 mem/summarize { type: "worklog", from: <任务开始>, to: <任务结束>, instructions: "提炼本次任务的决策与待办" }
 
