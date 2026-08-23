@@ -4,7 +4,7 @@ version = 0
   "ystyle::crc" = {version = "1.0.0"}
   badgercj = {version = "1.6.6"}
   gjson = {version = "1.2.1"}
+  jsonvalue = {version = "1.1.0"}
+  "ystyle::jsonrpc" = {version = "0.7.1"}
   sonyflake = {version = "1.0.9"}
   snappy = {version = "1.0.1"}
-  "ystyle::jsonrpc" = {version = "0.7.1"}
-  jsonvalue = {version = "1.1.0"}

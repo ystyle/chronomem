@@ -102,7 +102,12 @@ func pointTags(p: Point): String {
                 var first = true
                 for ((k, tv) in m) {
                     if (!first) { sb.append(",") }
-                    sb.append(k + "=" + tv.toString())
+                    // 字符串值取 asString（toString 是 JsonValue 内部表示）；其它值 stringify
+                    let vs = match (tv) {
+                        case JsonValue.String(s) => s
+                        case _ => tv.stringify()
+                    }
+                    sb.append(k + "=" + vs)
                     first = false
                 }
             case _ => ()
