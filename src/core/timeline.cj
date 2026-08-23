@@ -322,8 +322,10 @@ public class TimelineStore {
     private let seriesLabels = HashMap<String, String>()
     private let seriesLevels = HashMap<String, ArrayList<String>>()
 
-    public static func open(path: String, timeZone!: TimeZone = TimeZone.Local): TimelineStore {
-        TimelineStore(Tsdb.open(path), timeZone)
+    // syncWrites=true：每次 append 同步落盘（badger fsync），容器/进程被 SIGTERM/SIGKILL 也不丢数据
+    public static func open(path: String, timeZone!: TimeZone = TimeZone.Local,
+        syncWrites!: Bool = false): TimelineStore {
+        TimelineStore(Tsdb.open(path, syncWrites: syncWrites), timeZone)
     }
 
     public static func openInMemory(timeZone!: TimeZone = TimeZone.Local): TimelineStore {

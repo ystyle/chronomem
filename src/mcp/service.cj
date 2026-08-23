@@ -25,7 +25,8 @@ public class MemoryService {
             Directory.create(Path(tsdbDir), recursive: true)
         }
         let tz = resolveTimeZone(cfg.timeZoneId)
-        let store = TimelineStore.open(tsdbDir, timeZone: tz)
+        // syncWrites: true —— 记忆服务写低频，同步落盘换「进程被 SIGTERM/SIGKILL 也不丢数据」
+        let store = TimelineStore.open(tsdbDir, timeZone: tz, syncWrites: true)
         let registry = MemoryTypeRegistry(store)
         let summarizer = Summarizer.fromSettings(
             LlmSettings(cfg.llmBaseUrl, cfg.llmApiKey, cfg.llmModel, cfg.llmProvider))
