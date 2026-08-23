@@ -87,9 +87,10 @@ func levelsString(levels: ArrayList<String>): String {
     sb.toString()
 }
 
-func fmtTs(ts: Int64): String {
+// 时间戳格式化（按自然窗口时区，而非进程本地——容器内进程本地是 UTC）
+func fmtTs(ts: Int64, tz: TimeZone): String {
     DateTime.ofEpoch(second: ts / 1000, nanosecond: (ts % 1000) * 1000000)
-        .inLocal().format("MM-dd HH:mm:ss")
+        .inTimeZone(tz).format("MM-dd HH:mm:ss")
 }
 
 func pointTags(p: Point): String {
@@ -116,14 +117,14 @@ func pointTags(p: Point): String {
     if (sb.toString() == "") { "" } else { " <" + sb.toString() + ">" }
 }
 
-func formatPoint(p: Point): String {
-    "[" + fmtTs(p.ts) + "] " + p.payload + pointTags(p)
+func formatPoint(p: Point, tz: TimeZone): String {
+    "[" + fmtTs(p.ts, tz) + "] " + p.payload + pointTags(p)
 }
 
-func formatPoints(points: ArrayList<Point>): String {
+func formatPoints(points: ArrayList<Point>, tz: TimeZone): String {
     let sb = StringBuilder()
     for (p in points) {
-        sb.append(formatPoint(p))
+        sb.append(formatPoint(p, tz))
         sb.append("\n")
     }
     sb.toString()
@@ -170,7 +171,7 @@ func doSummarize(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64,
         let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
         stl.append(rec.ts, toJsonString(rec), HashMap<String, String>())
     }
-    let head = if (store) { "已生成总结 @" + fmtTs(rec.ts) + "（窗口 " + winFrom.toString() + "~" + winTo.toString() + "，模型 " + rec.model + "）\n" } else { "总结（未落库）:\n" }
+    let head = if (store) { "已生成总结 @" + fmtTs(rec.ts, svc.store.timeZoneOf()) + "（窗口 " + winFrom.toString() + "~" + winTo.toString() + "，模型 " + rec.model + "）\n" } else { "总结（未落库）:\n" }
     CallToolResult.text(head + rec.text)
 }
 
@@ -321,7 +322,7 @@ public func handleAppend(svc: MemoryService, args: HashMap<String, JsonValue>): 
     let tags = argTags(args, "tags")
     let tl = svc.registry.timelineOf(name).getOrThrow()
     tl.append(tsFinal, payloadJson, tags)
-    CallToolResult.text("已追加 " + name + " @" + fmtTs(tsFinal))
+    CallToolResult.text("已追加 " + name + " @" + fmtTs(tsFinal, svc.store.timeZoneOf()))
 }
 
 public func handleQuery(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
@@ -334,7 +335,7 @@ public func handleQuery(svc: MemoryService, args: HashMap<String, JsonValue>): C
     let tl = svc.registry.timelineOf(name).getOrThrow()
     let points = tl.queryPoints(from, to, if (limit > 0) { limit } else { 20 }, tagFilter)
     if (points.size == 0) { return CallToolResult.text("（无匹配条目）") }
-    CallToolResult.text(formatPoints(points))
+    CallToolResult.text(formatPoints(points, svc.store.timeZoneOf()))
 }
 
 public func handleRecall(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
@@ -370,7 +371,7 @@ public func handleRecall(svc: MemoryService, args: HashMap<String, JsonValue>): 
         case Some(key) =>
             let points = tl.drillDown(granularity, key)
             if (points.size == 0) { return CallToolResult.text("该时间窗无记录") }
-            CallToolResult.text(formatPoints(points))
+            CallToolResult.text(formatPoints(points, svc.store.timeZoneOf()))
         case None => CallToolResult.text("该粒度没有可用的物化桶（历史可能太短或未物化）")
     }
 }
@@ -435,7 +436,7 @@ public func handleSummaries(svc: MemoryService, args: HashMap<String, JsonValue>
     let sb = StringBuilder()
     for (p in points) {
         let rec = fromJsonString<SummaryRecord>(p.payload)
-        sb.append("[" + fmtTs(rec.ts) + " 窗口 " + rec.windowFrom.toString() + "~" + rec.windowTo.toString() + " " + rec.model + "]\n")
+        sb.append("[" + fmtTs(rec.ts, svc.store.timeZoneOf()) + " 窗口 " + rec.windowFrom.toString() + "~" + rec.windowTo.toString() + " " + rec.model + "]\n")
         sb.append(rec.text + "\n\n")
     }
     CallToolResult.text(sb.toString())

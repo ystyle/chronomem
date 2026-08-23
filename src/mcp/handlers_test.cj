@@ -7,6 +7,8 @@ import llm_api.provider.*
 import jsonvalue.*
 import mcp.*
 import std.collection.*
+import std.core.Duration
+import std.time.*
 
 // 测试用 fake Provider（chronomem.mcp 包内，避免依赖 core 测试类）
 class FakeSummarizerProvider <: Provider {
@@ -265,4 +267,14 @@ func handlers_buckets() {
     let r2 = handleBuckets(s, argsFromJson("{\"type\":\"worklog\",\"granularity\":\"day\"}"))
     @Expect(resultText(r2).indexOf("暂无") != None, false)  // day 桶经物化链可能已建，容忍
     _ = r2
+}
+
+// ---------- fmtTs 时区 ----------
+
+@Test
+func handlers_fmtTsUsesConfiguredTimeZone() {
+    let ts = Int64(1787459729000)   // 2026-08-23 12:35:29 +08
+    let plus8 = TimeZone("UTC+08:00", Duration.hour * 8)
+    @Expect(fmtTs(ts, plus8), "08-23 12:35:29")
+    @Expect(fmtTs(ts, TimeZone.UTC), "08-23 04:35:29")
 }
