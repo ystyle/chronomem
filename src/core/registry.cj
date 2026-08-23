@@ -142,6 +142,39 @@ public class MemoryTypeRegistry {
         this.store.rawTsdb().query(name).count()
     }
 
+    // 某类型总结记录数
+    public func countSummaries(name: String): Int64 {
+        this.store.rawTsdb().query(MemoryTypeRegistry.summarySeriesOf(name)).count()
+    }
+
+    // TRUNCATE：清空类型全部条目（原始 + 总结），保留类型。返回删除的原始条目数。
+    public func truncate(name: String): Int64 {
+        if (!this.types.contains(name)) {
+            throw Exception("类型不存在: " + name)
+        }
+        let raw = this.timelineOf(name).getOrThrow().clearAll()
+        this.summaryTimelineOf(name).getOrThrow().clearAll()
+        raw
+    }
+
+    // DROP：删除类型。**守卫：原始与总结序列必须都为空**（防误删），否则抛异常。
+    // 删除两个 series + meta 记录 + 注册表条目。
+    public func drop(name: String): Unit {
+        if (!this.types.contains(name)) {
+            throw Exception("类型不存在: " + name)
+        }
+        let rawCount = this.countEntries(name)
+        let sumCount = this.countSummaries(name)
+        if (rawCount > 0 || sumCount > 0) {
+            throw Exception("类型 " + name + " 非空（条目 " + rawCount.toString() +
+                "，总结 " + sumCount.toString() + "），先 mem/truncate 清空再删")
+        }
+        this.timelineOf(name).getOrThrow().deleteAll()
+        this.summaryTimelineOf(name).getOrThrow().deleteAll()
+        this.store.rawTsdb().deletePointsByTag(MemoryTypeRegistry.META_SERIES, "name", name)
+        this.types.remove(name)
+    }
+
     // 校验 summaryLevels：须是类型 levels 的子集（升序无重复由类型自身保证）
     public static func validateSummaryLevels(meta: TypeMeta): Unit {
         match (meta.summaryLevels) {

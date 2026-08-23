@@ -211,6 +211,18 @@ public class Timeline {
         this.tsdb.query(this.series).count()
     }
 
+    // ---------- 删除（TRUNCATE / DROP，委托 tsdb） ----------
+
+    // TRUNCATE：清空本系列全部数据（点/索引/桶），保留系列
+    public func clearAll(): Int64 {
+        this.tsdb.clearSeries(this.series)
+    }
+
+    // DROP：彻底删除本系列（数据 + meta + 标签索引）
+    public func deleteAll(): Unit {
+        this.tsdb.deleteSeries(this.series)
+    }
+
     // ---------- 分层物化（幂等覆盖，每层落盘不删下层） ----------
 
     // 物化 ts 所在时间窗口的分层桶链（按本 series 的 levels）：

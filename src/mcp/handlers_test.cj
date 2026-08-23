@@ -201,6 +201,57 @@ func handlers_summarizeAndListSummaries() {
     @Expect(resultText(rs3).indexOf("暂无总结") != None, true)
 }
 
+// ---------- truncate / type_delete ----------
+
+@Test
+func handlers_truncateClearsEntries() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"t\"}"))
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{},\"ts\":1704067200000}"))
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{},\"ts\":1704067260000}"))
+    let r = handleTruncate(s, argsFromJson("{\"type\":\"t\"}"))
+    @Expect(resultText(r).indexOf("已清空") != None, true)
+    @Expect(s.registry.countEntries("t"), Int64(0))
+    // 类型仍在，可继续写
+    @Expect(s.registry.has("t"), true)
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{},\"ts\":1704067320000}"))
+    @Expect(s.registry.countEntries("t"), Int64(1))
+}
+
+@Test
+func handlers_typeDeleteEmptySucceeds() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"t\"}"))
+    let r = handleTypeDelete(s, argsFromJson("{\"type\":\"t\"}"))
+    @Expect(resultText(r).indexOf("已删除") != None, true)
+    @Expect(s.registry.has("t"), false)
+}
+
+@Test
+func handlers_typeDeleteNonEmptyRejected() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"t\"}"))
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{},\"ts\":1704067200000}"))
+    let r = handleTypeDelete(s, argsFromJson("{\"type\":\"t\"}"))
+    @Expect(r.isError, true)
+    @Expect(resultText(r).indexOf("非空") != None, true)
+    // truncate 后再删成功
+    handleTruncate(s, argsFromJson("{\"type\":\"t\"}"))
+    let r2 = handleTypeDelete(s, argsFromJson("{\"type\":\"t\"}"))
+    @Expect(resultText(r2).indexOf("已删除") != None, true)
+}
+
+@Test
+func handlers_typeDeleteWithSummaryRejected() {
+    let s = svcWithLlm()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"t\"}"))
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{},\"ts\":1704067200000}"))
+    handleSummarize(s, argsFromJson("{\"type\":\"t\",\"from\":1704067200000,\"to\":1704067299999}"))
+    let r = handleTypeDelete(s, argsFromJson("{\"type\":\"t\"}"))
+    @Expect(r.isError, true)
+    @Expect(resultText(r).indexOf("非空") != None, true)
+}
+
 // ---------- buckets ----------
 
 @Test

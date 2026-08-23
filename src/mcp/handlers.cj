@@ -282,6 +282,26 @@ public func handleTypeInfo(svc: MemoryService, args: HashMap<String, JsonValue>)
     CallToolResult.text(sb.toString())
 }
 
+// TRUNCATE：清空类型全部条目（原始 + 总结），保留类型
+public func handleTruncate(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
+    let name = argStr(args, "type")
+    if (let Some(e) <- requireType(svc, name)) { return e }
+    let n = svc.registry.truncate(name)
+    CallToolResult.text("已清空类型 " + name + "（删除原始条目 " + n.toString() + " 条，类型保留）")
+}
+
+// DROP：删除类型（守卫：原始与总结序列必须为空，防误删）
+public func handleTypeDelete(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
+    let name = argStr(args, "type")
+    if (let Some(e) <- requireType(svc, name)) { return e }
+    try {
+        svc.registry.drop(name)
+    } catch (e: Exception) {
+        return toolError(e.toString())
+    }
+    CallToolResult.text("已删除类型 " + name)
+}
+
 public func handleAppend(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
     let name = argStr(args, "type")
     if (let Some(e) <- requireType(svc, name)) { return e }
@@ -445,6 +465,18 @@ public func registerTools(server: McpServer, svc: MemoryService): Unit {
     s3.addField("name", "string", "类型名", required: true)
     let t3 = Tool("mem/type_info", "单类型详情（meta + 条目数 + 各粒度物化桶数）", s3)
     server.addTool(t3, { params => handleTypeInfo(svc, params.arguments) })
+
+    // mem/truncate（TRUNCATE：清空条目，保留类型）
+    let sTrunc = schemaBuilder()
+    sTrunc.addField("type", "string", "类型名", required: true)
+    let tTrunc = Tool("mem/truncate", "清空类型全部条目（原始 + 总结，TRUNCATE 语义），保留类型本身", sTrunc)
+    server.addTool(tTrunc, { params => handleTruncate(svc, params.arguments) })
+
+    // mem/type_delete（DROP：删类型；守卫：原始与总结序列必须为空）
+    let sDel = schemaBuilder()
+    sDel.addField("type", "string", "类型名", required: true)
+    let tDel = Tool("mem/type_delete", "删除类型（DROP 语义；须原始与总结序列为空，先 mem/truncate）", sDel)
+    server.addTool(tDel, { params => handleTypeDelete(svc, params.arguments) })
 
     // mem/append
     let s4 = schemaBuilder()

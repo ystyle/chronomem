@@ -108,6 +108,8 @@ public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
 | `mem/type_create` | 建类型（+ 自动建 `<type>.summary` series） | `name`(必填), `levels`?(粒度链，默认 §5.1), `description`?, `schema`?, `retention`?, `auto_summarize`?(默认false), `summary_levels`?(缺省=最粗2档) |
 | `mem/list_types` | 类型列表（name/description/count/updatedAt） | — |
 | `mem/type_info` | 单类型详情（meta + 条目数 + 各粒度物化桶数） | `name`(必填) |
+| `mem/truncate` | 清空类型全部条目（TRUNCATE 语义，保留类型） | `type`(必填) |
+| `mem/type_delete` | 删除类型（DROP 语义；**守卫：原始+总结序列必须为空**） | `type`(必填) |
 | `mem/append` | 追加一条原始条目 | `type`(必填), `payload`(对象,必填), `tags`?, `ts`?(缺省=now) |
 | `mem/query` | 结构回想：最近 / 时间范围 / tag 过滤 | `type`(必填), `from`?, `to`?, `limit`?(默认20), `tag`? |
 | `mem/recall` | 回想：`mode=exact` 下钻原始条目（零 LLM）；`mode=summary` 返回时段语义摘要（依赖已生成或现算） | `type`(必填), `granularity`(必填，须在类型 levels 内), `windowStartMs`?, `mode`?(exact/summary，默认 exact), `summarize_on_miss`?(默认 false，仅 summary 模式) |

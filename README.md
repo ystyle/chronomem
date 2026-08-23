@@ -102,6 +102,8 @@ npx @modelcontextprotocol/inspector --url http://127.0.0.1:8900
 | `mem/type_create` | 创建记忆类型（`name` 必填；`levels`? 粒度链；`auto_summarize`? 后台自动总结；`summary_levels`? 自动总结粒度；`description`? `schema`? `retention`?） |
 | `mem/list_types` | 类型列表（name/描述/条目数/粒度链） |
 | `mem/type_info` | 单类型详情（meta + 条目数 + 各粒度物化桶数） |
+| `mem/truncate` | 清空类型全部条目（原始 + 总结，TRUNCATE 语义；保留类型） |
+| `mem/type_delete` | 删除类型（DROP 语义；**守卫：原始 + 总结序列必须为空**，先 `mem/truncate`） |
 | `mem/append` | 追加条目（`type` + `payload` 必填；`tags`? `ts`?） |
 | `mem/query` | 结构回想：`from`? `to`? `limit`? `tag`?（key=value） |
 | `mem/recall` | `mode=exact` 下钻原始（零 LLM）/ `mode=summary` 语义回顾；`granularity` 须在类型 levels 内；`summarize_on_miss`? |
