@@ -59,6 +59,6 @@ LLM_BASE_URL=... LLM_API_KEY=... LLM_MODEL=... \
 - **自然窗口（§5.2）**：day/week/month 按日历对齐（`CHRONOLOG_TIMEZONE`），桶 key 用 `windowKeyOf`（非 tsdb.bucketKeyOf）；只有 10min/30min/1h/3h 才用 `ts % windowMs`。
 - **cron-cj 增量缓存损坏**：`cjpm build` 报 `DataModelException: This data is not DataModelSeq` 时 `cjpm clean` 可解（badgercj 同样出现过）。
 - **cron `@every` 描述符**：cron-cj 的 `addFunc` 不解析 `@every <dur>`，需走 `addCronEntry`（→ `Every()` + `addSchedule`）。
-- **Docker 部署**：镜像内绑 `0.0.0.0`（`CHRONOLOG_ADDR`，否则端口映射连不上）；宿主数据卷 `~/.chronolog` 属主须为 uid 1000（docker 首建会 root/nobody，用 `docker run --rm --user root -v ... chown` 修）；`--static` 只消除 libcangjie-runtime 依赖，glibc/liburing 仍需 archlinux + `liburing` 包。
+- **Docker 部署**：镜像内绑 `0.0.0.0`（`CHRONOLOG_ADDR`，否则端口映射连不上）；compose 栈数据目录 `~/docker/chronomem/data` 先建好并 chown 1000:1000 再 up（docker 自动建会 root/nobody）；`--static` 只消除 libcangjie-runtime 依赖，glibc/liburing 仍需 archlinux + `liburing` 包。
 - **`--static` 仅对可执行文件生效**：库包会出现无害 warning（-Woff driver-arg 可压）。
 - **`-lstdx.crypto.digest`**：stdx.net.http 链接符号，chronomem [package] link-option 已带。

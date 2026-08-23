@@ -70,13 +70,13 @@ cd ~/docker/chronomem
 docker compose up -d --build
 ```
 
-**数据卷**：宿主 `~/.chronolog` ↔ 容器 `/home/app/.chronolog`（tsdb 时序库 + 类型注册表；容器销毁不丢数据）。
+**数据卷**：宿主 `~/docker/chronomem/data`（compose 栈的 `./data`）↔ 容器 `/home/app/.chronolog`（tsdb 时序库 + 类型注册表；容器销毁不丢数据）。
 
 **生产注意**：
-- 卷目录属主须与容器内 `app`（uid 1000）对齐；docker 首次创建缺失宿主目录时属主会是 root/nobody，用 `docker run --rm --user root -v ~/.chronolog:/data chronomem:latest chown -R 1000:1000 /data` 修正。
+- **先建好数据目录再 up**：`mkdir -p ~/docker/chronomem/data && chown -R 1000:1000 ~/docker/chronomem/data`（与容器内 `app` uid 1000 对齐；docker 自动建缺失目录时属主会是 root/nobody，届时用 `docker run --rm --user root -v .../data:/data chronomem:latest chown -R 1000:1000 /data` 修正）。
 - 容器内需 `CHRONOLOG_ADDR=0.0.0.0`（docker 端口映射走容器外部 IP，绑 127.0.0.1 会连不上）。
 - LLM 环境变量填在 `~/docker/chronomem/.env`（`LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`），不填则 summarize 报「未配置 LLM」，其余功能正常。
-- 端口 8900 由容器接管；更新 = `cd ~/docker/chronomem && docker compose up -d --build`（数据卷不动，零丢失）。
+- 端口 8900 由容器接管；更新 = `cd ~/docker/chronomem && docker compose up -d --build`（数据卷 `./data` 不动，零丢失）。
 
 ## 客户端接入
 
