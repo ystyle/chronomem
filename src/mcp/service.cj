@@ -80,9 +80,8 @@ func resolveTimeZone(id: String): TimeZone {
 }
 
 // 开箱即用默认类型：worklog 工作日志（levels [day,week] + auto_summarize + 按 proj 分组总结）。
-// 幂等：已存在则跳过。任务阶段/任务完成时追加一条 + 总结，见工作区 AGENTS.md 约定。
+// 幂等：已存在则跳过（但缺 summaryGroupBy 的旧类型会升级补齐）；任务阶段/任务完成时追加一条 + 总结。
 func seedWorklog(registry: MemoryTypeRegistry): Unit {
-    if (registry.has("worklog")) { return }
     let levels = ArrayList<String>()
     levels.add("day")
     levels.add("week")
@@ -93,5 +92,16 @@ func seedWorklog(registry: MemoryTypeRegistry): Unit {
         "工作日志（默认类型）：任务阶段/任务完成时追加一条工作日志，按天+按项目分组总结",
         Some("{\"payload\":{\"task\":\"string\",\"status\":\"string\",\"outcome\":\"string\",\"decisions\":\"string\",\"next\":\"string\"},\"tags\":{\"proj\":\"string\",\"branch\":\"string\"}}"),
         levels, None, true, None, nowMs(), summaryGroupBy: Some(groupBy))
+    if (registry.has("worklog")) {
+        // 旧版本 worklog 缺 summaryGroupBy → 升级补齐（保留原 levels/描述等字段）
+        match (registry.get("worklog")) {
+            case Some(old) =>
+                if (old.summaryGroupBy.isNone()) {
+                    registry.updateMeta(meta)
+                }
+            case None => ()
+        }
+        return
+    }
     registry.create(meta)
 }
