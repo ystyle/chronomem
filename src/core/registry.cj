@@ -131,6 +131,24 @@ public class MemoryTypeRegistry {
         synchronized(this.lock) { this.types.contains(name) }
     }
 
+    // 更新已有类型的 meta（字段升级，如补 summaryGroupBy）。
+    // 校验类型存在 + 校验粒度/总结配置；持久化新 meta（meta series 同名后写覆盖先写，重启恢复取最新）。
+    public func updateMeta(meta: TypeMeta): Unit {
+        synchronized(this.lock) {
+            if (!this.types.contains(meta.name)) {
+                throw Exception("类型不存在: " + meta.name)
+            }
+            MemoryTypeRegistry.validateSummaryLevels(meta)
+            MemoryTypeRegistry.validateSummaryGroupBy(meta)
+            // 持久化新 meta（同名后写覆盖先写，load 时取最新）
+            let tags = HashMap<String, String>()
+            tags["name"] = meta.name
+            this.store.rawTsdb().append(MemoryTypeRegistry.META_SERIES, nowMs(),
+                toJsonString(meta), tags)
+            this.types[meta.name] = meta
+        }
+    }
+
     public func list(): ArrayList<TypeMeta> {
         synchronized(this.lock) {
             let l = ArrayList<TypeMeta>()
