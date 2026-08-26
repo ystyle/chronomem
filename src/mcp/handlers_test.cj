@@ -153,9 +153,10 @@ func handlers_recallSummaryMode() {
     let s = svcWithLlm()
     handleTypeCreate(s, argsFromJson("{\"name\":\"worklog\"}"))
     handleAppend(s, argsFromJson("{\"type\":\"worklog\",\"payload\":{\"m\":1},\"ts\":1704110400000}"))
-    // 先 summarize（窗口覆盖 10min 桶）
+    // 先 summarize（提交后台任务，窗口覆盖 10min 桶）
     let rs = handleSummarize(s, argsFromJson("{\"type\":\"worklog\",\"granularity\":\"10min\",\"windowStartMs\":1704110400000}"))
-    @Expect(resultText(rs).indexOf("决策：A") != None, true)
+    @Expect(resultText(rs).indexOf("已提交后台总结任务") != None, true)
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
     // recall mode=summary → 返回摘要
     let r = handleRecall(s, argsFromJson("{\"type\":\"worklog\",\"granularity\":\"10min\",\"windowStartMs\":1704110400000,\"mode\":\"summary\"}"))
     @Expect(resultText(r).indexOf("决策：A") != None, true)
@@ -183,24 +184,34 @@ func handlers_summarizeAndListSummaries() {
     let s = svcWithLlm()
     handleTypeCreate(s, argsFromJson("{\"name\":\"worklog\"}"))
     handleAppend(s, argsFromJson("{\"type\":\"worklog\",\"payload\":{\"m\":1},\"ts\":1704110400000}"))
+    // 提交后台任务 → 立即返回 job_id
     let r = handleSummarize(s, argsFromJson("{\"type\":\"worklog\",\"from\":1704110400000,\"to\":1704110999999,\"instructions\":\"重点\"}"))
-    @Expect(resultText(r).indexOf("决策：A") != None, true)
-    // summaries 列出
+    @Expect(resultText(r).indexOf("已提交后台总结任务") != None, true)
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
+    // summaries 列出（落库）
     let rs = handleSummaries(s, argsFromJson("{\"type\":\"worklog\"}"))
     @Expect(resultText(rs).indexOf("决策：A") != None, true)
-    // 空窗口无需总结
+    // 空窗口：提交后 runner 执行到「无条目，无需总结」（store=true 不落库）
     let s2 = svcWithLlm()
     handleTypeCreate(s2, argsFromJson("{\"name\":\"worklog\"}"))
     let r2 = handleSummarize(s2, argsFromJson("{\"type\":\"worklog\",\"from\":1704110400000,\"to\":1704110999999}"))
-    @Expect(resultText(r2).indexOf("无条目") != None, true)
-    // store=false 不落库
+    @Expect(resultText(r2).indexOf("已提交") != None, true)
+    @Expect(s2.summarizeRunner.getOrThrow().waitIdle(), true)
+    // store=false 不落库 → 结果暂存内存，mem/summarize_status 可取回
     let s3 = svcWithLlm()
     handleTypeCreate(s3, argsFromJson("{\"name\":\"worklog\"}"))
     handleAppend(s3, argsFromJson("{\"type\":\"worklog\",\"payload\":{},\"ts\":1704110400000}"))
     let r3 = handleSummarize(s3, argsFromJson("{\"type\":\"worklog\",\"from\":1704110400000,\"to\":1704110999999,\"store\":false}"))
-    @Expect(resultText(r3).indexOf("未落库") != None, true)
+    @Expect(resultText(r3).indexOf("暂存内存") != None, true)
+    let id = s3.summarizeRunner.getOrThrow().lastJobId()
+    @Expect(s3.summarizeRunner.getOrThrow().waitFor(id), "done")
+    let st = handleSummarizeStatus(s3, argsFromJson("{\"job_id\":" + id.toString() + "}"))
+    @Expect(resultText(st).indexOf("决策：A") != None, true)
     let rs3 = handleSummaries(s3, argsFromJson("{\"type\":\"worklog\"}"))
     @Expect(resultText(rs3).indexOf("暂无总结") != None, true)
+    // status 缺 job_id → error
+    let bad = handleSummarizeStatus(s3, HashMap<String, JsonValue>())
+    @Expect(bad.isError, true)
 }
 
 // ---------- truncate / type_delete ----------
@@ -249,6 +260,7 @@ func handlers_typeDeleteWithSummaryRejected() {
     handleTypeCreate(s, argsFromJson("{\"name\":\"t\"}"))
     handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{},\"ts\":1704067200000}"))
     handleSummarize(s, argsFromJson("{\"type\":\"t\",\"from\":1704067200000,\"to\":1704067299999}"))
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
     let r = handleTypeDelete(s, argsFromJson("{\"type\":\"t\"}"))
     @Expect(r.isError, true)
     @Expect(resultText(r).indexOf("非空") != None, true)

@@ -14,6 +14,8 @@ public class SummarizeScheduler {
     private let maxPerRun: Int64
     private let settleMs: Int64
     private var cron: Option<Cron> = None
+    // 已提交窗口去重（key: type|level|winFrom）：后台任务异步落库，落库前防重复提交。
+    private let submitted = HashMap<String, Bool>()
 
     public init(svc: MemoryService, maxPerRun: Int64, settleMs: Int64) {
         this.svc = svc
@@ -50,7 +52,7 @@ public class SummarizeScheduler {
         }
     }
 
-    // 总结「最新已闭合且未总结」的窗口；返回是否执行了一次总结
+    // 总结「最新已闭合且未总结」的窗口；返回是否提交了一次后台总结任务
     private func summarizeDueWindow(m: TypeMeta, level: String, now: Int64): Bool {
         if (this.svc.summarizer.isNone()) { return false }
         match (this.svc.registry.timelineOf(m.name)) {
@@ -64,11 +66,16 @@ public class SummarizeScheduler {
                 if (now - prevEnd < this.settleMs) { return false }
                 // 幂等：已有覆盖该窗口的摘要则跳过
                 if (latestOverlappingSummary(this.svc, m.name, prevStart, prevEnd).isSome()) { return false }
+                // 已提交未完成（后台异步落库）也跳过
+                let key = m.name + "|" + level + "|" + prevStart.toString()
+                if (this.submitted.contains(key)) { return false }
                 // 有条目才总结（空窗口零成本）
                 let points = t.queryPoints(prevStart, prevEnd, 0, None)
                 if (points.size == 0) { return false }
-                let r = doSummarize(this.svc, m.name, prevStart, prevEnd, "", true)
-                !r.isError
+                // 提交后台任务（LLM 由 SummarizeJobRunner 串行执行，不阻塞任何线程）
+                this.submitted[key] = true
+                _ = this.svc.summarizeRunner.getOrThrow().submit(m.name, prevStart, prevEnd, "", true)
+                true
         }
     }
 

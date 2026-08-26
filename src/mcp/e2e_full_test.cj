@@ -91,10 +91,11 @@ func chronomem_e2e_fullFlow() {
     let buckets = callAndText(client, "mem/buckets", argsFromJson("{\"type\":\"e2e/log\",\"granularity\":\"10min\"}"))
     @Expect(buckets.indexOf("10min") != None, true)
 
-    // 7. summarize（fake LLM → 结构化摘要 → 落 summary series）
+    // 7. summarize（异步提交后台任务 → fake LLM → 落 summary series）
     let sum = callAndText(client, "mem/summarize",
         argsFromJson("{\"type\":\"e2e/log\",\"from\":1704110400000,\"to\":1704110999999}"))
-    @Expect(sum.indexOf("决策：A") != None, true)
+    @Expect(sum.indexOf("已提交后台总结任务") != None, true)
+    @Expect(svc.summarizeRunner.getOrThrow().waitIdle(), true)
 
     // 8. recall mode=summary（语义回顾 → 返回已生成摘要）
     let sumRec = callAndText(client, "mem/recall",

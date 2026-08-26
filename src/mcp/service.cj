@@ -12,6 +12,8 @@ public class MemoryService {
     public let store: TimelineStore
     public let registry: MemoryTypeRegistry
     public let summarizer: Option<Summarizer>
+    // 后台总结执行器（LLM 在独立线程跑，绝不阻塞 MCP 接收循环；open 后创建并 start）
+    public var summarizeRunner: ?SummarizeJobRunner = None
 
     private init(store: TimelineStore, registry: MemoryTypeRegistry, summarizer: Option<Summarizer>) {
         this.store = store
@@ -35,17 +37,36 @@ public class MemoryService {
         }
         let summarizer = Summarizer.fromSettings(
             LlmSettings(cfg.llmBaseUrl, cfg.llmApiKey, cfg.llmModel, cfg.llmProvider))
-        MemoryService(store, registry, summarizer)
+        let svc = MemoryService(store, registry, summarizer)
+        svc.initSummarizeRunner()
+        svc
     }
 
     // 内存库（测试用）
     public static func openInMemory(summarizer!: Option<Summarizer> = None, timeZone!: TimeZone = TimeZone.Local): MemoryService {
         let store = TimelineStore.openInMemory(timeZone: timeZone)
         let registry = MemoryTypeRegistry(store)
-        MemoryService(store, registry, summarizer)
+        let svc = MemoryService(store, registry, summarizer)
+        svc.initSummarizeRunner()
+        svc
     }
 
-    public func close(): Unit { this.store.close() }
+    // 创建并启动后台总结执行器（幂等）
+    public func initSummarizeRunner(): Unit {
+        if (this.summarizeRunner.isNone()) {
+            let runner = SummarizeJobRunner(this)
+            runner.start()
+            this.summarizeRunner = Some(runner)
+        }
+    }
+
+    public func close(): Unit {
+        match (this.summarizeRunner) {
+            case Some(r) => r.stop()
+            case None => ()
+        }
+        this.store.close()
+    }
 }
 
 // 时区 ID → TimeZone（空 = 本地时区；非法 ID 回退本地）
