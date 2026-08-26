@@ -201,6 +201,7 @@ func resultText(r: CallToolResult): String {
 }
 
 // 窗口计算：显式 from/to 或 granularity+anchor；返回 (winFrom, winTo) 或 None（无法解析）
+// day/week/month 按本地日历对齐（§5.2，非 epoch 锚定），10min/30min/1h/3h 为钟表对齐
 func resolveWindow(svc: MemoryService, name: String, args: HashMap<String, JsonValue>): Option<(Int64, Int64)> {
     let from = argInt(args, "from")
     let to = argInt(args, "to")
@@ -211,9 +212,8 @@ func resolveWindow(svc: MemoryService, name: String, args: HashMap<String, JsonV
     if (let Some(e) <- gErr) { return None }
     let anchor = argInt(args, "windowStartMs")
     let anchorFinal = if (anchor > 0) { anchor } else { nowMs() }
-    let w = Timeline.windowMs(granularity)
-    let winFrom = anchorFinal - (anchorFinal % w)
-    Some((winFrom, winFrom + w - 1))
+    let tl = svc.registry.timelineOf(name).getOrThrow()
+    Some(tl.windowRangeOf(anchorFinal, granularity))
 }
 
 // ---------- 工具 handler ----------
@@ -349,11 +349,9 @@ public func handleRecall(svc: MemoryService, args: HashMap<String, JsonValue>): 
     let summarizeOnMiss = argBool(args, "summarize_on_miss", false)
     let tl = svc.registry.timelineOf(name).getOrThrow()
 
-    // 目标窗口
-    let w = Timeline.windowMs(granularity)
+    // 目标窗口（day/week/month 本地日历对齐，§5.2；钟表粒度 epoch 对齐）
     let anchorFinal = if (anchor > 0) { anchor } else { nowMs() }
-    let winFrom = anchorFinal - (anchorFinal % w)
-    let winTo = winFrom + w - 1
+    let (winFrom, winTo) = tl.windowRangeOf(anchorFinal, granularity)
 
     if (isSummary) {
         // 语义回顾：返回覆盖窗口的最新摘要；无摘要时按 summarize_on_miss 决定现算
@@ -417,9 +415,10 @@ public func handleSummarize(svc: MemoryService, args: HashMap<String, JsonValue>
         if (let Some(e) <- requireGranularity(svc, name, granularity)) { return e }
         let anchor = argInt(args, "windowStartMs")
         let anchorFinal = if (anchor > 0) { anchor } else { nowMs() }
-        let w = Timeline.windowMs(granularity)
-        winFrom = anchorFinal - (anchorFinal % w)
-        winTo = winFrom + w - 1
+        let tl = svc.registry.timelineOf(name).getOrThrow()
+        let (wf, wt) = tl.windowRangeOf(anchorFinal, granularity)
+        winFrom = wf
+        winTo = wt
     }
     // 未配置 LLM：提交也会失败，直接明确报错（其余功能不受影响）
     if (svc.summarizer.isNone()) {

@@ -290,3 +290,46 @@ func handlers_fmtTsUsesConfiguredTimeZone() {
     @Expect(fmtTs(ts, plus8), "08-23 12:35:29")
     @Expect(fmtTs(ts, TimeZone.UTC), "08-23 04:35:29")
 }
+
+// ---------- 按天窗口对齐（回归：epoch 锚定错位 8h） ----------
+
+// 回归用例：+08 时区下，day 粒度窗口必须按本地日历日对齐（本地零点），
+// 不能是 epoch/UTC 日对齐（否则窗口错位 8 小时）。
+// 锚点 ts = 1787702400000 = UTC 08-26 00:00 = +08 08-26 08:00。
+// 正确窗口 = +08 本地日 08-26 00:00~23:59:59 = 1787673600000~1787759999999。
+// epoch 锚定会给出 1787702400000~1787788799999（UTC 日），即回归前的 bug。
+func plus8Svc(): MemoryService {
+    MemoryService.openInMemory(
+        summarizer: Some(Summarizer(FakeSummarizerProvider("决策：A\n结论：B"), "fake")),
+        timeZone: TimeZone("UTC+08:00", Duration.hour * 8))
+}
+
+@Test
+func handlers_summarizeDayGranularityAlignsLocalCalendar() {
+    let s = plus8Svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"worklog\",\"levels\":[\"day\",\"week\"]}"))
+    handleAppend(s, argsFromJson("{\"type\":\"worklog\",\"payload\":{\"m\":1},\"ts\":1787702400000}"))
+    // mem/summarize granularity=day（无显式 from/to，走窗口计算）
+    let r = handleSummarize(s, argsFromJson("{\"type\":\"worklog\",\"granularity\":\"day\",\"windowStartMs\":1787702400000}"))
+    let t = resultText(r)
+    @Expect(t.indexOf("1787673600000~1787759999999") != None, true)   // 本地日窗口
+    @Expect(t.indexOf("1787702400000~1787788799999") != None, false)  // 不应是 UTC 日窗口
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
+    // 落库的总结窗口也应为本地日
+    let rs = handleSummaries(s, argsFromJson("{\"type\":\"worklog\"}"))
+    @Expect(resultText(rs).indexOf("1787673600000~1787759999999") != None, true)
+}
+
+@Test
+func handlers_recallSummaryModeAlignsLocalCalendar() {
+    let s = plus8Svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"worklog\",\"levels\":[\"day\",\"week\"]}"))
+    handleAppend(s, argsFromJson("{\"type\":\"worklog\",\"payload\":{\"m\":1},\"ts\":1787702400000}"))
+    // recall mode=summary + on_miss：现算后台任务，窗口须本地日对齐
+    let r = handleRecall(s, argsFromJson("{\"type\":\"worklog\",\"granularity\":\"day\",\"windowStartMs\":1787702400000,\"mode\":\"summary\",\"summarize_on_miss\":true}"))
+    @Expect(resultText(r).indexOf("已提交后台总结任务") != None, true)
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
+    let rs = handleSummaries(s, argsFromJson("{\"type\":\"worklog\"}"))
+    @Expect(resultText(rs).indexOf("1787673600000~1787759999999") != None, true)
+    @Expect(resultText(rs).indexOf("1787702400000") != None, false)
+}
