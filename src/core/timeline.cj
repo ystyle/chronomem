@@ -3,6 +3,7 @@ package chronomem.core
 import cron.*
 import tsdb.*
 import std.collection.*
+import std.sync.Mutex
 import std.time.*
 
 // 通用分层时间线：一个 tsdb series 的 append-only 时序记录 + 分层物化桶链。
@@ -333,6 +334,8 @@ public class TimelineStore {
     private let timeZone: TimeZone
     private let seriesLabels = HashMap<String, String>()
     private let seriesLevels = HashMap<String, ArrayList<String>>()
+    // 并发保护：物化线程（cron）与 MCP 接收循环/后台总结线程可并发访问 series 注册表。
+    private let mapLock = Mutex()
 
     // syncWrites=true：每次 append 同步落盘（badger fsync），容器/进程被 SIGTERM/SIGKILL 也不丢数据
     public static func open(path: String, timeZone!: TimeZone = TimeZone.Local,
@@ -361,15 +364,28 @@ public class TimelineStore {
     // 取某 series 的句柄（共享同一 tsdb；句柄不持有所有权，close 走 store）；
     // label 用于物化桶摘要文案；levels 为该 series 的粒度链。
     public func timeline(series: String, label: String, levels: ArrayList<String>): Timeline {
-        this.seriesLabels[series] = label
-        this.seriesLevels[series] = levels
+        synchronized(this.mapLock) {
+            this.seriesLabels[series] = label
+            this.seriesLevels[series] = levels
+        }
         Timeline(this.tsdb, series, levels, this.timeZone)
     }
 
     // 全部已注册 series 统一分层物化（MaterializeScheduler 每 60s 调用；幂等、空窗口零成本）
     public func materializeAll(now: Int64): Unit {
-        for ((series, label) in this.seriesLabels) {
-            Timeline(this.tsdb, series, this.seriesLevels[series], this.timeZone).materialize(now, label)
+        // 快照复制在锁内（毫秒级），物化在锁外（避免长临界区阻塞 type_create 等）
+        let snapshot = synchronized(this.mapLock) {
+            let l = ArrayList<(String, String, ArrayList<String>)>()
+            for ((series, label) in this.seriesLabels) {
+                match (this.seriesLevels.get(series)) {
+                    case Some(levels) => l.add((series, label, levels))
+                    case None => ()
+                }
+            }
+            l
+        }
+        for ((series, label, levels) in snapshot) {
+            Timeline(this.tsdb, series, levels, this.timeZone).materialize(now, label)
         }
     }
 }

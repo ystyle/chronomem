@@ -108,7 +108,8 @@ npx @modelcontextprotocol/inspector --url http://127.0.0.1:8900
 | `mem/query` | 结构回想：`from`? `to`? `limit`? `tag`?（key=value） |
 | `mem/recall` | `mode=exact` 下钻原始（零 LLM）/ `mode=summary` 语义回顾；`granularity` 须在类型 levels 内；`summarize_on_miss`? |
 | `mem/buckets` | 列某粒度物化桶（发现可用窗口） |
-| `mem/summarize` | 语义总结：`from/to`（任务阶段）或 `granularity`（按粒度）；`instructions`? `store`?（默认 true） |
+| `mem/summarize` | **语义总结（后台异步）**：提交总结任务立即返回 `job_id`，LLM 在后台线程执行，**不阻塞任何其它请求**；`from/to`（任务阶段）或 `granularity`（按粒度）；`instructions`? `store`?（默认 true 落库） |
+| `mem/summarize_status` | 查后台总结任务状态（`job_id`；pending/running/done/failed；`store=false` 时返回结果文本） |
 | `mem/summaries` | 查总结记录（最新在前） |
 
 ## 示例：工作日志
@@ -120,8 +121,9 @@ npx @modelcontextprotocol/inspector --url http://127.0.0.1:8900
 mem/append { type: "worklog", payload: { "task": "拆分忆时塔设计", "status": "完成", "outcome": "..." }, tags: { "proj": "chronomem" } }
 
 # 后台自动总结：day/week 窗口闭合后自动长摘要（默认 */10 * * * * 检查）
-# 任务阶段结束 → 按阶段手动总结（不规则窗口）
+# 任务阶段结束 → 按阶段手动总结（不规则窗口；提交后台任务，立即返回，LLM 后台跑）
 mem/summarize { type: "worklog", from: <任务开始>, to: <任务结束>, instructions: "提炼本次任务的决策与待办" }
+mem/summarize_status { job_id: <mem/summarize 返回的 job_id> }   # 查任务状态；完成后 summaries/recall 可取摘要
 
 # 回想
 mem/query  { type: "worklog", tag: "proj=chronomem" }          # 结构回想（零 LLM）

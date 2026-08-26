@@ -5,6 +5,7 @@ import chronomem.mcp.*
 import mcp.*
 import mcp.transport.*
 import std.env.atExit
+import stdx.log.LogLevel
 import stdx.net.http.*
 
 // 忆时塔入口：`chronomem.cli serve` —— 常驻 streamable HTTP MCP 守护进程。
@@ -29,6 +30,9 @@ main() {
         .addr(cfg.addr)
         .port(cfg.port)
         .build()
+    // 关闭 stdx http server 的 WARN 级连接日志（Socket is closed / Broken pipe 等噪音，
+    // 其它语言 HTTP 服务器不打这类日志；仅保留 ERROR/FATAL）
+    httpServer.logger.level = LogLevel.ERROR
     let transport = SessionHttpServerTransport()
     transport.registerRoutes(httpServer.distributor)
     let mcpServer = buildServer(transport, svc)

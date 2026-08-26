@@ -362,7 +362,13 @@ public func handleRecall(svc: MemoryService, args: HashMap<String, JsonValue>): 
             case None => ()
         }
         if (summarizeOnMiss) {
-            return doSummarize(svc, name, winFrom, winTo, "", true)
+            // 无摘要：提交后台总结任务，立即返回（LLM 在后台跑，不阻塞本请求）
+            if (svc.summarizer.isNone()) {
+                return toolError("未配置 LLM（LLM_BASE_URL / LLM_API_KEY / LLM_MODEL）")
+            }
+            let id = svc.summarizeRunner.getOrThrow().submit(name, winFrom, winTo, "", true)
+            return CallToolResult.text("该时段无摘要，已提交后台总结任务 #" + id.toString() +
+                "，完成后重试本调用即可获取（或 mem/summarize_status #" + id.toString() + " 查询状态）")
         }
         return CallToolResult.text("该时段尚无语义摘要，请先 mem/summarize（或设 summarize_on_miss=true 现算）")
     }
@@ -415,13 +421,41 @@ public func handleSummarize(svc: MemoryService, args: HashMap<String, JsonValue>
         winFrom = anchorFinal - (anchorFinal % w)
         winTo = winFrom + w - 1
     }
-    let modelOverride = argStr(args, "model")
-    var r = doSummarize(svc, name, winFrom, winTo, instructions, store)
-    // model 覆盖：当前恒用配置模型；非配置模型暂不支持单次覆盖（见 design.md §7.1）
-    if (modelOverride != "" && svc.summarizer.isSome() && svc.summarizer.getOrThrow().modelName() != modelOverride) {
-        r = CallToolResult.text(resultText(r) + "\n（注：model=" + modelOverride + " 覆盖暂未生效，使用配置模型 " + svc.summarizer.getOrThrow().modelName() + "）")
+    // 未配置 LLM：提交也会失败，直接明确报错（其余功能不受影响）
+    if (svc.summarizer.isNone()) {
+        return toolError("未配置 LLM（LLM_BASE_URL / LLM_API_KEY / LLM_MODEL）")
     }
-    r
+    // 提交后台任务，立即返回（LLM 在后台线程跑，不阻塞本请求与任何其他请求）
+    let id = svc.summarizeRunner.getOrThrow().submit(name, winFrom, winTo, instructions, store)
+    let modelOverride = argStr(args, "model")
+    let modelNote = if (modelOverride != "" && svc.summarizer.getOrThrow().modelName() != modelOverride) {
+        "（注：model=" + modelOverride + " 覆盖暂未生效，使用配置模型 " + svc.summarizer.getOrThrow().modelName() + "）"
+    } else {
+        ""
+    }
+    let storeHint = if (store) {
+        "结果将落库，可用 mem/summaries 或 mem/recall mode=summary 查看"
+    } else {
+        "结果暂存内存，可用 mem/summarize_status 查询"
+    }
+    CallToolResult.text("已提交后台总结任务 #" + id.toString() + "（类型 " + name + "，窗口 " +
+        winFrom.toString() + "~" + winTo.toString() + "，模型 " + svc.summarizer.getOrThrow().modelName() +
+        "）。" + storeHint + "；状态用 mem/summarize_status 查询。" + modelNote)
+}
+
+// mem/summarize_status：查询后台总结任务状态（store=false 时可取回结果文本）
+public func handleSummarizeStatus(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
+    let id = argInt(args, "job_id")
+    if (id <= 0) { return toolError("缺少参数 job_id（mem/summarize 返回的任务号）") }
+    match (svc.summarizeRunner) {
+        case None => toolError("后台总结执行器未初始化")
+        case Some(r) =>
+            let st = r.status(id)
+            match (r.getResult(id)) {
+                case Some(text) => CallToolResult.text("任务 #" + id.toString() + " 状态: " + st + "\n" + text)
+                case None => CallToolResult.text("任务 #" + id.toString() + " 状态: " + st)
+            }
+    }
 }
 
 public func handleSummaries(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
@@ -531,8 +565,14 @@ public func registerTools(server: McpServer, svc: MemoryService): Unit {
     s8.addField("model", "string", "模型覆盖（当前用配置模型）")
     s8.addField("recompute", "boolean", "强制基于原始条目重算（当前恒为原始基）")
     s8.addField("store", "boolean", "是否落库为总结记录（默认 true）")
-    let t8 = Tool("mem/summarize", "语义总结：窗口条目 → LLM 结构化摘要（决策/结论/待办/状态变更）→ 落 <type>.summary", s8)
+    let t8 = Tool("mem/summarize", "语义总结（后台异步）：提交总结任务立即返回 job_id，LLM 在后台执行，不阻塞其他请求；完成后用 mem/summaries / mem/recall 或 mem/summarize_status 取回", s8)
     server.addTool(t8, { params => handleSummarize(svc, params.arguments) })
+
+    // mem/summarize_status
+    let s8s = schemaBuilder()
+    s8s.addField("job_id", "integer", "mem/summarize 返回的任务号", required: true)
+    let t8s = Tool("mem/summarize_status", "查后台总结任务状态（pending/running/done/failed；store=false 时返回结果文本）", s8s)
+    server.addTool(t8s, { params => handleSummarizeStatus(svc, params.arguments) })
 
     // mem/summaries
     let s9 = schemaBuilder()

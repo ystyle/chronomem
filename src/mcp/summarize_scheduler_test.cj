@@ -54,7 +54,8 @@ func scheduler_summarizesClosedSettledWindow() {
     // now = 次日 00:00 + settle(60s) + 1s → 前一天已闭合且沉降
     let n = sch.runOnce(DAY_END + 60000 + 1000)
     @Expect(n, Int64(1))
-    // 摘要已落库
+    // 后台任务完成（fake LLM 立即返回）→ 摘要已落库
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
     let sums = handleSummaries(s, argsFromJson("{\"type\":\"log\"}"))
     @Expect(resultText(sums).indexOf("决策：A") != None, true)
 }

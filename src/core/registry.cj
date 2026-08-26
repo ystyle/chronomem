@@ -2,6 +2,7 @@ package chronomem.core
 
 import tsdb.*
 import std.collection.*
+import std.sync.Mutex
 import stdx.encoding.json.stream.*
 
 // 记忆类型元数据（固定结构，json.stream 序列化；schema/retention/summaryLevels 可空）。
@@ -75,6 +76,9 @@ public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
 public class MemoryTypeRegistry {
     private let store: TimelineStore
     private let types = HashMap<String, TypeMeta>()
+    // 并发保护：后台总结执行器（SummarizeJobRunner）与 MCP 接收循环、cron 物化线程
+    // 可能同时读写 types；tsdb 自身并发安全，此锁只保护注册表内存态。
+    private let lock = Mutex()
 
     public static let META_SERIES = "meta"
 
@@ -97,43 +101,55 @@ public class MemoryTypeRegistry {
         MemoryTypeRegistry.validateTypeName(meta.name)
         Timeline.validateLevels(meta.levels)
         MemoryTypeRegistry.validateSummaryLevels(meta)
-        if (this.types.contains(meta.name)) {
-            throw Exception("类型已存在: " + meta.name)
+        synchronized(this.lock) {
+            if (this.types.contains(meta.name)) {
+                throw Exception("类型已存在: " + meta.name)
+            }
+            // 注册 series（主 series + summary series，同 levels）
+            this.store.timeline(meta.name, "记忆类型 " + meta.name, meta.levels)
+            this.store.timeline(MemoryTypeRegistry.summarySeriesOf(meta.name), "总结 " + meta.name, meta.levels)
+            // 持久化 meta（tag=name 定位）
+            let tags = HashMap<String, String>()
+            tags["name"] = meta.name
+            this.store.rawTsdb().append(MemoryTypeRegistry.META_SERIES, meta.createdAt,
+                toJsonString(meta), tags)
+            this.types[meta.name] = meta
         }
-        // 注册 series（主 series + summary series，同 levels）
-        this.store.timeline(meta.name, "记忆类型 " + meta.name, meta.levels)
-        this.store.timeline(MemoryTypeRegistry.summarySeriesOf(meta.name), "总结 " + meta.name, meta.levels)
-        // 持久化 meta（tag=name 定位）
-        let tags = HashMap<String, String>()
-        tags["name"] = meta.name
-        this.store.rawTsdb().append(MemoryTypeRegistry.META_SERIES, meta.createdAt,
-            toJsonString(meta), tags)
-        this.types[meta.name] = meta
     }
 
-    public func get(name: String): Option<TypeMeta> { this.types.get(name) }
-    public func has(name: String): Bool { this.types.contains(name) }
+    public func get(name: String): Option<TypeMeta> {
+        synchronized(this.lock) { this.types.get(name) }
+    }
+    public func has(name: String): Bool {
+        synchronized(this.lock) { this.types.contains(name) }
+    }
 
     public func list(): ArrayList<TypeMeta> {
-        let l = ArrayList<TypeMeta>()
-        for ((_, m) in this.types) { l.add(m) }
-        l
+        synchronized(this.lock) {
+            let l = ArrayList<TypeMeta>()
+            for ((_, m) in this.types) { l.add(m) }
+            l
+        }
     }
 
     // 某类型主 series 句柄
     public func timelineOf(name: String): Option<Timeline> {
-        match (this.types.get(name)) {
-            case Some(m) => Some(this.store.timeline(name, "记忆类型 " + name, m.levels))
-            case None => None
+        synchronized(this.lock) {
+            match (this.types.get(name)) {
+                case Some(m) => Some(this.store.timeline(name, "记忆类型 " + name, m.levels))
+                case None => None
+            }
         }
     }
 
     // 某类型语义总结 series 句柄
     public func summaryTimelineOf(name: String): Option<Timeline> {
-        match (this.types.get(name)) {
-            case Some(m) =>
-                Some(this.store.timeline(MemoryTypeRegistry.summarySeriesOf(name), "总结 " + name, m.levels))
-            case None => None
+        synchronized(this.lock) {
+            match (this.types.get(name)) {
+                case Some(m) =>
+                    Some(this.store.timeline(MemoryTypeRegistry.summarySeriesOf(name), "总结 " + name, m.levels))
+                case None => None
+            }
         }
     }
 
@@ -149,30 +165,34 @@ public class MemoryTypeRegistry {
 
     // TRUNCATE：清空类型全部条目（原始 + 总结），保留类型。返回删除的原始条目数。
     public func truncate(name: String): Int64 {
-        if (!this.types.contains(name)) {
-            throw Exception("类型不存在: " + name)
+        synchronized(this.lock) {
+            if (!this.types.contains(name)) {
+                throw Exception("类型不存在: " + name)
+            }
+            let raw = this.timelineOf(name).getOrThrow().clearAll()
+            this.summaryTimelineOf(name).getOrThrow().clearAll()
+            raw
         }
-        let raw = this.timelineOf(name).getOrThrow().clearAll()
-        this.summaryTimelineOf(name).getOrThrow().clearAll()
-        raw
     }
 
     // DROP：删除类型。**守卫：原始与总结序列必须都为空**（防误删），否则抛异常。
     // 删除两个 series + meta 记录 + 注册表条目。
     public func drop(name: String): Unit {
-        if (!this.types.contains(name)) {
-            throw Exception("类型不存在: " + name)
+        synchronized(this.lock) {
+            if (!this.types.contains(name)) {
+                throw Exception("类型不存在: " + name)
+            }
+            let rawCount = this.countEntries(name)
+            let sumCount = this.countSummaries(name)
+            if (rawCount > 0 || sumCount > 0) {
+                throw Exception("类型 " + name + " 非空（条目 " + rawCount.toString() +
+                    "，总结 " + sumCount.toString() + "），先 mem/truncate 清空再删")
+            }
+            this.timelineOf(name).getOrThrow().deleteAll()
+            this.summaryTimelineOf(name).getOrThrow().deleteAll()
+            this.store.rawTsdb().deletePointsByTag(MemoryTypeRegistry.META_SERIES, "name", name)
+            this.types.remove(name)
         }
-        let rawCount = this.countEntries(name)
-        let sumCount = this.countSummaries(name)
-        if (rawCount > 0 || sumCount > 0) {
-            throw Exception("类型 " + name + " 非空（条目 " + rawCount.toString() +
-                "，总结 " + sumCount.toString() + "），先 mem/truncate 清空再删")
-        }
-        this.timelineOf(name).getOrThrow().deleteAll()
-        this.summaryTimelineOf(name).getOrThrow().deleteAll()
-        this.store.rawTsdb().deletePointsByTag(MemoryTypeRegistry.META_SERIES, "name", name)
-        this.types.remove(name)
     }
 
     // 校验 summaryLevels：须是类型 levels 的子集（升序无重复由类型自身保证）
