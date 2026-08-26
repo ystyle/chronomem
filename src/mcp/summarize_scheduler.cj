@@ -14,8 +14,6 @@ public class SummarizeScheduler {
     private let maxPerRun: Int64
     private let settleMs: Int64
     private var cron: Option<Cron> = None
-    // 已提交窗口去重（key: type|level|winFrom）：后台任务异步落库，落库前防重复提交。
-    private let submitted = HashMap<String, Bool>()
 
     public init(svc: MemoryService, maxPerRun: Int64, settleMs: Int64) {
         this.svc = svc
@@ -64,17 +62,39 @@ public class SummarizeScheduler {
                 let prevEnd = t.nextWindowStartMs(prevStart, level) - 1
                 // 沉降：窗口结束 settleMs 以上才总结（防漏窗口末尾的条目）
                 if (now - prevEnd < this.settleMs) { return false }
-                // 幂等：已有覆盖该窗口的摘要则跳过
-                if (latestOverlappingSummary(this.svc, m.name, prevStart, prevEnd).isSome()) { return false }
-                // 已提交未完成（后台异步落库）也跳过
-                let key = m.name + "|" + level + "|" + prevStart.toString()
-                if (this.submitted.contains(key)) { return false }
+                // 幂等：窗口内所有分组（含未分组）都已有总结则跳过
+                if (allGroupsSummarized(this.svc, m, prevStart, prevEnd)) { return false }
+                // 该窗口已有后台任务在跑（提交后未完成）→ 跳过，避免重复提交
+                if (this.svc.summarizeRunner.getOrThrow().isWindowActive(m.name, prevStart)) { return false }
                 // 有条目才总结（空窗口零成本）
                 let points = t.queryPoints(prevStart, prevEnd, 0, None)
                 if (points.size == 0) { return false }
                 // 提交后台任务（LLM 由 SummarizeJobRunner 串行执行，不阻塞任何线程）
-                this.submitted[key] = true
                 _ = this.svc.summarizeRunner.getOrThrow().submit(m.name, prevStart, prevEnd, "", true)
+                true
+        }
+    }
+
+    // 窗口内所有分组（含未分组）都已有覆盖总结则视为已总结（幂等）。
+    // 分组维度为空（整窗总结）时：只要有任一覆盖总结即视为已总结。
+    private func allGroupsSummarized(svc: MemoryService, m: TypeMeta, winFrom: Int64, winTo: Int64): Bool {
+        match (m.summaryGroupBy) {
+            case None => latestOverlappingSummary(svc, m.name, winFrom, winTo, None).isSome()
+            case Some(dims) =>
+                // 收集窗口内实际存在的分组（含未分组）
+                let tl = svc.registry.timelineOf(m.name).getOrThrow()
+                let points = tl.queryPoints(winFrom, winTo, 0, None)
+                if (points.size == 0) { return true }   // 空窗口视为已处理
+                let seen = HashSet<Option<String>>()
+                for (p in points) {
+                    seen.add(groupKeyOf(m, p))
+                }
+                // 每个存在的分组都须有覆盖总结
+                for (k in seen) {
+                    if (latestOverlappingSummary(svc, m.name, winFrom, winTo, k).isNone()) {
+                        return false
+                    }
+                }
                 true
         }
     }

@@ -58,15 +58,15 @@ public class Summarizer {
     }
 
     // 总结窗口：entries（ts + 文本）→ 结构化摘要 → SummaryRecord（refs = 条目 ts）
-    // model 可选覆盖（缺省用配置模型）
+    // model 可选覆盖（缺省用配置模型）；groupKey 可选（该条总结的分组值，用于按项目/维度分组总结）
     public func summarize(windowFrom: Int64, windowTo: Int64,
         entries: ArrayList<EntryText>, instructions: String,
-        model!: Option<String> = None): SummaryRecord {
+        model!: Option<String> = None, groupKey!: Option<String> = None): SummaryRecord {
         let useModel = match (model) {
             case Some(m) => m
             case None => this.model
         }
-        let prompt = buildPrompt(windowFrom, windowTo, entries, instructions)
+        let prompt = buildPrompt(windowFrom, windowTo, entries, instructions, groupKey: groupKey)
         let msgs = ArrayList<Message>()
         msgs.add(UserMessage(ContentList.ofText(prompt), nowMs()))
         // maxTokens 32768：兼容推理模型（reasoning_content 思考过程 + 正文摘要都留足预算）
@@ -74,14 +74,19 @@ public class Summarizer {
         let resp = this.provider.chat(req)
         let refs = ArrayList<Int64>()
         for (e in entries) { refs.add(e.ts) }
-        SummaryRecord(nowMs(), windowFrom, windowTo, useModel, refs, instructions, messageText(resp.message))
+        SummaryRecord(nowMs(), windowFrom, windowTo, useModel, refs, instructions, messageText(resp.message), groupKey: groupKey)
     }
 }
 
-func buildPrompt(windowFrom: Int64, windowTo: Int64, entries: ArrayList<EntryText>, instructions: String): String {
+func buildPrompt(windowFrom: Int64, windowTo: Int64, entries: ArrayList<EntryText>, instructions: String,
+    groupKey!: Option<String> = None): String {
     let sb = StringBuilder()
     sb.append("你是忆时塔（chronomem）的语义总结器。请把以下时间窗口内的时序记录提炼成结构化摘要。\n")
     sb.append("时间窗口: " + windowFrom.toString() + " ~ " + windowTo.toString() + "\n")
+    match (groupKey) {
+        case Some(g) => sb.append("本次总结仅针对分组【" + g + "】（其余分组请忽略）\n")
+        case None => ()
+    }
     if (instructions != "") {
         sb.append("额外要求: " + instructions + "\n")
     }

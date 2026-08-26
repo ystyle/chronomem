@@ -333,3 +333,91 @@ func handlers_recallSummaryModeAlignsLocalCalendar() {
     @Expect(resultText(rs).indexOf("1787673600000~1787759999999") != None, true)
     @Expect(resultText(rs).indexOf("1787702400000") != None, false)
 }
+
+// ---------- 按分组维度总结（summary_group_by） ----------
+
+// 建一个按 proj 分组、带 fake LLM、+08 时区的服务，同窗口写 2 个项目 + 1 条无 tag
+func groupedSvc(): MemoryService {
+    let s = MemoryService.openInMemory(
+        summarizer: Some(Summarizer(FakeSummarizerProvider("决策：A\n结论：B"), "fake")),
+        timeZone: TimeZone("UTC+08:00", Duration.hour * 8))
+    handleTypeCreate(s, argsFromJson("{\"name\":\"worklog\",\"levels\":[\"day\"],\"summary_group_by\":[\"proj\"]}"))
+    s
+}
+
+func makeGroupedData(s: MemoryService): Unit {
+    handleAppend(s, argsFromJson("{\"type\":\"worklog\",\"payload\":{\"t\":\"x1\"},\"ts\":1787673600000,\"tags\":{\"proj\":\"xisp\"}}"))
+    handleAppend(s, argsFromJson("{\"type\":\"worklog\",\"payload\":{\"t\":\"x2\"},\"ts\":1787680000000,\"tags\":{\"proj\":\"xisp\"}}"))
+    handleAppend(s, argsFromJson("{\"type\":\"worklog\",\"payload\":{\"t\":\"c1\"},\"ts\":1787690000000,\"tags\":{\"proj\":\"chronomem\"}}"))
+    handleAppend(s, argsFromJson("{\"type\":\"worklog\",\"payload\":{\"t\":\"u1\"},\"ts\":1787700000000}"))   // 无 proj → 未分组
+}
+
+@Test
+func handlers_typeCreateWithSummaryGroupBy() {
+    let s = svc()
+    let r = handleTypeCreate(s, argsFromJson("{\"name\":\"worklog\",\"levels\":[\"day\"],\"summary_group_by\":[\"proj\"]}"))
+    @Expect(resultText(r).indexOf("按分组总结") != None, true)
+    let ti = handleTypeInfo(s, argsFromJson("{\"name\":\"worklog\"}"))
+    @Expect(resultText(ti).indexOf("分组维度") != None, true)
+    // 超 2 维 → 拒绝
+    let r2 = handleTypeCreate(s, argsFromJson("{\"name\":\"t\",\"summary_group_by\":[\"a\",\"b\",\"c\"]}"))
+    @Expect(r2.isError, true)
+}
+
+@Test
+func handlers_summarizeGroupsByProj() {
+    let s = groupedSvc()
+    makeGroupedData(s)
+    let r = handleSummarize(s, argsFromJson("{\"type\":\"worklog\",\"from\":1787673600000,\"to\":1787759999999}"))
+    @Expect(resultText(r).indexOf("已提交后台总结任务") != None, true)
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
+    // summaries 应有 3 条（xisp / chronomem / 未分组），各带 groupKey
+    let rs = handleSummaries(s, argsFromJson("{\"type\":\"worklog\"}"))
+    let txt = resultText(rs)
+    @Expect(txt.indexOf("【xisp】") != None, true)
+    @Expect(txt.indexOf("【chronomem】") != None, true)
+    @Expect(txt.indexOf("【未分组】") != None, true)
+    // recall mode=summary 不指定 group → 全部分组
+    let rc = handleRecall(s, argsFromJson("{\"type\":\"worklog\",\"granularity\":\"day\",\"windowStartMs\":1787673600000,\"mode\":\"summary\"}"))
+    let rct = resultText(rc)
+    @Expect(rct.indexOf("【xisp】") != None, true)
+    @Expect(rct.indexOf("【chronomem】") != None, true)
+    // recall mode=summary 指定 group=xisp → 只返回 xisp
+    let rc2 = handleRecall(s, argsFromJson("{\"type\":\"worklog\",\"granularity\":\"day\",\"windowStartMs\":1787673600000,\"mode\":\"summary\",\"group\":\"xisp\"}"))
+    let rct2 = resultText(rc2)
+    @Expect(rct2.indexOf("【xisp】") != None, true)
+    @Expect(rct2.indexOf("【chronomem】") != None, false)
+}
+
+@Test
+func handlers_summarizeGroupIdempotentAndRecompute() {
+    let s = groupedSvc()
+    makeGroupedData(s)
+    handleSummarize(s, argsFromJson("{\"type\":\"worklog\",\"from\":1787673600000,\"to\":1787759999999}"))
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
+    // 再次总结（不 recompute）→ 各分组已有总结，跳过
+    let r2 = handleSummarize(s, argsFromJson("{\"type\":\"worklog\",\"from\":1787673600000,\"to\":1787759999999}"))
+    @Expect(resultText(r2).indexOf("已提交") != None, true)
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
+    let txt2 = resultText(handleSummaries(s, argsFromJson("{\"type\":\"worklog\"}")))
+    // 不重复落库：仍是 3 条分组
+    @Expect(txt2.indexOf("【xisp】") != None, true)
+    @Expect(txt2.indexOf("【chronomem】") != None, true)
+    @Expect(txt2.indexOf("【未分组】") != None, true)
+    // recompute=true → 强制重算（会再落库同分组）
+    let r3 = handleSummarize(s, argsFromJson("{\"type\":\"worklog\",\"from\":1787673600000,\"to\":1787759999999,\"recompute\":true}"))
+    @Expect(resultText(r3).indexOf("已提交") != None, true)
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
+}
+
+@Test
+func handlers_summarizeWholeWindowWhenNoGroupBy() {
+    // 未配置 summary_group_by → 整窗一条，无 groupKey 标记
+    let s = plus8Svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"worklog\",\"levels\":[\"day\"]}"))
+    handleAppend(s, argsFromJson("{\"type\":\"worklog\",\"payload\":{},\"ts\":1787673600000}"))
+    handleSummarize(s, argsFromJson("{\"type\":\"worklog\",\"from\":1787673600000,\"to\":1787759999999}"))
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
+    let txt = resultText(handleSummaries(s, argsFromJson("{\"type\":\"worklog\"}")))
+    @Expect(txt.indexOf("【") != None, false)   // 无分组标记
+}

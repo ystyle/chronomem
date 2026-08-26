@@ -97,3 +97,60 @@ func registry_rejectsInvalidLevels() {
     @Expect(threw, true)
     store.close()
 }
+
+@Test
+func registry_rejectsInvalidSummaryGroupBy() {
+    let store = inMemStore()
+    let reg = MemoryTypeRegistry(store)
+
+    // 超过 2 维 → 拒绝
+    let three = ArrayList<String>()
+    three.add("proj")
+    three.add("branch")
+    three.add("phase")
+    var threw = false
+    try {
+        reg.create(TypeMeta("t1", "", None, dayWeekLevels(), None, false, None, TEST_BASE,
+            summaryGroupBy: Some(three)))
+    } catch (_) { threw = true }
+    @Expect(threw, true)
+
+    // 空数组 → 拒绝
+    let empty = ArrayList<String>()
+    threw = false
+    try {
+        reg.create(TypeMeta("t2", "", None, dayWeekLevels(), None, false, None, TEST_BASE,
+            summaryGroupBy: Some(empty)))
+    } catch (_) { threw = true }
+    @Expect(threw, true)
+
+    // 重复维度 → 拒绝
+    let dup = ArrayList<String>()
+    dup.add("proj")
+    dup.add("proj")
+    threw = false
+    try {
+        reg.create(TypeMeta("t3", "", None, dayWeekLevels(), None, false, None, TEST_BASE,
+            summaryGroupBy: Some(dup)))
+    } catch (_) { threw = true }
+    @Expect(threw, true)
+
+    // 非法 tag 键（含空格）→ 拒绝
+    let badKey = ArrayList<String>()
+    badKey.add("bad key")
+    threw = false
+    try {
+        reg.create(TypeMeta("t4", "", None, dayWeekLevels(), None, false, None, TEST_BASE,
+            summaryGroupBy: Some(badKey)))
+    } catch (_) { threw = true }
+    @Expect(threw, true)
+
+    // 合法 2 维 → 通过
+    let ok = ArrayList<String>()
+    ok.add("proj")
+    ok.add("branch")
+    reg.create(TypeMeta("t5", "", None, dayWeekLevels(), None, false, None, TEST_BASE,
+        summaryGroupBy: Some(ok)))
+    @Expect(reg.has("t5"), true)
+    store.close()
+}

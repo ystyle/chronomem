@@ -152,9 +152,72 @@ func requireGranularity(svc: MemoryService, name: String, granularity: String): 
 
 // ---------- 语义总结核心（mem/summarize 与 recall mode=summary 共用） ----------
 
+// 未分组（条目无任何分组维度 tag）的 groupKey 值
+public let UNGROUPED_GROUP = "\u{0000}未分组"
+
+// 从 Point 的 tags JSON 解析出指定 tag 的值（无则 None）
+func tagValueOf(p: Point, tag: String): Option<String> {
+    for ((k, v) in tagsPairs(p.tags)) {
+        if (k == tag) { return Some(v) }
+    }
+    None
+}
+
+// 按类型分组维度计算一条记录的 groupKey：
+// - 维度为空（类型未配 summaryGroupBy）→ None（整窗总结）
+// - 维度非空 → Some(各维度 tag 值以 \u0001 连接)；任一条目缺任一维度 tag → 归 UNGROUPED_GROUP
+func groupKeyOf(meta: TypeMeta, p: Point): Option<String> {
+    match (meta.summaryGroupBy) {
+        case None => None
+        case Some(dims) =>
+            let sb = StringBuilder()
+            var missing = false
+            for (d in dims) {
+                match (tagValueOf(p, d)) {
+                    case Some(v) =>
+                        if (sb.toString() != "") { sb.append("\u{0001}") }
+                        sb.append(v)
+                    case None => missing = true
+                }
+            }
+            if (missing) { Some(UNGROUPED_GROUP) } else if (sb.toString() == "") {
+                // 空维度数组已被校验拦截，不会走到；兜底
+                Some(UNGROUPED_GROUP)
+            } else {
+                Some(sb.toString())
+            }
+    }
+}
+
+// 把窗口内 points 按分组维度分桶；无分组维度时返回单桶（key = None）
+func bucketByGroup(meta: TypeMeta, points: ArrayList<Point>): HashMap<Option<String>, ArrayList<Point>> {
+    let buckets = HashMap<Option<String>, ArrayList<Point>>()
+    for (p in points) {
+        let key = groupKeyOf(meta, p)
+        match (buckets.get(key)) {
+            case Some(list) => list.add(p)
+            case None =>
+                let list = ArrayList<Point>()
+                list.add(p)
+                buckets[key] = list
+        }
+    }
+    buckets
+}
+
+// groupKey 的展示名：None → "整窗"；未分组 → "未分组"；否则原值
+func groupLabel(key: Option<String>): String {
+    match (key) {
+        case None => "整窗"
+        case Some(v) => if (v == UNGROUPED_GROUP) { "未分组" } else { v }
+    }
+}
+
 // 对 [winFrom, winTo] 窗口做语义总结；store=true 时落 <type>.summary，返回结果文本。
+// 类型配置了 summaryGroupBy 时按维度分桶，每桶独立总结（各自落一条 SummaryRecord）。
+// recompute=true 时忽略已有总结强制重算（否则已有同窗口同分组总结时跳过该分组）。
 func doSummarize(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64,
-    instructions: String, store: Bool): CallToolResult {
+    instructions: String, store: Bool, recompute!: Bool = false): CallToolResult {
     match (svc.summarizer) {
         case None => return toolError("未配置 LLM（LLM_BASE_URL / LLM_API_KEY / LLM_MODEL）")
         case Some(_) => ()
@@ -164,28 +227,74 @@ func doSummarize(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64,
     if (points.size == 0) {
         return CallToolResult.text("该窗口无条目，无需总结")
     }
-    let entries = ArrayList<EntryText>()
-    for (p in points) { entries.add(EntryText(p.ts, p.payload)) }
-    let rec = svc.summarizer.getOrThrow().summarize(winFrom, winTo, entries, instructions)
-    if (store) {
-        let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
-        stl.append(rec.ts, toJsonString(rec), HashMap<String, String>())
+    let meta = svc.registry.get(name).getOrThrow()
+    let buckets = bucketByGroup(meta, points)
+    if (buckets.size == 0) {
+        return CallToolResult.text("该窗口无条目，无需总结")
     }
-    let head = if (store) { "已生成总结 @" + fmtTs(rec.ts, svc.store.timeZoneOf()) + "（窗口 " + winFrom.toString() + "~" + winTo.toString() + "，模型 " + rec.model + "）\n" } else { "总结（未落库）:\n" }
-    CallToolResult.text(head + rec.text)
+    let sb = StringBuilder()
+    var anyStored = false
+    var anyGenerated = false
+    for ((groupKey, groupPoints) in buckets) {
+        // 幂等：已有覆盖该窗口的同分组总结则跳过（除非 recompute）
+        if (!recompute) {
+            if (latestOverlappingSummary(svc, name, winFrom, winTo, groupKey).isSome()) {
+                sb.append("【" + groupLabel(groupKey) + "】已有总结，跳过（recompute=true 可强制重算）\n")
+                continue
+            }
+        }
+        let entries = ArrayList<EntryText>()
+        for (p in groupPoints) { entries.add(EntryText(p.ts, p.payload)) }
+        let rec = svc.summarizer.getOrThrow().summarize(winFrom, winTo, entries, instructions, groupKey: groupKey)
+        if (store) {
+            let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
+            stl.append(rec.ts, toJsonString(rec), HashMap<String, String>())
+            anyStored = true
+        }
+        anyGenerated = true
+        let head = "【" + groupLabel(groupKey) + "】@" + fmtTs(rec.ts, svc.store.timeZoneOf()) + "\n"
+        sb.append(head + rec.text + "\n\n")
+    }
+    if (!anyGenerated) {
+        return CallToolResult.text("该窗口各分组均已有总结，无需重复（recompute=true 可强制重算）")
+    }
+    let tail = if (store && anyStored) { "\n（已落库 <type>.summary；可用 mem/summaries 查看）" } else { "" }
+    CallToolResult.text(sb.toString() + tail)
 }
 
-// 找覆盖 [winFrom, winTo] 的最新一条 SummaryRecord
-func latestOverlappingSummary(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64): Option<SummaryRecord> {
+// 找覆盖 [winFrom, winTo] 的最新一条 SummaryRecord；
+// groupKey 可选过滤（None = 整窗/无分组总结；Some(UNGROUPED_GROUP) = 未分组）
+func latestOverlappingSummary(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64,
+    groupKey: Option<String>): Option<SummaryRecord> {
+    let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
+    let points = stl.queryPoints(0, 0, 50, None)
+    for (p in points) {
+        let rec = fromJsonString<SummaryRecord>(p.payload)
+        if (rec.windowFrom <= winTo && rec.windowTo >= winFrom && rec.groupKey == groupKey) {
+            return Some(rec)
+        }
+    }
+    None
+}
+
+// 收集覆盖 [winFrom, winTo] 的总结（最新在前）。groupFilter 可选：
+// 空 = 全部；否则仅匹配该分组值（"未分组" → UNGROUPED_GROUP）
+func overlappingSummaries(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64,
+    groupFilter: String): ArrayList<SummaryRecord> {
+    let out = ArrayList<SummaryRecord>()
     let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
     let points = stl.queryPoints(0, 0, 50, None)
     for (p in points) {
         let rec = fromJsonString<SummaryRecord>(p.payload)
         if (rec.windowFrom <= winTo && rec.windowTo >= winFrom) {
-            return Some(rec)
+            if (groupFilter != "") {
+                let want = if (groupFilter == "未分组") { Some(UNGROUPED_GROUP) } else { Some(groupFilter) }
+                if (rec.groupKey != want) { continue }
+            }
+            out.add(rec)
         }
     }
-    None
+    out
 }
 
 // CallToolResult → 纯文本（拼 Text 块）
@@ -244,15 +353,32 @@ public func handleTypeCreate(svc: MemoryService, args: HashMap<String, JsonValue
             if (l.size > 0) { Some(l) } else { None }
         case _ => None
     }
+    // 总结分组维度（tag 键列表，如 ["proj"]，上限 2 个）
+    let summaryGroupBy: Option<ArrayList<String>> = match (args.get("summary_group_by")) {
+        case Some(JsonValue.Array(arr)) =>
+            let l = ArrayList<String>()
+            for (v in arr) {
+                match (v) {
+                    case JsonValue.String(s) => l.add(s)
+                    case _ => ()
+                }
+            }
+            if (l.size > 0) { Some(l) } else { None }
+        case _ => None
+    }
     let meta = TypeMeta(name, argStr(args, "description"), schema, levels, retention,
-        autoSummarize, summaryLevels, nowMs())
+        autoSummarize, summaryLevels, nowMs(), summaryGroupBy: summaryGroupBy)
     try {
         svc.registry.create(meta)
     } catch (e: Exception) {
         return toolError(e.toString())
     }
     let autoTag = if (autoSummarize) { "，自动总结" } else { "" }
-    CallToolResult.text("已创建类型 " + name + "（粒度 " + levelsString(levels) + autoTag + "）")
+    let groupTag = match (summaryGroupBy) {
+        case Some(dims) => "，按分组总结（" + dims.toString() + "）"
+        case None => ""
+    }
+    CallToolResult.text("已创建类型 " + name + "（粒度 " + levelsString(levels) + autoTag + groupTag + "）")
 }
 
 public func handleListTypes(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
@@ -280,6 +406,10 @@ public func handleTypeInfo(svc: MemoryService, args: HashMap<String, JsonValue>)
     sb.append("类型: " + name + "\n")
     sb.append("描述: " + svc.registry.get(name).getOrThrow().description + "\n")
     sb.append("粒度链: " + levelsString(svc.registry.get(name).getOrThrow().levels) + "\n")
+    match (svc.registry.get(name).getOrThrow().summaryGroupBy) {
+        case Some(dims) => sb.append("总结分组维度: " + dims.toString() + "\n")
+        case None => ()
+    }
     sb.append("条目数: " + svc.registry.countEntries(name).toString() + "\n")
     let tl = svc.registry.timelineOf(name).getOrThrow()
     for (l in svc.registry.get(name).getOrThrow().levels) {
@@ -354,10 +484,16 @@ public func handleRecall(svc: MemoryService, args: HashMap<String, JsonValue>): 
     let (winFrom, winTo) = tl.windowRangeOf(anchorFinal, granularity)
 
     if (isSummary) {
-        // 语义回顾：返回覆盖窗口的最新摘要；无摘要时按 summarize_on_miss 决定现算
-        match (latestOverlappingSummary(svc, name, winFrom, winTo)) {
-            case Some(rec) => return CallToolResult.text(rec.text)
-            case None => ()
+        // 语义回顾：返回覆盖窗口的摘要（可按分组过滤）；无摘要时按 summarize_on_miss 决定现算
+        let groupFilter = argStr(args, "group")
+        let matches = overlappingSummaries(svc, name, winFrom, winTo, groupFilter)
+        if (matches.size > 0) {
+            let sb = StringBuilder()
+            for (rec in matches) {
+                sb.append("【" + groupLabel(rec.groupKey) + "】\n")
+                sb.append(rec.text + "\n\n")
+            }
+            return CallToolResult.text(sb.toString())
         }
         if (summarizeOnMiss) {
             // 无摘要：提交后台总结任务，立即返回（LLM 在后台跑，不阻塞本请求）
@@ -424,8 +560,9 @@ public func handleSummarize(svc: MemoryService, args: HashMap<String, JsonValue>
     if (svc.summarizer.isNone()) {
         return toolError("未配置 LLM（LLM_BASE_URL / LLM_API_KEY / LLM_MODEL）")
     }
+    let recompute = argBool(args, "recompute", false)
     // 提交后台任务，立即返回（LLM 在后台线程跑，不阻塞本请求与任何其他请求）
-    let id = svc.summarizeRunner.getOrThrow().submit(name, winFrom, winTo, instructions, store)
+    let id = svc.summarizeRunner.getOrThrow().submit(name, winFrom, winTo, instructions, store, recompute: recompute)
     let modelOverride = argStr(args, "model")
     let modelNote = if (modelOverride != "" && svc.summarizer.getOrThrow().modelName() != modelOverride) {
         "（注：model=" + modelOverride + " 覆盖暂未生效，使用配置模型 " + svc.summarizer.getOrThrow().modelName() + "）"
@@ -469,7 +606,11 @@ public func handleSummaries(svc: MemoryService, args: HashMap<String, JsonValue>
     let sb = StringBuilder()
     for (p in points) {
         let rec = fromJsonString<SummaryRecord>(p.payload)
-        sb.append("[" + fmtTs(rec.ts, svc.store.timeZoneOf()) + " 窗口 " + rec.windowFrom.toString() + "~" + rec.windowTo.toString() + " " + rec.model + "]\n")
+        let groupTag = match (rec.groupKey) {
+            case Some(g) => "【" + groupLabel(Some(g)) + "】"
+            case None => ""
+        }
+        sb.append("[" + fmtTs(rec.ts, svc.store.timeZoneOf()) + " 窗口 " + rec.windowFrom.toString() + "~" + rec.windowTo.toString() + " " + rec.model + "]" + groupTag + "\n")
         sb.append(rec.text + "\n\n")
     }
     CallToolResult.text(sb.toString())
@@ -491,6 +632,7 @@ public func registerTools(server: McpServer, svc: MemoryService): Unit {
     s1.addField("retention", "string", "可选保留期（如 30d）")
     s1.addField("auto_summarize", "boolean", "后台自动语义总结（默认 false，opt-in；已闭合窗口自动长摘要）")
     s1.addField("summary_levels", "array", "自动总结粒度（可选；缺省 = 粒度链最粗 2 档，如 day/week）")
+    s1.addField("summary_group_by", "array", "总结分组维度（可选；tag 键列表，如 [\"proj\"]，上限 2 个；None=整窗总结）")
     let t1 = Tool("mem/type_create", "创建记忆类型（自动建 <type>.summary 总结 series）", s1)
     server.addTool(t1, { params => handleTypeCreate(svc, params.arguments) })
 
@@ -543,6 +685,7 @@ public func registerTools(server: McpServer, svc: MemoryService): Unit {
     s6.addField("windowStartMs", "integer", "锚点毫秒时间戳（缺省=当前时间）")
     s6.addField("mode", "string", "exact=下钻原始（零 LLM）/ summary=语义回顾")
     s6.addField("summarize_on_miss", "boolean", "summary 模式无摘要时是否现算落库（默认 false）")
+    s6.addField("group", "string", "summary 模式按分组过滤（可选；类型配置了分组维度时有效，如 proj 值；\"未分组\" 查无 tag 条目）")
     let t6 = Tool("mem/recall", "回想：mode=exact 沿物化桶下钻原始条目（零 LLM）；mode=summary 返回时段语义摘要", s6)
     server.addTool(t6, { params => handleRecall(svc, params.arguments) })
 

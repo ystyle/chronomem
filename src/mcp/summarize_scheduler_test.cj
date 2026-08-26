@@ -127,3 +127,44 @@ func scheduler_rejectsBadSummaryLevels() {
     let r = handleTypeCreate(s, argsFromJson("{\"name\":\"x\",\"levels\":[\"day\"],\"auto_summarize\":true,\"summary_levels\":[\"week\"]}"))
     @Expect(r.isError, true)
 }
+
+@Test
+func scheduler_groupedTypeSummarizesEachProjOnce() {
+    let s = schedSvc()
+    // 按 proj 分组 + auto_summarize
+    let r = handleTypeCreate(s, argsFromJson("{\"name\":\"log\",\"levels\":[\"day\"],\"auto_summarize\":true,\"summary_group_by\":[\"proj\"]}"))
+    @Expect(r.isError, false)
+    handleAppend(s, argsFromJson("{\"type\":\"log\",\"payload\":{},\"ts\":1704067200000,\"tags\":{\"proj\":\"a\"}}"))
+    handleAppend(s, argsFromJson("{\"type\":\"log\",\"payload\":{},\"ts\":1704100000000,\"tags\":{\"proj\":\"b\"}}"))
+    handleAppend(s, argsFromJson("{\"type\":\"log\",\"payload\":{},\"ts\":1704110000000}"))   // 无 proj → 未分组
+    let sch = SummarizeScheduler(s, 5, 60000)
+    let n = sch.runOnce(DAY_END + 60000 + 1000)
+    @Expect(n, Int64(1))   // 一个窗口 → 一次提交（内部按分组分桶）
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
+    let txt = resultText(handleSummaries(s, argsFromJson("{\"type\":\"log\"}")))
+    @Expect(txt.indexOf("【a】") != None, true)
+    @Expect(txt.indexOf("【b】") != None, true)
+    @Expect(txt.indexOf("【未分组】") != None, true)
+    // 幂等：全部已总结 → 不再提交
+    @Expect(sch.runOnce(DAY_END + 60000 + 1000), Int64(0))
+}
+
+@Test
+func scheduler_groupedTypeIdempotentPerGroup() {
+    let s = schedSvc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"log\",\"levels\":[\"day\"],\"auto_summarize\":true,\"summary_group_by\":[\"proj\"]}"))
+    handleAppend(s, argsFromJson("{\"type\":\"log\",\"payload\":{},\"ts\":1704067200000,\"tags\":{\"proj\":\"a\"}}"))
+    let sch = SummarizeScheduler(s, 5, 60000)
+    let now = DAY_END + 60000 + 1000
+    @Expect(sch.runOnce(now), Int64(1))
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
+    // 已有 a 的总结；新增 b 的条目后，应只补 b
+    handleAppend(s, argsFromJson("{\"type\":\"log\",\"payload\":{},\"ts\":1704110000000,\"tags\":{\"proj\":\"b\"}}"))
+    @Expect(sch.runOnce(now), Int64(1))   // 还有未总结的分组 b
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
+    let txt = resultText(handleSummaries(s, argsFromJson("{\"type\":\"log\"}")))
+    @Expect(txt.indexOf("【a】") != None, true)
+    @Expect(txt.indexOf("【b】") != None, true)
+    // 全部已总结 → 幂等
+    @Expect(sch.runOnce(now), Int64(0))
+}
