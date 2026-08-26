@@ -105,14 +105,14 @@ public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
 
 | 工具 | 作用 | 关键参数 |
 |---|---|---|
-| `mem/type_create` | 建类型（+ 自动建 `<type>.summary` series） | `name`(必填), `levels`?(粒度链，默认 §5.1), `description`?, `schema`?, `retention`?, `auto_summarize`?(默认false), `summary_levels`?(缺省=最粗2档) |
+| `mem/type_create` | 建类型（+ 自动建 `<type>.summary` series） | `name`(必填), `levels`?(粒度链，默认 §5.1), `description`?, `schema`?, `retention`?, `auto_summarize`?(默认false), `summary_levels`?(缺省=最粗2档), `summary_group_by`?(分组维度 tag 键列表，上限 2；None=整窗总结) |
 | `mem/list_types` | 类型列表（name/description/count/updatedAt） | — |
 | `mem/type_info` | 单类型详情（meta + 条目数 + 各粒度物化桶数） | `name`(必填) |
 | `mem/truncate` | 清空类型全部条目（TRUNCATE 语义，保留类型） | `type`(必填) |
 | `mem/type_delete` | 删除类型（DROP 语义；**守卫：原始+总结序列必须为空**） | `type`(必填) |
 | `mem/append` | 追加一条原始条目 | `type`(必填), `payload`(对象,必填), `tags`?, `ts`?(缺省=now) |
 | `mem/query` | 结构回想：最近 / 时间范围 / tag 过滤 | `type`(必填), `from`?, `to`?, `limit`?(默认20), `tag`? |
-| `mem/recall` | 回想：`mode=exact` 下钻原始条目（零 LLM）；`mode=summary` 返回时段语义摘要（依赖已生成或现算） | `type`(必填), `granularity`(必填，须在类型 levels 内), `windowStartMs`?, `mode`?(exact/summary，默认 exact), `summarize_on_miss`?(默认 false，仅 summary 模式) |
+| `mem/recall` | 回想：`mode=exact` 下钻原始条目（零 LLM）；`mode=summary` 返回时段语义摘要（依赖已生成或现算） | `type`(必填), `granularity`(必填，须在类型 levels 内), `windowStartMs`?, `mode`?(exact/summary，默认 exact), `summarize_on_miss`?(默认 false，仅 summary 模式), `group`?(summary 模式按分组过滤，如 proj 值；"未分组"查无 tag 条目) |
 | `mem/buckets` | 列某粒度物化桶（发现可用窗口 + 桶摘要） | `type`(必填), `granularity`(必填), `from`?, `to`? |
 | `mem/summarize` | 语义总结（见 §7）：**按粒度**总结（须在类型 levels 内）或**按显式窗口**总结（`from/to`，任意不规则时段 = 任务阶段） | `type`(必填), `from`?, `to`?, `granularity`?, `instructions`?, `model`?, `recompute`?, `store`?(默认true) |
 | `mem/summaries` | 查某类型的总结记录（最新在前） | `type`(必填), `from`?, `to`?, `limit`? |
@@ -136,10 +136,12 @@ mem/summarize { type, from/to 或 granularity+anchor, instructions?, model? }
 ```
 
 - **结构化锚点**（requirements §9.4「总结 schema」）：系统指令引导 LLM 输出固定章节——`决策 / 结论 / 待办 / 状态变更 / 关键词`，保证可回忆、可下钻、可再聚合。
+- **按分组维度分桶（summary_group_by）**：类型可配置 `summary_group_by`（tag 键列表，如 `["proj"]`，上限 2 个），总结时按该维度把窗口内条目**分桶**，每桶独立 LLM 总结、各自落一条 `SummaryRecord`（`groupKey` 记录分组值）。这样跨项目混在一起的条目（如一天内做了 xisp + chronomem）可分别成条，按项目回溯互不干扰；**无任何维度 tag 的条目归入「未分组」桶**（不丢失）。未配置则该类型整窗一条（向后兼容）。`mem/recall mode=summary` 支持 `group` 参数按分组过滤取回。
 - **输入窗口两种形态**：
   - **按粒度**：`granularity + anchor`（锚点所在物化桶的窗口）——自动对齐该类型的粒度链，适合规律性总结（如每天/每周）。
-  - **按显式窗口（任务阶段）**：`from/to` 任意不规则时段——**存储层不做「阶段」特殊机制**，由调用方（agent 客户端）在阶段结束时把「任务阶段」映射成 `from/to` 窗口调用；工作日志这类「一天 1 条、也可能一小时好几条」的不均匀分布，正是由「按天/周粒度」+「任务阶段显式窗口」两条腿覆盖。两条路径产生的 `SummaryRecord` 同存 `<type>.summary`，凭 `windowFrom/windowTo` 区分。
+  - **按显式窗口（任务阶段）**：`from/to` 任意不规则时段——**存储层不做「阶段」特殊机制**，由调用方（agent 客户端）在阶段结束时把「任务阶段」映射成 `from/to` 窗口调用；工作日志这类「一天 1 条、也可能一小时好几条」的不均匀分布，正是由「按天/周粒度」+「任务阶段显式窗口」两条腿覆盖。两条路径产生的 `SummaryRecord` 同存 `<type>.summary`，凭 `windowFrom/windowTo`（及 `groupKey`）区分。
 - **model 覆盖**：缺省用 `LLM_MODEL`；可传 `model` 单次覆盖。
+- **幂等**：已存在「覆盖窗口 + 同分组」的总结则跳过（`recompute=true` 可强制重算）；调度器按「窗口内所有分组都已总结」判断窗口是否完成，新增分组条目可触发补总结。
 
 ### 7.2 总结也是时序记录（可递归）
 
@@ -152,6 +154,7 @@ public struct SummaryRecord <: JsonSerializable & JsonDeserializable<SummaryReco
     public let refs: ArrayList<Int64>      // 被总结的条目 ts（原始条目 或 更低层总结）
     public let instructions: String
     public let text: String                 // 结构化摘要（决策/结论/待办/状态变更）
+    public let groupKey: Option<String>     // 分组值（按 summary_group_by 分桶时；None = 整窗/未分组维度）
 }
 ```
 
@@ -168,7 +171,7 @@ public struct SummaryRecord <: JsonSerializable & JsonDeserializable<SummaryReco
   - **per-type opt-in**：`type_create` 传 `auto_summarize=true` 才参与（默认 false，未 opt-in 的类型零 LLM）；
   - **目标粒度**：`summary_levels` 可配，缺省 = 粒度链最粗 2 档（如 day/week，呼应「总结到周」）；
   - **窗口闭合 + 沉降**：只总结已结束且超过沉降期（默认 10min）的窗口，防漏窗口末尾条目；
-  - **幂等**：已覆盖摘要的窗口不重跑；
+  - **幂等**：窗口内所有分组（含未分组）都已有覆盖摘要才视为完成，不重跑；新增分组条目会触发补总结；
   - **每轮上限**：`CHRONOLOG_SUMMARY_MAX_PER_RUN`（默认 5）次 LLM 调用/轮。
 - **语义回顾的懒计算**：`mem/recall mode=summary` 遇目标时段无摘要时，`summarize_on_miss=true` 会现算并落库（等同一次 `mem/summarize`，有 LLM 成本与写副作用）；`false`（默认）则提示「该时段尚无语义摘要，请先 summarize」。
 - **结构物化 ≠ 语义总结**：结构物化（引用链/数值聚合）由 `MaterializeScheduler`（cron-cj，默认 `@every 1m`）自动跑，**零 LLM 成本**、幂等、空窗口零成本。

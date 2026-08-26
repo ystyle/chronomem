@@ -5,7 +5,7 @@ import std.collection.*
 import std.sync.Mutex
 import stdx.encoding.json.stream.*
 
-// 记忆类型元数据（固定结构，json.stream 序列化；schema/retention/summaryLevels 可空）。
+// 记忆类型元数据（固定结构，json.stream 序列化；schema/retention/summaryLevels/summaryGroupBy 可空）。
 // 落库于 tsdb `meta` series（tag=name 定位），重启时重建注册表。
 public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
     public let name: String                 // 类型名（白名单 [A-Za-z0-9_/-]，如 worklog、proj/decisions）
@@ -15,11 +15,13 @@ public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
     public let retention: Option<String>    // 可选保留期（如 "30d"，后续接入 tsdb setRetention）
     public let autoSummarize: Bool          // 后台自动语义总结（默认 false，opt-in；§7.3）
     public let summaryLevels: Option<ArrayList<String>>  // 自动总结粒度（缺省 = 最粗 2 档）
+    public let summaryGroupBy: Option<ArrayList<String>> // 总结分组维度（tag 键列表，如 ["proj"]，上限 2 个；None=不分）
     public let createdAt: Int64
 
     public init(name: String, description: String, schema: Option<String>,
         levels: ArrayList<String>, retention: Option<String>,
-        autoSummarize: Bool, summaryLevels: Option<ArrayList<String>>, createdAt: Int64) {
+        autoSummarize: Bool, summaryLevels: Option<ArrayList<String>>, createdAt: Int64,
+        summaryGroupBy!: Option<ArrayList<String>> = None) {
         this.name = name
         this.description = description
         this.schema = schema
@@ -27,6 +29,7 @@ public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
         this.retention = retention
         this.autoSummarize = autoSummarize
         this.summaryLevels = summaryLevels
+        this.summaryGroupBy = summaryGroupBy
         this.createdAt = createdAt
     }
 
@@ -39,6 +42,7 @@ public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
         w.writeName("retention").writeValue(this.retention)
         w.writeName("autoSummarize").writeValue(this.autoSummarize)
         w.writeName("summaryLevels").writeValue(this.summaryLevels)
+        w.writeName("summaryGroupBy").writeValue(this.summaryGroupBy)
         w.writeName("createdAt").writeValue(this.createdAt)
         w.endObject()
     }
@@ -51,6 +55,7 @@ public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
         var retention: Option<String> = None
         var autoSummarize = false
         var summaryLevels: Option<ArrayList<String>> = None
+        var summaryGroupBy: Option<ArrayList<String>> = None
         var createdAt = Int64(0)
         r.startObject()
         while (r.peek() != EndObject) {
@@ -62,12 +67,13 @@ public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
                 case "retention" => retention = r.readValue<Option<String>>()
                 case "autoSummarize" => autoSummarize = r.readValue<Bool>()
                 case "summaryLevels" => summaryLevels = r.readValue<Option<ArrayList<String>>>()
+                case "summaryGroupBy" => summaryGroupBy = r.readValue<Option<ArrayList<String>>>()
                 case "createdAt" => createdAt = r.readValue<Int64>()
                 case _ => r.skip()
             }
         }
         r.endObject()
-        TypeMeta(name, description, schema, levels, retention, autoSummarize, summaryLevels, createdAt)
+        TypeMeta(name, description, schema, levels, retention, autoSummarize, summaryLevels, createdAt, summaryGroupBy: summaryGroupBy)
     }
 }
 
@@ -101,6 +107,7 @@ public class MemoryTypeRegistry {
         MemoryTypeRegistry.validateTypeName(meta.name)
         Timeline.validateLevels(meta.levels)
         MemoryTypeRegistry.validateSummaryLevels(meta)
+        MemoryTypeRegistry.validateSummaryGroupBy(meta)
         synchronized(this.lock) {
             if (this.types.contains(meta.name)) {
                 throw Exception("类型已存在: " + meta.name)
@@ -208,6 +215,49 @@ public class MemoryTypeRegistry {
                     }
                 }
             case None => ()
+        }
+    }
+
+    // 校验 summaryGroupBy：总结分组维度（tag 键列表）。
+    // 约束：最多 2 个维度；每个必须是合法 tag 键名（非空、无非法字符，见 validateTagKey）。
+    public static func validateSummaryGroupBy(meta: TypeMeta): Unit {
+        match (meta.summaryGroupBy) {
+            case Some(keys) =>
+                if (keys.size == 0) {
+                    throw Exception("summary_group_by 不能为空数组（不设则按整窗总结）")
+                }
+                if (keys.size > 2) {
+                    throw Exception("summary_group_by 维度上限 2 个（当前 " + keys.size.toString() + " 个）：" + keys.toString())
+                }
+                for (k in keys) {
+                    MemoryTypeRegistry.validateTagKey(k)
+                }
+                // 去重（同键重复无意义）
+                let seen = HashSet<String>()
+                for (k in keys) {
+                    if (seen.contains(k)) {
+                        throw Exception("summary_group_by 重复维度: " + k)
+                    }
+                    seen.add(k)
+                }
+            case None => ()
+        }
+    }
+
+    // 分组维度 tag 键名校验：非空、不含空白/等号/逗号/花括号（会被 tags JSON / tag=value 语法混淆）
+    public static func validateTagKey(k: String): Unit {
+        if (k == "") {
+            throw Exception("分组维度 tag 键名不能为空")
+        }
+        for (c in k.runes()) {
+            let v = UInt32(c)
+            let ok = (v >= UInt32(97) && v <= UInt32(122)) ||   // a-z
+                (v >= UInt32(65) && v <= UInt32(90)) ||         // A-Z
+                (v >= UInt32(48) && v <= UInt32(57)) ||         // 0-9
+                v == UInt32(95) || v == UInt32(45) || v == UInt32(46) || v == UInt32(47)   // _ - . /
+            if (!ok) {
+                throw Exception("非法分组维度 tag 键: " + k + "（仅允许字母/数字/_-./）")
+            }
         }
     }
 

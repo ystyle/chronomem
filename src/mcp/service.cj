@@ -79,17 +79,19 @@ func resolveTimeZone(id: String): TimeZone {
     }
 }
 
-// 开箱即用默认类型：worklog 工作日志（levels [day,week] + auto_summarize + 建议 schema）。
+// 开箱即用默认类型：worklog 工作日志（levels [day,week] + auto_summarize + 按 proj 分组总结）。
 // 幂等：已存在则跳过。任务阶段/任务完成时追加一条 + 总结，见工作区 AGENTS.md 约定。
 func seedWorklog(registry: MemoryTypeRegistry): Unit {
     if (registry.has("worklog")) { return }
     let levels = ArrayList<String>()
     levels.add("day")
     levels.add("week")
+    let groupBy = ArrayList<String>()
+    groupBy.add("proj")
     let meta = TypeMeta(
         "worklog",
-        "工作日志（默认类型）：任务阶段/任务完成时追加一条工作日志，随任务窗口总结",
+        "工作日志（默认类型）：任务阶段/任务完成时追加一条工作日志，按天+按项目分组总结",
         Some("{\"payload\":{\"task\":\"string\",\"status\":\"string\",\"outcome\":\"string\",\"decisions\":\"string\",\"next\":\"string\"},\"tags\":{\"proj\":\"string\",\"branch\":\"string\"}}"),
-        levels, None, true, None, nowMs())
+        levels, None, true, None, nowMs(), summaryGroupBy: Some(groupBy))
     registry.create(meta)
 }

@@ -18,14 +18,17 @@ public class SummarizeJob {
     public let winTo: Int64
     public let instructions: String
     public let store: Bool
+    public let recompute: Bool
 
-    public init(id: Int64, typeName: String, winFrom: Int64, winTo: Int64, instructions: String, store: Bool) {
+    public init(id: Int64, typeName: String, winFrom: Int64, winTo: Int64, instructions: String, store: Bool,
+        recompute!: Bool = false) {
         this.id = id
         this.typeName = typeName
         this.winFrom = winFrom
         this.winTo = winTo
         this.instructions = instructions
         this.store = store
+        this.recompute = recompute
     }
 }
 
@@ -38,6 +41,9 @@ public class SummarizeJobRunner {
     private let queue = ArrayList<SummarizeJob>()
     private let states = HashMap<Int64, String>()
     private let results = HashMap<Int64, String>()
+    // 进行中的窗口（type|winFrom → id）：任务提交加入、进入终态移除。
+    // 供调度器判断「该窗口是否已有后台任务在跑」（避免同窗口重复提交；任务完成后自动解除，允许补总结）。
+    private let activeWindows = HashMap<String, Int64>()
     private var nextId = Int64(0)
     private var running = false
     private var spawned = false
@@ -48,15 +54,26 @@ public class SummarizeJobRunner {
     }
 
     // 提交后台总结任务，立即返回 jobId（不执行 LLM 调用）
-    public func submit(typeName: String, winFrom: Int64, winTo: Int64, instructions: String, store: Bool): Int64 {
+    public func submit(typeName: String, winFrom: Int64, winTo: Int64, instructions: String, store: Bool,
+        recompute!: Bool = false): Int64 {
         synchronized(this.lock) {
             this.nextId += 1
             let id = this.nextId
-            this.queue.add(SummarizeJob(id, typeName, winFrom, winTo, instructions, store))
+            this.queue.add(SummarizeJob(id, typeName, winFrom, winTo, instructions, store, recompute: recompute))
             this.states[id] = "pending"
+            this.activeWindows[this.windowKey(typeName, winFrom)] = id
             this.cond.notifyAll()
             id
         }
+    }
+
+    // 该窗口是否已有提交后尚未完成的后台任务（pending/running 均算）
+    public func isWindowActive(typeName: String, winFrom: Int64): Bool {
+        synchronized(this.lock) { this.activeWindows.contains(this.windowKey(typeName, winFrom)) }
+    }
+
+    private func windowKey(typeName: String, winFrom: Int64): String {
+        typeName + "|" + winFrom.toString()
     }
 
     // 启动后台执行线程（幂等）
@@ -153,7 +170,8 @@ public class SummarizeJobRunner {
         var finalStatus = "done"
         var finalText = ""
         try {
-            let r = doSummarize(this.svc, j.typeName, j.winFrom, j.winTo, j.instructions, j.store)
+            let r = doSummarize(this.svc, j.typeName, j.winFrom, j.winTo, j.instructions, j.store,
+                recompute: j.recompute)
             if (r.isError) {
                 finalStatus = "failed"
                 finalText = resultText(r)
@@ -166,6 +184,8 @@ public class SummarizeJobRunner {
         }
         synchronized(this.lock) {
             this.states[j.id] = finalStatus
+            // 任务进入终态 → 解除窗口占用（允许调度器对该窗口重新评估/补总结）
+            this.activeWindows.remove(this.windowKey(j.typeName, j.winFrom))
             // failed 时总是暂存错误文本（便于 mem/summarize_status 定位）；成功且 store=false 才暂存结果
             if (finalStatus == "failed") {
                 this.results[j.id] = "ERROR: " + finalText
