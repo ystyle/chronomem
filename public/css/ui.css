@@ -11,7 +11,10 @@
   --sans:-apple-system,"PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif;
   --r:10px; --r-s:7px;
 
-  /* Element Plus 暗色变量覆盖（EP 组件在深色主题下协调） */
+}
+
+/* EP 暗色变量覆盖：放 body 级（优先级高于 element-plus.css 的 :root） */
+body{
   --el-color-primary:#3ec5e8; --el-color-primary-light-3:#2fa9cc; --el-color-primary-light-5:#2788a8;
   --el-color-primary-light-7:#1e6680; --el-color-primary-light-8:#1a5470; --el-color-primary-light-9:#123a4d; --el-color-primary-dark-2:#2fa9cc;
   --el-color-success:#37d39a; --el-color-warning:#f0a35a; --el-color-danger:#f2646e; --el-color-error:#f2646e; --el-color-info:#8a94a8;
@@ -22,6 +25,7 @@
   --el-mask-color:rgba(5,8,14,.72);
   --el-box-shadow:0 8px 28px rgba(0,0,0,.45);
   --el-border-radius-base:7px;
+  --el-input-bg-color:var(--panel-2);
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.6;
@@ -277,7 +281,15 @@ textarea.ui-inp{font-family:var(--mono);font-size:11.5px;resize:vertical;min-hei
 .ui-gcell{min-width:0}
 .ui-notice{margin-top:10px}
 /* EP 组件在深色下微调 */
-.el-input__wrapper,.el-select__wrapper,.el-textarea__inner{background:var(--panel-2)}
+.el-input__wrapper,.el-select__wrapper{background-color:var(--panel-2)}
+.el-input__wrapper.is-focus,.el-select__wrapper.is-focused{box-shadow:0 0 0 1px var(--accent) inset}
+.el-input__inner,.el-select__input{color:var(--text)}
+.el-select-dropdown,.el-popper{background:var(--panel-3);border-color:var(--border-2)}
+.el-select-dropdown__item{color:var(--text)}
+.el-select-dropdown__item.is-hovering,.el-select-dropdown__item:hover{background:var(--accent-soft)}
+.el-select-dropdown__item.is-selected{color:var(--accent)}
+.el-popper.is-light{background:var(--panel-3);border-color:var(--border-2);color:var(--text)}
+.el-dialog,.el-message-box{background:var(--panel-2)}
 .el-form-item__label{color:var(--muted);font-size:12px}
 .el-radio__label,.el-checkbox__label{color:var(--text);font-size:12.5px}
 

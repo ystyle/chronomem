@@ -10,7 +10,7 @@ import chronomem.mcp.MemoryService
 
 // UI 静态资源目录（构建期由 @importCSS/手工维护；运行时相对 cwd = chronomem/）
 public let UI_CSS_DIR = "public/css"
-public let UI_CSS = "/css/ui.css?v=1"
+public let UI_CSS = "/css/ui.css?v=2"
 
 // 构建并启动 UI 服务（阻塞，供 spawn 线程调用）
 public func serveUi(svc: MemoryService, host: String, port: UInt16): Unit {
