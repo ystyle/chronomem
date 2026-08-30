@@ -18,7 +18,7 @@ import std.sort.*
 
 // ==================== 语义总结 ====================
 
-@Page["/summary", "语义总结", uiNoGuard, UiLayout]
+@Page["/summary", "语义总结", uiNoGuard]
 public class SummaryPage <: Component {
     var typeName = Signal<String>("")
     var mode = Signal<String>("granularity")
@@ -38,7 +38,6 @@ public class SummaryPage <: Component {
     }
 
     public func render(): IComponent {
-        setNav("summary")
         let svc = svc()
         this.ensureType(svc)
         let children = ArrayList<IComponent>()
@@ -125,7 +124,7 @@ public class SummaryPage <: Component {
 
 // ==================== 记忆类型 ====================
 
-@Page["/types", "记忆类型", uiNoGuard, UiLayout]
+@Page["/types", "记忆类型", uiNoGuard]
 public class TypesPage <: Component {
     var createOpen = Signal<Bool>(false)
     var detailOpen = Signal<Bool>(false)
@@ -143,7 +142,6 @@ public class TypesPage <: Component {
     public init() {}
 
     public func render(): IComponent {
-        setNav("types")
         let svc = svc()
         let children = ArrayList<IComponent>()
         for (__it in pageTitle("记忆类型", "类型 = 一条独立 series（原始条目 + 同名 .summary 总结），粒度链是类型级配置：高频类型保分钟档，低频类型收敛到 day/week。")) { children.add(__it) }
@@ -173,7 +171,7 @@ public class TypesPage <: Component {
         if (this.dangerOpen.get()) {
             children.add(this.dangerDialog(svc))
         }
-        div(children.toArray(), attrs: Some(a("ui-page")))
+        uiLayout("types", div(children.toArray(), attrs: Some(a("ui-page"))))
     }
 
     func typeTable(svc: MemoryService): IComponent {
@@ -369,7 +367,7 @@ public class TypesPage <: Component {
 
 // ==================== 追加条目 ====================
 
-@Page["/append", "追加条目", uiNoGuard, UiLayout]
+@Page["/append", "追加条目", uiNoGuard]
 public class AppendPage <: Component {
     var typeName = Signal<String>("")
     var task = Signal<String>("")
@@ -392,7 +390,6 @@ public class AppendPage <: Component {
     }
 
     public func render(): IComponent {
-        setNav("append")
         let svc = svc()
         this.ensureType(svc)
         let children = ArrayList<IComponent>()
@@ -442,7 +439,7 @@ public class AppendPage <: Component {
         preview.add(cardTitle("实时 payload", "task/status/outcome/decisions/next + tags"))
         preview.add(jsonPreview(this.buildPayload()))
         children.add(div(preview.toArray(), attrs: Some(a("ui-card"))))
-        div(children.toArray(), attrs: Some(a("ui-page")))
+        uiLayout("append", div(children.toArray(), attrs: Some(a("ui-page"))))
     }
 
     // 长文本：VNode textarea + EP 样式（el-textarea__inner），走 bind 通道

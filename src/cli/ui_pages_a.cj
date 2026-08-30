@@ -27,18 +27,14 @@ public let UI_NAV: Array<(String, String, String)> = [
     ("/append", "append", "追加条目"),
 ]
 
-public var uiNavActive: String = "overview"
-
-public func setNav(key: String): Unit {
-    uiNavActive = key
-}
-
 public func uiNoGuard(_: HashMap<String, String>): Option<String> { None }
 
-public func UiLayout(page: IComponent): IComponent {
+// 布局 = 页面内调用（cjreg 姿势）：页面 render() 顶层包 uiLayout(activePath, content)，
+// 重渲染整树自带 header/侧栏（框架 @Page layout 参数会在发送时二次套层，替换根时丢菜单）
+public func uiLayout(activePath: String, page: IComponent): IComponent {
     let children = ArrayList<IComponent>()
     children.add(uiHeader())
-    children.add(uiSide())
+    children.add(uiSide(activePath))
     children.add(div([div([page], attrs: Some(a("ui-page")))], attrs: Some(a("ui-main"))))
     div(children.toArray(), attrs: Some(a("ui-shell")))
 }
@@ -63,10 +59,10 @@ func uiHeader(): IComponent {
     ], attrs: Some(a("ui-header")))
 }
 
-func uiSide(): IComponent {
+func uiSide(activePath0: String): IComponent {
     let children = ArrayList<IComponent>()
     for ((path, key, label) in UI_NAV) {
-        let active = uiNavActive == key
+        let active = activePath0 == key
         var cls = "ui-nav"
         if (active) { cls = "ui-nav active" }
         var icon = "◈"
@@ -100,12 +96,11 @@ func uiSide(): IComponent {
 
 // ==================== 总览 ====================
 
-@Page["/", "总览", uiNoGuard, UiLayout]
+@Page["/", "总览", uiNoGuard]
 public class OverviewPage <: Component {
     public init() {}
 
     public func render(): IComponent {
-        setNav("overview")
         let svc = svc()
         let types = uiListTypes(svc)
         var totalEntries = Int64(0)
@@ -159,7 +154,7 @@ public class OverviewPage <: Component {
 
 // ==================== 塔视图 ====================
 
-@Page["/tower", "塔视图", uiNoGuard, UiLayout]
+@Page["/tower", "塔视图", uiNoGuard]
 public class TowerPage <: Component {
     var selType = Signal<String>("")
     var selGran = Signal<String>("day")
@@ -183,15 +178,13 @@ public class TowerPage <: Component {
     }
 
     public func render(): IComponent {
-        setNav("tower")
         let svc = svc()
         this.ensureSel(svc)
         if (this.selType.get() == "") {
-            return div([
+            return uiLayout("tower", div([
                 htmlSpan("<div class=\"ui-title\">塔视图</div>"),
                 emptyBox("暂无记忆类型，无法建塔"),
-                div([text("")], attrs: Some(a("ui-page"))),
-            ], attrs: Some(a("ui-page")))
+            ], attrs: Some(a("ui-page"))))
         }
         let meta = uiGetType(svc, this.selType.get()).getOrThrow()
         let levels = sortLevels(meta.levels)
@@ -257,12 +250,12 @@ public class TowerPage <: Component {
         mainCol.add(div(bucketChildren.toArray(), attrs: Some(a("ui-card"))))
 
         let drill = this.drillPanel(svc, meta, buckets)
-        div([
+        uiLayout("tower", div([
             div([
                 div(mainCol.toArray(), attrs: Some(a("ui-tower-left"))),
                 drill,
             ], attrs: Some(a("ui-tower-grid"))),
-        ], attrs: Some(a("ui-page")))
+        ], attrs: Some(a("ui-page"))))
     }
 
     func drillPanel(svc: MemoryService, meta: TypeMeta, buckets: ArrayList<BucketRecord>): IComponent {
@@ -288,7 +281,7 @@ public class TowerPage <: Component {
 
 // ==================== 回想（双模式） ====================
 
-@Page["/recall", "回想", uiNoGuard, UiLayout]
+@Page["/recall", "回想", uiNoGuard]
 public class RecallPage <: Component {
     var mode = Signal<String>("raw")
     var qType = Signal<String>("")
@@ -310,7 +303,6 @@ public class RecallPage <: Component {
     }
 
     public func render(): IComponent {
-        setNav("recall")
         let svc = svc()
         this.ensureType(svc)
         let children = ArrayList<IComponent>()
@@ -318,7 +310,7 @@ public class RecallPage <: Component {
         let rawPane = TabPane([this.renderRaw(svc)], "raw", "精确回想 · 原始条目")
         let sumPane = TabPane([this.renderSummaryMode(svc)], "summary", "语义回顾 · 窗口摘要")
         children.add(div([Tabs([rawPane, sumPane]).bind(this.mode)], attrs: Some(a("ui-tabs-wrap"))))
-        div(children.toArray(), attrs: Some(a("ui-page")))
+        uiLayout("recall", div(children.toArray(), attrs: Some(a("ui-page"))))
     }
 
     // ---------- 精确回想 ----------
