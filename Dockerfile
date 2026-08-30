@@ -15,11 +15,14 @@ WORKDIR /app
 # 静态链接的 chronomem.cli（--static，无 libcangjie-runtime 依赖）
 COPY target/release/bin/chronomem.cli /app/chronomem.cli
 
+# Web 控制台静态资源（深色时间塔主题；serveStatic("/css", "public/css") 相对运行目录）
+COPY public/css /app/public/css
+
 # 数据目录（compose 挂载卷 $HOME/.chronolog：tsdb 时序库 + 类型注册表）
 RUN mkdir -p /home/app/.chronolog && chown -R app:app /home/app/.chronolog /app
 
 USER app
 ENV HOME=/home/app
 
-EXPOSE 8900
+EXPOSE 8900 8901
 CMD ["/app/chronomem.cli", "serve"]

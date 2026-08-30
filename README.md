@@ -57,6 +57,24 @@ LLM_BASE_URL=... LLM_API_KEY=... LLM_MODEL=... \
 
 > 未配置 LLM 时：结构回想/存储照常可用，`mem/summarize` 返回明确错误。
 
+## Web 控制台（内嵌，cjxt）
+
+服务启动时自动内嵌 **忆时塔 Web 控制台**（[cjxt](https://ystyle.top/cjxt) 服务端驱动 UI，深色「时间塔」主题）：
+页面与 MCP 服务同进程（数据经 `chronomem.ui` 同进程直连，无 HTTP 开销），浏览器访问 UI 端口即可。
+
+| 环境变量 | 默认 | 说明 |
+|---|---|---|
+| `CHRONOLOG_UI_PORT` | `8901` | Web 控制台端口（独立于 MCP 8900） |
+| `CHRONOLOG_UI_ENABLED` | `true` | 关闭控制台（只跑 MCP） |
+
+```bash
+# 本地开发（MCP 8900 + UI 8901 同进程）
+CHRONOLOG_DIR=~/.chronolog CHRONOLOG_PORT=8900 ./target/release/bin/chronomem.cli serve
+# 浏览器打开 http://127.0.0.1:8901
+```
+
+**页面**：总览（统计/类型卡/最近条目流）· 塔视图（粒度链分层可视化 → 时间桶 → 精确下钻原始条目）· 回想（精确回想 / 语义回顾·窗口摘要双模式）· 语义总结（后台任务触发 + SummaryRecord 列表）· 记忆类型（创建/详情/清空/删除守卫）· 追加条目（worklog 模板 + 实时 JSON 预览）。
+
 ## Docker 部署
 
 > 镜像 = 产物打包：宿主工具链编译（`cjpm build`，`--static` 无 libcangjie-runtime 依赖）→ COPY 进镜像，镜像内不重编译。
@@ -78,7 +96,7 @@ docker compose up -d --build
 - **先建好数据目录再 up**：`mkdir -p ~/docker/chronomem/data && chown -R 1000:1000 ~/docker/chronomem/data`（与容器内 `app` uid 1000 对齐；docker 自动建缺失目录时属主会是 root/nobody，届时用 `docker run --rm --user root -v .../data:/data chronomem:latest chown -R 1000:1000 /data` 修正）。
 - 容器内需 `CHRONOLOG_ADDR=0.0.0.0`（docker 端口映射走容器外部 IP，绑 127.0.0.1 会连不上）。
 - LLM 环境变量填在 `~/docker/chronomem/.env`（`LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`），不填则 summarize 报「未配置 LLM」，其余功能正常。
-- 端口 8900 由容器接管；更新 = `cd ~/docker/chronomem && docker compose up -d --build`（数据卷 `./data` 不动，零丢失）。
+- 端口 8900（MCP）与 8901（Web 控制台）由容器接管；更新 = `cd ~/docker/chronomem && docker compose up -d --build`（数据卷 `./data` 不动，零丢失）。
 
 ## 客户端接入
 
