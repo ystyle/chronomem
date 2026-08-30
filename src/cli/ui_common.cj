@@ -199,11 +199,21 @@ public func pointCard(p: Point): IComponent {
     ], attrs: Some(a("ui-point")))
 }
 
+// UTF-8 安全截断：字节切片必须停在多字节字符边界（中文 3 字节/字符）
+public func clampUtf8(s: String, limit: Int64): String {
+    if (s.size <= limit) { return s }
+    var cut = limit
+    // 若第 cut 字节是续字节（10xxxxxx），说明字符被切断：回退到字符末尾
+    while (cut > 0 && (s[cut] & 0xC0u8) == 0x80u8) {
+        cut -= 1
+    }
+    s[0..cut]
+}
+
 public func outcomePreview(meta: PayloadMeta): String {
     let out = meta.outcome
     if (out == "") { return meta.task }
-    if (out.size > 150) { return out[0..150] + "…" }
-    out
+    clampUtf8(out, 150) + "…"
 }
 
 // ---------- 塔层 ----------
@@ -336,7 +346,7 @@ public func typeCard(meta: TypeMeta, count: Int64): IComponent {
         foot.add(chip("", l))
     }
     let schemaText = match (meta.schema) {
-        case Some(sc) => "schema：" + (if (sc.size > 18) { sc[0..18] + "…" } else { sc })
+        case Some(sc) => "schema：" + (if (sc.size > 18) { clampUtf8(sc, 18) + "…" } else { sc })
         case None => "无 schema"
     }
     foot.add(badge(schemaText, "b"))
