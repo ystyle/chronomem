@@ -26,6 +26,16 @@ main() {
         let sumScheduler = SummarizeScheduler.fromConfig(svc, cfg)
         sumScheduler.start(spec: cfg.summaryCron)
     }
+    // Web UI（嵌入同进程）：spawn 独立线程跑 cjxt App（tang），与 MCP 服务并行；
+    // 页面直接调用 svc（同进程直连，无 HTTP 开销）。CHRONOLOG_UI_ENABLED=false 可关。
+    if (cfg.uiEnabled) {
+        let svcRef = svc
+        let host2 = cfg.addr
+        let port2 = cfg.uiPort
+        spawn {
+            serveUi(svcRef, host2, port2)
+        }
+    }
     let httpServer = ServerBuilder()
         .addr(cfg.addr)
         .port(cfg.port)

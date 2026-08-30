@@ -93,11 +93,14 @@ func uiApiAppendUnknownTypeRejected() {
 @Test
 func uiApiTypeInfoBucketCounts() {
     let svc = uiTestSvcWithWorklog([
+        (1787932800000, "{\"task\":\"c\"}", "{\"proj\":\"y\"}"),
         (1788019200000, "{\"task\":\"a\"}", "{\"proj\":\"x\"}"),
         (1788022800000, "{\"task\":\"b\"}", "{}"),
-        (1788105600000, "{\"task\":\"c\"}", "{\"proj\":\"y\"}"),
     ])
-    svc.store.materializeAll(nowMs())
+    // materialize 按锚点物化（历史窗口需显式锚点：调度器只在窗口闭合时物化当窗）
+    let tl0 = svc.registry.timelineOf("worklog").getOrThrow()
+    tl0.materialize(1787932800000, "测试")
+    tl0.materialize(1788019200000, "测试")
     let info = uiTypeInfo(svc, "worklog").getOrThrow()
     @Expect(info.entries, Int64(3))
     @Expect(info.bucketCounts.size, Int64(2))
@@ -115,7 +118,9 @@ func uiApiBucketsAndDrill() {
         (d1, "{\"task\":\"a\"}", "{}"),
         (d1 + 100000, "{\"task\":\"b\"}", "{}"),
     ])
-    svc.store.materializeAll(nowMs())
+    let tl2 = svc.registry.timelineOf("worklog").getOrThrow()
+    tl2.materialize(d2, "测试")
+    tl2.materialize(d1, "测试")
     let buckets = uiListBuckets(svc, "worklog", "day")
     @Expect(buckets.size, Int64(2))
     // 最早的桶（08-28）1 条，次桶（08-29）2 条
