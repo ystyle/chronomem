@@ -148,7 +148,7 @@ public class OverviewPage <: Component {
             }
         }
         children.add(div(flow.toArray(), attrs: Some(a("ui-card"))))
-        div(children.toArray(), attrs: Some(a("ui-page")))
+        uiLayout("overview", div(children.toArray(), attrs: Some(a("ui-page"))))
     }
 }
 

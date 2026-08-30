@@ -101,7 +101,7 @@ public class SummaryPage <: Component {
             for (s0 in sums) { list.add(summaryCard(s0)) }
         }
         children.add(div(list.toArray(), attrs: Some(a("ui-card"))))
-        div(children.toArray(), attrs: Some(a("ui-page")))
+        uiLayout("summary", div(children.toArray(), attrs: Some(a("ui-page"))))
     }
 
     func resolveWindow(svc: MemoryService): (Int64, Int64) {
