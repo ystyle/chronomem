@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>忆时塔 · chronomem 控制台（高保真原型）</title>
+<style>
+/* ============ 设计令牌：深色时间塔 ============ */
+:root{
+  --bg:#0a0d13; --bg-glow:#0d1220;
+  --panel:#10151e; --panel-2:#131a26; --panel-3:#182030;
+  --border:#1d2534; --border-2:#273044;
+  --text:#e6ebf4; --muted:#8a94a8; --faint:#5b6478;
+  --accent:#3ec5e8; --accent-soft:rgba(62,197,232,.14);
+  --violet:#7a6ff0; --blue:#5a8df0;
+  --gold:#e6b566; --gold-2:#e0a15a;
+  --ok:#37d39a; --warn:#f0a35a; --danger:#f2646e;
+  --mono:"SF Mono","JetBrains Mono","Cascadia Code",Consolas,monospace;
+  --sans:-apple-system,"PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif;
+  --r:10px; --r-s:7px;
+  --tower-h-10min:26px; --tower-h-30min:34px; --tower-h-1h:44px; --tower-h-day:58px; --tower-h-week:76px;
+  --c-10min:#46b1f4; --c-30min:#5a8df0; --c-1h:#8a7af0; --c-day:#e0a15a; --c-week:#e6c170;
+  --shadow:0 8px 28px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.6;
+  background-image:radial-gradient(1200px 700px at 78% -10%, rgba(62,197,232,.07), transparent 60%),
+                   radial-gradient(900px 600px at -10% 110%, rgba(122,111,240,.06), transparent 60%);}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#253043;border-radius:8px}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ============ 布局骨架 ============ */
+.app{display:grid;grid-template-columns:238px 1fr;grid-template-rows:60px 1fr;min-height:100vh}
+.header{grid-column:1/3;display:flex;align-items:center;gap:14px;padding:0 20px;border-bottom:1px solid var(--border);
+  background:linear-gradient(180deg,#0e1420,#0b0f18);position:sticky;top:0;z-index:30}
+.brand{display:flex;align-items:center;gap:11px;font-weight:700;font-size:16.5px;letter-spacing:.3px}
+.brand .cn{font-size:17px}.brand .en{color:var(--muted);font-weight:500;font-size:12px;letter-spacing:.6px}
+.brand-sub{color:var(--faint);font-size:12px;margin-top:-2px}
+.head-status{margin-left:auto;display:flex;gap:10px;align-items:center}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);
+  border:1px solid var(--border);background:var(--panel);padding:4px 10px;border-radius:99px}
+.pill .dot{width:7px;height:7px;border-radius:50%}
+.dot.ok{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+.dot.warn{background:var(--warn);box-shadow:0 0 6px var(--warn)}
+
+.side{grid-row:2/3;border-right:1px solid var(--border);background:linear-gradient(180deg,#0c1019,#0a0d13);
+  display:flex;flex-direction:column;padding:14px 10px 12px;gap:4px;position:sticky;top:60px;height:calc(100vh - 60px)}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--r-s);color:var(--muted);
+  cursor:pointer;font-size:13.5px;border:1px solid transparent;user-select:none;transition:all .15s}
+.nav-item:hover{color:var(--text);background:var(--panel)}
+.nav-item.active{color:var(--text);background:linear-gradient(90deg,var(--accent-soft),transparent 75%);
+  border-color:#1c3a4a;box-shadow:inset 2px 0 0 var(--accent)}
+.nav-item .ico{width:17px;height:17px;flex:none;opacity:.9}
+.nav-sep{height:1px;background:var(--border);margin:10px 6px}
+.side-info{margin-top:auto;border:1px solid var(--border);border-radius:var(--r);background:var(--panel);padding:10px 12px;font-size:11.5px;color:var(--muted)}
+.side-info .row{display:flex;justify-content:space-between;padding:2.5px 0}
+.side-info .row b{color:var(--text);font-weight:500;font-family:var(--mono);font-size:11px}
+
+.main{grid-row:2/3;overflow-y:auto;padding:22px 26px 60px}
+.view{display:none;max-width:1280px;margin:0 auto}
+.view.active{display:block}
+
+/* ============ 通用组件 ============ */
+h1.page-title{font-size:19px;font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:10px}
+.page-sub{color:var(--muted);font-size:12.5px;margin-bottom:20px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px}
+.card + .card{margin-top:16px}
+.card-title{font-size:13.5px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.card-title .hint{font-weight:400;color:var(--faint);font-size:11.5px;margin-left:auto}
+.btn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--border-2);background:var(--panel-2);
+  color:var(--text);border-radius:var(--r-s);padding:7px 14px;font-size:12.5px;cursor:pointer;transition:all .15s;font-family:var(--sans)}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.primary{background:linear-gradient(135deg,#2fb3d8,#2778e6);border-color:transparent;color:#fff;font-weight:600}
+.btn.primary:hover{filter:brightness(1.12)}
+.btn.danger{color:var(--danger);border-color:rgba(242,100,110,.4)}
+.btn.danger:hover{background:rgba(242,100,110,.12);border-color:var(--danger)}
+.btn.ghost{background:transparent}
+.btn.sm{padding:4px 10px;font-size:11.5px}
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--border-2);color:var(--muted);background:var(--panel-2)}
+.badge.g{color:var(--ok);border-color:rgba(55,211,154,.35)}
+.badge.b{color:var(--accent);border-color:rgba(62,197,232,.35)}
+.badge.v{color:var(--violet);border-color:rgba(122,111,240,.4)}
+.badge.o{color:var(--gold);border-color:rgba(230,181,102,.4)}
+.badge.r{color:var(--danger);border-color:rgba(242,100,110,.4)}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:2px 9px;border-radius:6px;font-family:var(--mono);letter-spacing:.2px}
+.chip.c10{background:rgba(70,177,244,.16);color:#7fc8f7;border:1px solid rgba(70,177,244,.45)}
+.chip.c30{background:rgba(90,141,240,.16);color:#9db7f5;border:1px solid rgba(90,141,240,.45)}
+.chip.c1h{background:rgba(138,122,240,.16);color:#b3a7f7;border:1px solid rgba(138,122,240,.45)}
+.chip.cday{background:rgba(224,161,90,.16);color:#ecbc7e;border:1px solid rgba(224,161,90,.45)}
+.chip.cweek{background:rgba(230,193,112,.16);color:#f0d18c;border:1px solid rgba(230,193,112,.45)}
+.mono{font-family:var(--mono)}
+.muted{color:var(--muted)}.faint{color:var(--faint)}
+table.t{width:100%;border-collapse:collapse;font-size:12.5px}
+table.t th{text-align:left;color:var(--faint);font-weight:500;font-size:11.5px;padding:7px 10px;border-bottom:1px solid var(--border)}
+table.t td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+table.t tr:last-child td{border-bottom:none}
+table.t tr:hover td{background:rgba(62,197,232,.045)}
+.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
+.stat{border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;background:linear-gradient(160deg,var(--panel),var(--panel-2));position:relative;overflow:hidden}
+.stat .k{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.stat .v{font-size:26px;font-weight:700;margin-top:6px;font-family:var(--mono)}
+.stat .v small{font-size:12px;color:var(--faint);font-weight:400;margin-left:6px;font-family:var(--sans)}
+.stat .glow{position:absolute;right:-30px;top:-30px;width:110px;height:110px;border-radius:50%;filter:blur(34px);opacity:.25}
+
+/* ============ 总览 ============ */
+.type-card{border:1px solid var(--border);border-radius:var(--r);background:linear-gradient(155deg,#111828,#0f141e);
+  padding:16px 18px;position:relative;overflow:hidden}
+.type-card .tc-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.type-card .tc-name{font-family:var(--mono);font-size:15px;font-weight:600;color:#9fd8f0}
+.type-card .tc-desc{color:var(--muted);font-size:12px;margin-bottom:12px}
+.type-card .tc-metrics{display:flex;gap:22px;font-size:12px;color:var(--muted);margin-bottom:10px}
+.type-card .tc-metrics b{color:var(--text);font-family:var(--mono);font-size:15px;display:block}
+.type-card .tc-foot{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.timeflow{position:relative;padding-left:18px}
+.timeflow::before{content:"";position:absolute;left:4px;top:6px;bottom:6px;width:1px;background:linear-gradient(180deg,var(--accent),var(--violet),transparent)}
+.tf-item{position:relative;padding:0 0 14px 6px}
+.tf-item::before{content:"";position:absolute;left:-18px;top:7px;width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);border:2px solid #0a0d13}
+.tf-item.done::before{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.tf-item .tf-ts{font-family:var(--mono);font-size:11px;color:var(--faint)}
+.tf-item .tf-task{font-size:13px;margin:2px 0}
+.tf-item .tf-out{color:var(--muted);font-size:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tf-item .tf-tags{margin-top:4px;display:flex;gap:6px;flex-wrap:wrap}
+
+/* ============ 塔视图 ============ */
+.tower-grid{display:grid;grid-template-columns:1fr 340px;gap:20px}
+.tower-left{display:flex;flex-direction:column;gap:14px;min-width:0}
+.type-switch{display:flex;gap:8px;align-items:center}
+.tower{display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px 12px;border:1px solid var(--border);border-radius:var(--r);background:radial-gradient(420px 300px at 50% 0%, rgba(62,197,232,.06), transparent 70%),var(--panel)}
+.tower-cap{color:var(--faint);font-size:11px;letter-spacing:1.5px;margin-bottom:2px}
+.tower-top{width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:13px solid #21456c;filter:drop-shadow(0 0 8px rgba(62,197,232,.5));margin-bottom:-2px}
+.layer{width:min(560px,100%);border-radius:8px;padding:8px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;
+  border:1px solid transparent;transition:all .18s;position:relative;flex:none}
+.layer:hover{transform:translateY(-1px);filter:brightness(1.1)}
+.layer.l-active{border-color:rgba(255,255,255,.35);box-shadow:0 4px 24px rgba(0,0,0,.5);outline:1px solid rgba(255,255,255,.12)}
+.layer.l-off{opacity:.45;border-style:dashed;cursor:not-allowed;background:transparent}
+.layer .l-name{font-weight:700;font-size:12.5px;white-space:nowrap;color:#0b0e14}
+.layer .l-sub{font-size:10.5px;color:rgba(11,14,20,.75);white-space:nowrap}
+.layer .l-metric{margin-left:auto;text-align:right;color:#0b0e14;white-space:nowrap}
+.layer .l-metric b{font-size:16px;font-family:var(--mono);display:block;line-height:1.1}
+.layer .l-metric span{font-size:10px;opacity:.8}
+.layer.l10{height:var(--tower-h-10min);background:linear-gradient(90deg,#46b1f4,#6cc5f8);}
+.layer.l30{height:var(--tower-h-30min);background:linear-gradient(90deg,#5a8df0,#82aaf6);}
+.layer.l1h{height:var(--tower-h-1h);background:linear-gradient(90deg,#8a7af0,#a493f4);}
+.layer.lday{height:var(--tower-h-day);background:linear-gradient(90deg,#e0a15a,#f0bd80);}
+.layer.lweek{height:var(--tower-h-week);background:linear-gradient(90deg,#e6c170,#f5d896);}
+.layer.l-off .l-name,.layer.l-off .l-sub{color:var(--faint)}
+.layer.l-off .l-metric b{color:var(--faint)}.layer.l-off .l-metric span{color:var(--faint)}
+.layer.l-off{justify-content:center}
+.layer.l-off .l-sub{display:none}
+.tower-base{width:min(620px,104%);height:12px;background:linear-gradient(90deg,#1b2a44,#223661,#1b2a44);border-radius:0 0 10px 10px;box-shadow:0 10px 30px rgba(34,80,150,.35)}
+.tower-legend{display:flex;justify-content:center;gap:16px;color:var(--faint);font-size:11px;margin-top:4px}
+.bucket-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(142px,1fr));gap:10px}
+.bucket{border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;cursor:pointer;background:var(--panel-2);transition:all .15s}
+.bucket:hover{border-color:var(--accent);transform:translateY(-2px)}
+.bucket.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 6px 18px rgba(62,197,232,.15)}
+.bucket .b-date{font-family:var(--mono);font-size:12px;color:var(--text)}
+.bucket .b-cnt{font-size:11px;color:var(--muted);margin-top:3px}
+.bucket .b-cnt b{color:var(--accent)}
+.drill-drawer{position:sticky;top:0;align-self:start;max-height:calc(100vh - 150px);overflow-y:auto;
+  border:1px solid var(--border-2);border-radius:var(--r);background:linear-gradient(180deg,#131a28,#0f141f);padding:16px 18px;box-shadow:var(--shadow)}
+.drill-crumb{font-size:11.5px;color:var(--muted);display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.drill-crumb b{color:var(--accent);font-weight:600}
+.point{border:1px solid var(--border);border-radius:var(--r-s);padding:10px 12px;margin-top:10px;background:var(--panel)}
+.point:hover{background:var(--panel-2)}
+.point .p-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.point .p-ts{font-family:var(--mono);font-size:10.5px;color:var(--faint)}
+.point .p-task{font-size:12.5px;font-weight:600}
+.point .p-out{color:var(--muted);font-size:12px;max-height:64px;overflow:hidden;position:relative}
+.point .p-tags{margin-top:6px;display:flex;gap:5px;flex-wrap:wrap}
+.st-ok{color:var(--ok)}.st-phase{color:var(--warn)}.st-doing{color:var(--accent)}
+
+/* ============ 表单 ============ */
+.field{margin-bottom:13px}
+.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+.field .sub{font-size:10.5px;color:var(--faint);margin-top:4px}
+.inp,select.inp,textarea.inp{width:100%;background:var(--panel-2);border:1px solid var(--border-2);color:var(--text);
+  border-radius:var(--r-s);padding:8px 11px;font-size:12.5px;font-family:var(--sans);outline:none;transition:border .15s}
+.inp:focus{border-color:var(--accent)}
+textarea.inp{font-family:var(--mono);font-size:11.5px;resize:vertical;min-height:90px}
+.inp::placeholder{color:var(--faint)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.chips-row{display:flex;gap:8px;flex-wrap:wrap}
+.chip-sel{border:1px solid var(--border-2);border-radius:6px;padding:4px 11px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none;font-family:var(--mono)}
+.chip-sel.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.switch{position:relative;width:36px;height:20px;border-radius:99px;background:#2a3448;cursor:pointer;transition:background .2s;flex:none}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#8a94a8;transition:all .2s}
+.switch.on{background:var(--accent)}
+.switch.on::after{left:18px;background:#fff;box-shadow:0 0 6px var(--accent)}
+.switch-row{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--text)}
+
+/* ============ 回想 / 总结 / 类型 / 追加 ============ */
+.filter-bar{display:grid;grid-template-columns:170px 1fr 1fr 120px 130px auto;gap:10px;align-items:end;margin-bottom:16px}
+.filter-bar .field{margin-bottom:0}
+.res-row{display:flex;gap:10px;align-items:flex-start}
+.res-row .r-idx{font-family:var(--mono);color:var(--faint);font-size:11px;flex:none;width:24px;text-align:right;padding-top:3px}
+.res-row .r-body{min-width:0;flex:1}
+.sum-card{border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:12px;background:var(--panel)}
+.sum-card .s-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.sum-card .s-group{font-weight:700;color:var(--gold)}
+.sum-card .s-meta{font-family:var(--mono);font-size:11px;color:var(--faint)}
+.sum-card .s-sections{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:12.5px;margin-top:8px}
+.sum-card .s-sec b{display:block;font-size:11px;color:var(--muted);margin-bottom:3px}
+.sum-card .s-sec li{margin-left:16px;color:var(--text)}
+.sum-card .s-sec ul{list-style:none}
+.sum-card .s-kw{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.progress-track{display:flex;align-items:center;gap:12px;border:1px solid var(--border-2);border-radius:var(--r-s);padding:10px 14px;margin-top:10px;background:var(--panel-2);font-size:12.5px}
+.progress-track .p-step{display:flex;align-items:center;gap:6px;color:var(--faint)}
+.progress-track .p-step.on{color:var(--accent)}
+.progress-track .p-step .d{width:8px;height:8px;border-radius:50%;background:var(--border-2)}
+.progress-track .p-step.on .d{background:var(--accent);box-shadow:0 0 8px var(--accent)}
+.progress-track .bar{flex:1;height:4px;background:var(--border-2);border-radius:4px;overflow:hidden}
+.progress-track .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--violet));transition:width .5s}
+.dlg-mask{position:fixed;inset:0;background:rgba(5,8,14,.72);backdrop-filter:blur(3px);display:none;align-items:flex-start;justify-content:center;z-index:80;padding:8vh 20px}
+.dlg-mask.show{display:flex}
+.dlg{width:min(560px,100%);background:linear-gradient(180deg,#141b29,#10151e);border:1px solid var(--border-2);border-radius:14px;box-shadow:var(--shadow);animation:pop .18s ease}
+@keyframes pop{from{transform:translateY(10px);opacity:0}to{transform:none;opacity:1}}
+.dlg-head{padding:16px 20px 0;display:flex;align-items:center}
+.dlg-head h3{font-size:15px;font-weight:700}
+.dlg-head .x{margin-left:auto;color:var(--faint);cursor:pointer;font-size:18px;line-height:1;padding:2px 6px}
+.dlg-head .x:hover{color:var(--text)}
+.dlg-body{padding:14px 20px 6px;max-height:62vh;overflow-y:auto}
+.dlg-foot{padding:12px 20px 16px;display:flex;justify-content:flex-end;gap:10px}
+.toast{position:fixed;top:74px;left:50%;transform:translateX(-50%);z-index:99;display:flex;flex-direction:column;gap:8px;align-items:center}
+.toast .t{background:#16202f;border:1px solid var(--border-2);border-left:3px solid var(--accent);color:var(--text);
+  padding:9px 18px;border-radius:8px;font-size:12.5px;box-shadow:var(--shadow);animation:pop .2s ease}
+.toast .t.ok{border-left-color:var(--ok)}.toast .t.err{border-left-color:var(--danger)}
+.json-preview{font-family:var(--mono);font-size:11px;background:#0c1017;border:1px solid var(--border);border-radius:var(--r-s);padding:12px;color:#9fd8f0;white-space:pre-wrap;min-height:80px}
+.tower-empty{border:1px dashed var(--border-2);border-radius:var(--r);padding:26px;text-align:center;color:var(--faint);font-size:12.5px}
+.meta-kv{font-size:12px;display:grid;grid-template-columns:110px 1fr;gap:6px 12px}
+.meta-kv dt{color:var(--faint)}
+.meta-kv dd{color:var(--text);font-family:var(--mono);font-size:11.5px}
+.danger-zone{border:1px solid rgba(242,100,110,.35);border-radius:var(--r);padding:14px 16px;margin-top:16px;background:rgba(242,100,110,.05)}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ================= 顶栏 ================= -->
+  <header class="header">
+    <div class="brand">
+      <svg width="30" height="30" viewBox="0 0 30 30" fill="none">
+        <path d="M15 2 L19 7 H11 Z" fill="#3ec5e8"/>
+        <rect x="7" y="9" width="16" height="5" rx="1.4" fill="#5a8df0"/>
+        <rect x="4" y="16" width="22" height="6" rx="1.6" fill="#8a7af0"/>
+        <rect x="1" y="24" width="28" height="6" rx="1.8" fill="#e0a15a"/>
+      </svg>
+      <div><span class="cn">忆时塔</span> <span class="en">chronomem</span>
+        <div class="brand-sub">分层时间记忆 · Web 控制台</div></div>
+    </div>
+    <div class="head-status">
+      <span class="pill"><span class="dot ok"></span>服务 127.0.0.1:8900 · MCP 在线</span>
+      <span class="pill"><span class="dot ok"></span>LLM qwen3.5-9b-mtp 已配置</span>
+      <span class="pill">原型 v0.1 · 高保真</span>
+    </div>
+  </header>
+
+  <!-- ================= 侧栏 ================= -->
+  <aside class="side">
+    <div class="nav-item active" data-view="overview"><svg class="ico" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1.4" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1.4" stroke="currentColor" stroke-width="1.3"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1.4" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="9" width="5.5" height="5.5" rx="1.4" stroke="currentColor" stroke-width="1.3"/></svg>总览</div>
+    <div class="nav-item" data-view="tower"><svg class="ico" viewBox="0 0 16 16" fill="none"><path d="M8 1 L10 3.5 H6 Z" stroke="currentColor" stroke-width="1.2"/><rect x="3.5" y="5" width="9" height="2.6" rx="0.8" stroke="currentColor" stroke-width="1.2"/><rect x="2" y="9" width="12" height="2.6" rx="0.8" stroke="currentColor" stroke-width="1.2"/><rect x="0.5" y="13" width="15" height="2.6" rx="0.8" stroke="currentColor" stroke-width="1.2"/></svg>塔视图</div>
+    <div class="nav-item" data-view="recall"><svg class="ico" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.3"/><path d="M10 10 L14 14" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>回想</div>
+    <div class="nav-item" data-view="summary"><svg class="ico" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 7h12M2 11h7M2 14h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>语义总结</div>
+    <div class="nav-sep"></div>
+    <div class="nav-item" data-view="types"><svg class="ico" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="2.5" width="13" height="3.4" rx="1.2" stroke="currentColor" stroke-width="1.3"/><rect x="1.5" y="9" width="13" height="4.6" rx="1.2" stroke="currentColor" stroke-width="1.3"/></svg>记忆类型</div>
+    <div class="nav-item" data-view="append"><svg class="ico" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>追加条目</div>
+
+    <div class="side-info">
+      <div class="row"><span>存储目录</span><b>~/.chronolog</b></div>
+      <div class="row"><span>时区</span><b>Asia/Shanghai</b></div>
+      <div class="row"><span>结构物化</span><b>@every 1m</b></div>
+      <div class="row"><span>自动总结</span><b>*/10 * * * *</b></div>
+      <div class="row"><span>LLM 端点</span><b>192.168.3.6:8089</b></div>
+    </div>
+  </aside>
+
+  <!-- ================= 主区 ================= -->
+  <main class="main">
+
+  <!-- ---------- 总览 ---------- -->
+  <section class="view active" id="view-overview">
+    <h1 class="page-title">总览</h1>
+    <div class="page-sub">忆时塔替你的工具保存时序记忆：一条条经历按时间堆叠成塔，越久越粗、越久越高；需要时沿塔层精确下钻（零 LLM）或调用语义回顾（LLM 摘要）。</div>
+    <div class="stat-grid" id="stat-grid"></div>
+
+    <div class="card">
+      <div class="card-title"><span style="color:var(--accent)">◈</span>记忆类型<span class="hint">type = 一条独立 series，各自建塔</span></div>
+      <div id="type-cards"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span style="color:var(--gold)">◔</span>最近条目流<span class="hint">最新 10 条 · 点击进入塔视图下钻</span></div>
+      <div class="timeflow" id="timeflow"></div>
+    </div>
+  </section>
+
+  <!-- ---------- 塔视图 ---------- -->
+  <section class="view" id="view-tower">
+    <h1 class="page-title">塔视图<div style="width:1px;height:14px;background:var(--border-2)"></div><span class="muted" style="font-size:12px;font-weight:400">沿粒度层下钻时间桶 → 精确回想原始条目</span></h1>
+    <div class="page-sub">塔 = 分层：一层一个物化粒度。点击塔层切换粒度，再点时间桶下钻到底层原始条目（读取沿引用链，零 LLM 成本）。</div>
+
+    <div class="tower-grid">
+      <div class="tower-left">
+        <div class="card" style="padding:14px 16px">
+          <div class="card-title" style="margin-bottom:10px">选择记忆类型</div>
+          <div class="type-switch" id="type-switch"></div>
+        </div>
+        <div class="tower">
+          <div class="tower-cap">时间之塔 · TIME MEMORY TOWER</div>
+          <div class="tower-top"></div>
+          <div id="tower-layers"></div>
+          <div class="tower-base"></div>
+          <div class="tower-legend"><span>越久越粗</span><span>·</span><span>越久越高</span><span>·</span><span>层间可下钻</span></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span style="color:var(--accent)">▣</span><span id="bucket-title">时间桶</span><span class="hint" id="bucket-hint"></span></div>
+          <div class="bucket-grid" id="bucket-grid"></div>
+        </div>
+      </div>
+
+      <aside class="drill-drawer">
+        <div class="drill-crumb" id="drill-crumb">← 点击左侧时间桶，下钻原始条目</div>
+        <div id="drill-body"></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ---------- 回想 ---------- -->
+  <section class="view" id="view-recall">
+    <h1 class="page-title">回想</h1>
+    <div class="page-sub">两档回想：精确回想直查原始条目（零 LLM）；语义回顾按粒度窗口读语义摘要（决策/结论/待办），依赖该窗口已总结过。</div>
+
+    <div class="card" style="padding:12px 16px;margin-bottom:14px">
+      <div class="chips-row" id="recall-mode">
+        <span class="chip-sel on" data-rmode="raw">精确回想 · 原始条目</span>
+        <span class="chip-sel" data-rmode="summary">语义回顾 · 窗口摘要</span>
+      </div>
+    </div>
+
+    <!-- 精确回想 -->
+    <div id="recall-raw">
+      <div class="card" style="padding:16px 18px">
+        <div class="filter-bar">
+          <div class="field"><label>记忆类型</label>
+            <select class="inp" id="q-type"><option>worklog</option><option>tool/errors（示例）</option></select></div>
+          <div class="field"><label>时间范围 · 从</label><input class="inp mono" id="q-from" placeholder="2026-08-24 00:00:00" value="2026-08-20 00:00:00"></div>
+          <div class="field"><label>时间范围 · 至</label><input class="inp mono" id="q-to" placeholder="现在"></div>
+          <div class="field"><label>tag 过滤</label><input class="inp mono" id="q-tag" placeholder="proj=cjreg"></div>
+          <div class="field"><label>limit</label><select class="inp" id="q-limit"><option>10</option><option selected>20</option><option>50</option></select></div>
+          <button class="btn primary" onclick="runQuery()">查询</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">查询结果<span class="hint" id="q-count"></span></div>
+        <div id="q-results"></div>
+      </div>
+    </div>
+
+    <!-- 语义回顾 -->
+    <div id="recall-summary" style="display:none">
+      <div class="card" style="padding:16px 18px">
+        <div class="grid3" style="align-items:end">
+          <div class="field"><label>记忆类型</label><select class="inp" id="s-type"><option>worklog</option><option>tool/errors（示例）</option></select></div>
+          <div class="field"><label>粒度（类型 levels 内）</label>
+            <div class="chips-row" id="s-gran">
+              <span class="chip-sel on" data-sgran="day">day</span>
+              <span class="chip-sel" data-sgran="week">week</span>
+            </div></div>
+          <div class="field"><label>分组过滤（summary_group_by=proj）</label><select class="inp" id="s-group"><option value="all">全部</option></select></div>
+        </div>
+        <div class="card-title" style="margin:6px 0 10px">选择窗口<span class="hint">物化桶 = 已闭合的自然窗口 · 无摘要时可现算</span></div>
+        <div class="bucket-grid" id="s-buckets"></div>
+      </div>
+      <div class="card">
+        <div class="card-title"><span id="s-title">当前窗口摘要</span><span class="hint" id="s-hint"></span></div>
+        <div id="s-results"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------- 语义总结 ---------- -->
+  <section class="view" id="view-summary">
+    <h1 class="page-title">语义总结</h1>
+    <div class="page-sub">LLM 把窗口条目提炼为结构化摘要（决策/结论/待办/状态变更/关键词），落库为总结记录，供语义回顾与递归再总结；后台异步执行，不阻塞其它操作。</div>
+
+    <div class="card">
+      <div class="card-title">触发总结<span class="hint">后台异步 · 幂等（窗口×分组已有摘要则跳过）</span></div>
+      <div class="grid2">
+        <div class="field"><label>总结方式</label>
+          <div class="chips-row" id="sum-mode">
+            <span class="chip-sel on" data-mode="granularity">按粒度窗口</span>
+            <span class="chip-sel" data-mode="custom">显式窗口（任务阶段）</span>
+          </div></div>
+        <div class="field"><label>记忆类型</label><select class="inp"><option>worklog</option><option>tool/errors（示例）</option></select></div>
+      </div>
+      <div class="grid3" id="sum-granularity">
+        <div class="field"><label>粒度</label>
+          <div class="chips-row" id="sum-gran">
+            <span class="chip-sel on" data-gran="day">day</span>
+            <span class="chip-sel" data-gran="week">week</span>
+          </div></div>
+        <div class="field"><label>锚点窗口</label><input class="inp mono" value="2026-08-28（周四）· 今天"></div>
+        <div class="field"><label>分组（summary_group_by）</label><input class="inp mono" value="proj · 自动按 tag 分桶，每桶一条"></div>
+      </div>
+      <div class="grid2" id="sum-custom" style="display:none">
+        <div class="field"><label>窗口起始（ms epoch）</label><input class="inp mono" value="1787846400000 — 2026-08-29 00:00:00"></div>
+        <div class="field"><label>窗口结束（ms epoch）</label><input class="inp mono" value="1787932800000 — 2026-08-30 00:00:00"></div>
+      </div>
+      <div class="field"><label>补充指令 instructions（可选）</label><input class="inp" placeholder="如：提炼本次任务的决策与待办"></div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <button class="btn primary" onclick="runSummarize()">提交总结任务</button>
+        <span class="faint" style="font-size:11.5px">model 缺省 qwen3.5-9b-mtp · recompute=false（基于最近一层提炼）</span>
+      </div>
+      <div id="sum-progress" style="display:none"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">总结记录<span class="hint">SummaryRecord · 最新在前 · 窗口×分组各一条</span></div>
+      <div id="sum-list"></div>
+    </div>
+  </section>
+
+  <!-- ---------- 记忆类型 ---------- -->
+  <section class="view" id="view-types">
+    <h1 class="page-title">记忆类型</h1>
+    <div class="page-sub">类型 = 一条独立 series（原始条目 + 同名 .summary 总结），粒度链是类型级配置：高频类型保分钟档，低频类型收敛到 day/week。</div>
+    <div class="card">
+      <div class="card-title" style="justify-content:space-between">类型列表
+        <button class="btn primary sm" onclick="openTypeCreate()">+ 创建类型</button></div>
+      <table class="t" id="type-table"></table>
+    </div>
+    <div class="danger-zone" style="margin-top:16px">
+      <div style="font-size:12.5px;color:var(--danger);font-weight:600;margin-bottom:6px">危险操作</div>
+      <div class="muted" style="font-size:12px">清空（TRUNCATE）删除类型全部条目但保留类型；删除（DROP）需先清空，且不可恢复。管理端操作不可撤销。</div>
+    </div>
+  </section>
+
+  <!-- ---------- 追加条目 ---------- -->
+  <section class="view" id="view-append">
+    <h1 class="page-title">追加条目</h1>
+    <div class="page-sub">mem/append：宽松模式，任意 JSON payload + tags，缺省 ts = now。右侧为实时 JSON 预览。</div>
+    <div class="card">
+      <div class="card-title">worklog 模板结构<span class="hint">任务阶段 / 任务完成时记一条</span></div>
+      <div class="grid2">
+        <div class="field"><label>task</label><input class="inp" id="a-task" placeholder="任务/阶段名"></div>
+        <div class="field"><label>status</label>
+          <div class="chips-row">
+            <span class="chip-sel on" data-st="完成">完成</span><span class="chip-sel" data-st="阶段完成">阶段完成</span><span class="chip-sel" data-st="进行中">进行中</span>
+          </div></div>
+      </div>
+      <div class="field"><label>outcome</label><textarea class="inp" style="min-height:70px" id="a-outcome" placeholder="做了什么 / 结果"></textarea></div>
+      <div class="grid2">
+        <div class="field"><label>decisions（可选）</label><textarea class="inp" style="min-height:56px" id="a-dec" placeholder="关键决策"></textarea></div>
+        <div class="field"><label>next（可选）</label><textarea class="inp" style="min-height:56px" id="a-next" placeholder="后续待办"></textarea></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>tags · proj</label><input class="inp mono" id="a-proj" placeholder="如 chronomem"></div>
+        <div class="field"><label>tags · branch（可选）</label><input class="inp mono" id="a-branch" placeholder="如 feat/summary-group"></div>
+      </div>
+      <div class="field"><label>ts（ms epoch，空 = now）</label><input class="inp mono" id="a-ts" placeholder="空即当前时间"></div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <button class="btn primary" onclick="doAppend()">追加条目</button>
+        <span class="faint" style="font-size:11.5px">宽松模式：不做字段强校验；先落原始 series，结构物化 1 分钟内完成</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">实时 payload</div>
+      <div class="json-preview" id="append-preview">{ "task": "……" }</div>
+    </div>
+  </section>
+
+  </main>
+</div>
+
+<!-- ================= 弹窗 ================= -->
+<div class="dlg-mask" id="dlg-create">
+  <div class="dlg">
+    <div class="dlg-head"><h3>创建记忆类型</h3><span class="x" onclick="closeDlg('dlg-create')">×</span></div>
+    <div class="dlg-body">
+      <div class="field"><label>类型名（白名单 [A-Za-z0-9_/-]）</label><input class="inp mono" placeholder="如 proj/decisions" value="proj/decisions"></div>
+      <div class="field"><label>描述</label><input class="inp" placeholder="这个类型记什么"></div>
+      <div class="grid2">
+        <div class="field"><label>粒度链 levels（升序）</label>
+          <div class="chips-row" id="lv-chips">
+            <span class="chip-sel" data-lv="10min">10min</span><span class="chip-sel" data-lv="30min">30min</span>
+            <span class="chip-sel" data-lv="1h">1h</span><span class="chip-sel" data-lv="3h">3h</span>
+            <span class="chip-sel on" data-lv="day">day</span><span class="chip-sel on" data-lv="week">week</span>
+            <span class="chip-sel" data-lv="month">month</span>
+          </div><div class="sub">默认 10min→30min→1h→day→week</div></div>
+        <div class="field"><label>保留期 retention（可选）</label><input class="inp mono" placeholder="如 30d"></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>总结分组维度 summary_group_by</label><input class="inp mono" placeholder="如 proj（tag 键，上限 2）"></div>
+        <div class="field"><label>自动总结粒度 summary_levels</label><input class="inp mono" placeholder="留空 = 最粗 2 档"></div>
+      </div>
+      <div class="field"><label>schema（JSON 字符串，仅作文档/LLM 提示，宽松模式不校验）</label><textarea class="inp">{"payload":{"task":"string","status":"string"},"tags":{"proj":"string"}}</textarea></div>
+      <div class="switch-row"><div class="switch" id="sw-auto" onclick="this.classList.toggle('on')"></div>后台自动语义总结 auto_summarize（已闭合窗口自动长摘要）</div>
+    </div>
+    <div class="dlg-foot"><button class="btn ghost" onclick="closeDlg('dlg-create')">取消</button><button class="btn primary" onclick="closeDlg('dlg-create');toast('类型已创建（模拟）：proj/decisions','ok')">创建</button></div>
+  </div>
+</div>
+
+<div class="dlg-mask" id="dlg-typeinfo">
+  <div class="dlg">
+    <div class="dlg-head"><h3>类型详情 · worklog</h3><span class="x" onclick="closeDlg('dlg-typeinfo')">×</span></div>
+    <div class="dlg-body">
+      <dl class="meta-kv" style="margin-bottom:12px">
+        <dt>类型名</dt><dd>worklog</dd>
+        <dt>描述</dt><dd style="font-family:var(--sans);color:var(--muted)">工作日志（默认类型）：任务阶段/任务完成时追加一条工作日志，按天+按项目分组总结</dd>
+        <dt>粒度链</dt><dd>day → week</dd>
+        <dt>总结分组</dt><dd>["proj"]</dd>
+        <dt>条目数</dt><dd>76</dd>
+        <dt>day 桶</dt><dd>7</dd>
+        <dt>week 桶</dt><dd>2</dd>
+        <dt>auto_summarize</dt><dd>true · summaryLevels=[day, week]</dd>
+        <dt>retention</dt><dd>无（全量保留）</dd>
+        <dt>createdAt</dt><dd>2026-08-16 18:33:02</dd>
+      </dl>
+      <div class="card-title" style="margin-bottom:8px">TypeMeta（json.stream）</div>
+      <div class="json-preview">{ "name": "worklog", "description": "……", "schema": "{\"payload\":{...}}", "levels": ["day", "week"], "retention": null, "autoSummarize": true, "summaryLevels": ["day", "week"], "summaryGroupBy": ["proj"], "createdAt": 1788276782 }</div>
+    </div>
+    <div class="dlg-foot"><button class="btn ghost" onclick="closeDlg('dlg-typeinfo')">关闭</button></div>
+  </div>
+</div>
+
+<div class="dlg-mask" id="dlg-danger">
+  <div class="dlg" style="width:min(440px,100%)">
+    <div class="dlg-head"><h3 style="color:var(--danger)">删除类型 worklog</h3><span class="x" onclick="closeDlg('dlg-danger')">×</span></div>
+    <div class="dlg-body">
+      <div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">DROP 语义：原始 + 总结序列必须为空，请先执行清空。此操作<b style="color:var(--danger)">不可恢复</b>。输入类型名确认：</div>
+      <input class="inp mono" placeholder="输入 worklog 以确认" id="danger-confirm">
+    </div>
+    <div class="dlg-foot"><button class="btn ghost" onclick="closeDlg('dlg-danger')">取消</button><button class="btn danger" onclick="closeDlg('dlg-danger');toast('类型已删除（模拟）。生产环境：删除操作会走 mem/type_delete 守卫','ok')">确认删除</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast-root"></div>
+
+<script>
+/* ==================== 种子数据（真实忆时塔 8900 抓取） ==================== */
+const SEED = {
+  entry: { name:"worklog", count:76, auto:true, levels:["day","week"], groupBy:["proj"], summaryLevels:["day","week"] },
+  dayBuckets: [
+    { k:"2026-08-22T16:00:00Z", label:"2026-08-23", cnt:5 },
+    { k:"2026-08-23T16:00:00Z", label:"2026-08-24", cnt:8 },
+    { k:"2026-08-24T16:00:00Z", label:"2026-08-25", cnt:27 },
+    { k:"2026-08-25T16:00:00Z", label:"2026-08-26", cnt:16 },
+    { k:"2026-08-26T16:00:00Z", label:"2026-08-27", cnt:16 },
+    { k:"2026-08-27T16:00:00Z", label:"2026-08-28", cnt:1 },
+    { k:"2026-08-28T16:00:00Z", label:"2026-08-29", cnt:3 },
+  ],
+  weekBuckets: [
+    { k:"2026-08-16T16:00:00Z", label:"08-17 周", sub:"覆盖 1 个 day 子桶", cnt:1 },
+    { k:"2026-08-23T16:00:00Z", label:"08-24 周", sub:"覆盖 6 个 day 子桶", cnt:6 },
+  ],
+  points: [
+    { ts:"08-29 23:31:18", task:"cjreg 公开页系列改动推送上线", status:"完成", proj:"cjreg", branch:"master",
+      out:"git push 完成：cjreg origin(atomgit) ffddf6b..93ea9dc（14 个公开页改动提交），cjxt origin(gitea) 2055a7e..bb5303a（6 个依赖组件提交：Table<T>泛型化/Menu.dark/Markdown 等）。两个项目 master 均与 origin/master 同步。" },
+    { ts:"08-29 22:51:34", task:"cjreg 公开页优化 — 首页居中/官方分类/文档站", status:"完成", proj:"cjreg", branch:"feat/public-pages-polish",
+      out:"三处优化已落地：①首页 stat-grid/features-grid 改 auto-fit，4 卡随容器居中铺满（修宽屏左聚集）；②包列表侧栏筛选改用官方 25 类；③文档页改为左导航+Markdown 内容站点。104 测试全过，提交 f244dd3 合并 906b229。" },
+    { ts:"08-29 22:36:55", task:"cjreg 公开页面对齐 cjrepo", status:"阶段完成", proj:"cjreg", branch:"feat/public-pages-cjrepo",
+      out:"重构为与 cjrepo 相同结构：首页渐变 hero+统计四卡+CTA；包列表卡片网格+左侧分类筛选+大搜索框+Pagination；包详情头部信息卡+左 Tab+右包信息侧栏。复用 cjxt Table/Tabs/Tag/Markdown/Descriptions 组件。" },
+    { ts:"08-28 10:45:58", task:"P3 M4 真闭环 + M5 打磨收尾", status:"完成", proj:"guanyi", branch:"desktop",
+      out:"M4 真根因：npm-shared 的 pi-mcp-adapter 残缺安装（缺全部 60 个 .ts 核心）。修复 b1bfc74 自愈 ensureSharedNpm，重验通过。M5 完成 c05b68a 启动重试/冲突处理/种子同步。事件折叠实测 128MB/16245 行 → 37KB/43 行。" },
+    { ts:"08-27 20:25:24", task:"examples/acp_probe_test 演示项目", status:"完成", proj:"acp-cj", branch:"master",
+      out:"在 acp-cj/examples/ 下创建独立 cjpm 演示项目 acp_probe_test：像 pi_bridge 一样拉起 opencode acp 走完整 ACP client 链路（握手→session/new→prompt→流式打印）。4 个参数解析单测全绿，e2e 正反例均通过，已合并回 master（e206a02）。" },
+    { ts:"08-27 20:02:46", task:"发版安全红线写入 cangjie-publish skill 与 cangjie-mem", status:"完成", proj:"cangjie-publish", branch:"main",
+      out:"cangjie-publish SKILL.md 新增「安全红线」章节：指定状态外的任何状态→停止并向用户报告；禁止用中心仓测试；禁止发布空包。cangjie-mem 更新 3 条（语言级 515/516 + 项目级 517）。" },
+    { ts:"08-27 18:39:27", task:"acp-cj 发版修正 0.1.1", status:"完成", proj:"acp-cj", branch:"master",
+      out:"0.1.0 发布异常（bundle 含 docs/scripts 且无 LICENSE）。对照修正：include=['src','LICENSE'] + exclude，补 LICENSE，bump 0.1.1 重发。包内容验证只含 src+LICENSE+README+cjpm.toml。" },
+    { ts:"08-27 18:17:02", task:"acp-cj v0.1.0 发版", status:"完成", proj:"acp-cj", branch:"master",
+      out:"jsonrpc 依赖 path 改注册表 0.7.3；README/design 修正版本引用；打 tag v0.1.0；cjpm build 39 测试全绿；bundle + publish 成功；重复 publish 返回 409 确认服务端登记。" },
+    { ts:"08-27 17:59:10", task:"json-rpc v0.7.3 发版", status:"完成", proj:"json-rpc", branch:"main",
+      out:"6 包全部发布成功（jsonrpc + 5 传输包）：jsonrpc 0.7.3 先发，5 传输包随后；tag v0.7.3 已推送 origin。" },
+    { ts:"08-27 17:53:54", task:"json-rpc v0.7.3 发版", status:"进行中", proj:"json-rpc", branch:"main",
+      out:"版本 6 子包 0.7.2→0.7.3，README/progress-tracking 更新；61/61 单测全绿；下游 mcp-cj testclient 端到端全过；commit+tag v0.7.3 推送成功；jsonrpc 0.7.3 已 publish（409 确认服务端登记）。" },
+  ],
+  summaries: [
+    { ts:"08-30 00:22:16", win:"1787932800000 ~ 1788019199999", model:"qwen3.5-9b-mtp", group:"cjreg",
+      dec:["cjxt 作为 cjreg path 依赖，其未推送的 6 个组件提交是公开页功能前提，一并推送。","公开页结构完全对齐 cjrepo，分类采用官方 25 类固定列表，文档页采用 Markdown 组件渲染。"],
+      con:["cjreg 公开页系列改动（对齐/优化/上线）全部完成，master 分支与 origin 同步。","104 测试全过，14 个公开页改动 +6 个依赖组件提交已推送。"],
+      todo:["后续可选：确认 cjxt 发版元数据是否单独提交。","后续可选：处理 cjpm.toml 遗留改动。"],
+      stat:["分支 feat/public-pages-cjrepo 与 feat/public-pages-polish 合并至 master 并推送。","公开页从开发阶段转入上线状态，CSS 缓存版本号更新。"],
+      kw:["cjreg","公开页","cjrepo","上线","优化","cjxt","Markdown","对齐"] },
+    { ts:"08-29 00:23:01", win:"1787846400000 ~ 1787932799999", model:"qwen3.5-9b-mtp", group:"guanyi",
+      dec:["M5 砍掉 esbuild Watch 热刷与 mcpReady 精确化","npm-shared 自愈仅针对\u201c已存在但残缺\u201d场景，冷启动由 pi 自装"],
+      con:["M4 真根因修复：npm-shared 的 pi-mcp-adapter 残缺安装问题已解决","M5 打磨收尾完成：启动重试、冲突处理、插件同步等通过","事件折叠实测优化显著（128MB/16245 行→37KB/43 行）"],
+      todo:["用户重启后端加载 c05b68a 二进制","解决 M5 错误 UX 问题","推进后续里程碑 P4（插件管理）"],
+      stat:["任务状态：完成","代码提交：b1bfc74, c05b68a, 15c61f7"],
+      kw:["P3","M4","M5","npm-shared","事件折叠","自愈","P4"] },
+    { ts:"08-28 00:50:49", win:"1787760000000 ~ 1787846399999", model:"qwen3.5-9b-mtp", group:"chronomem",
+      dec:["分组维度可配置（每类型自己声明），不写死 proj","维度上限 2（过碎碎片化）","无 tag 条目归「未分组」不丢失","day/week/month 窗口统一走 Timeline.windowRangeOf 日历对齐"],
+      con:["分组维度总结功能完成，支持 summary_group_by","按天总结窗口错位修复完成，handlers.cj 三处改为 Timeline.windowRangeOf","72 测试全绿"],
+      todo:["考虑任务重试/降级","08-26 的 chronomem/未分组总结待端点稳定后由 auto-scheduler 补跑"],
+      stat:["部署验证：mem/summarize 08-26 窗口产出【xisp】分组总结并正确落库"],
+      kw:["summary_group_by","窗口错位修复","Timeline.windowRangeOf","幂等","分组维度"] },
+    { ts:"08-28 00:23:24", win:"1787760000000 ~ 1787846399999", model:"qwen3.5-9b-mtp", group:"cangjie-publish",
+      dec:["安全红线落地方案：SKILL.md 文件顶部加红线章节 + 同步重试策略改为异常状态停止报告"],
+      con:["cangjie-publish SKILL.md 新增「安全红线」章节","cangjie-mem 更新 3 条（语言级 515/516 + 项目级 517）"],
+      todo:["可考虑将红线同步到各项目 AGENTS.md 或其他发版相关记忆"],
+      stat:["发版安全红线写入 cangjie-publish skill 与 cangjie-mem；状态：完成"],
+      kw:["安全红线","SKILL.md","cangjie-publish","cangjie-mem","发版流程"] },
+    { ts:"08-28 00:30:58", win:"1787760000000 ~ 1787846399999", model:"qwen3.5-9b-mtp", group:"json-rpc",
+      dec:["json-rpc v0.7.3 发版：核心包先发，传输包依赖 registry 索引同步","README API 补全：根 README.md 为唯一维护源，子包由 build 同步"],
+      con:["6 包全部发布成功，tag v0.7.3 已推送 origin","61/61 单测全绿，下游 mcp-cj testclient 端到端全过"],
+      todo:["升级 mcp-cj 依赖 jsonrpc 0.7.3","等索引同步后发布 5 个传输包"],
+      stat:["json-rpc v0.7.3 发版状态：进行中 → 完成"],
+      kw:["json-rpc v0.7.3","发版流程","传输包索引同步","双向 RPC"] },
+  ],
+};
+
+/* ==================== 视图切换 ==================== */
+const views = ["overview","tower","recall","summary","types","append"];
+function switchView(v){
+  document.querySelectorAll(".view").forEach(el=>el.classList.remove("active"));
+  document.getElementById("view-"+v).classList.add("active");
+  document.querySelectorAll(".nav-item").forEach(el=>el.classList.toggle("active", el.dataset.view===v));
+  if(v==="overview") renderOverview();
+  if(v==="tower") renderTower();
+  if(v==="recall") renderRecall();
+  if(v==="summary") renderSummaries();
+  if(v==="types") renderTypes();
+  location.hash = v;
+}
+document.querySelectorAll(".nav-item").forEach(el=>el.onclick=()=>switchView(el.dataset.view));
+
+/* ==================== 通用 ==================== */
+function toast(msg, kind){ const r=document.getElementById("toast-root");
+  const t=document.createElement("div"); t.className="t "+(kind||""); t.textContent=msg; r.appendChild(t);
+  setTimeout(()=>{t.style.opacity="0"; t.style.transition="opacity .3s";}, 2400);
+  setTimeout(()=>t.remove(), 2800); }
+function closeDlg(id){ document.getElementById(id).classList.remove("show"); }
+function openDlg(id){ document.getElementById(id).classList.add("show"); }
+const ST_CLS = {"完成":"st-ok","阶段完成":"st-phase","进行中":"st-doing"};
+function stBadge(s){ return `<span class="${ST_CLS[s]||""}" style="font-size:11px">${s}</span>`; }
+function tagChips(tags){ return tags.map(t=>`<span class="badge mono">${t}</span>`).join(""); }
+function fmtOut(out, n=150){ return out.length>n ? out.slice(0,n)+"…" : out; }
+
+/* ==================== 总览 ==================== */
+function renderOverview(){
+  const s = SEED.entry;
+  document.getElementById("stat-grid").innerHTML = [
+    {k:"记忆类型", v:s.count>0?1:0, glow:"#3ec5e8", sub:"独立 series"},
+    {k:"原始条目", v:s.count, glow:"#5a8df0", sub:"append 累积"},
+    {k:"语义总结", v:SEED.summaries.length, glow:"#8a7af0", sub:"day/week 分组"},
+    {k:"LLM 能力", v:"在线", glow:"#e0a15a", sub:"qwen3.5-9b-mtp", mono:false},
+  ].map(x=>`<div class="stat"><div class="k">${x.k}</div><div class="v">${x.v}<small>${x.sub}</small></div><div class="glow" style="background:${x.glow}"></div></div>`).join("");
+
+  document.getElementById("type-cards").innerHTML = `
+  <div class="type-card">
+    <div class="tc-head">
+      <span class="chip cday" style="font-size:12px;padding:3px 10px">mem/append</span>
+      <span class="tc-name">worklog</span>
+      <span class="badge" style="margin-left:auto">${s.count} 条</span>
+    </div>
+    <div class="tc-desc">工作日志（默认类型）：任务阶段/任务完成时追加一条工作日志，按天+按项目分组总结</div>
+    <div class="tc-metrics">
+      <div><b>${s.levels.join(" → ")}</b>粒度链</div>
+      <div><b>${s.groupBy.join(", ")}</b>总结分组维度</div>
+      <div><b>${s.summaryLevels.join(", ")}</b>自动总结粒度</div>
+      <div><b>7/2</b>day/week 桶</div>
+    </div>
+    <div class="tc-foot">
+      <span class="badge g">✓ auto_summarize</span>
+      <span class="chip cday">day</span><span class="chip cweek">week</span>
+      <span class="badge b">schema：task/status/outcome/decisions/next</span>
+      <button class="btn sm" style="margin-left:auto" onclick="switchView('tower')">进入塔视图 →</button>
+    </div>
+  </div>`;
+
+  document.getElementById("timeflow").innerHTML = SEED.points.slice(0,10).map(p=>`
+    <div class="tf-item ${p.status==="完成"?"done":""}">
+      <div class="tf-ts">${p.ts}</div>
+      <div class="tf-task">${stBadge(p.status)} &nbsp;${p.task} <span class="faint" style="font-weight:400;font-size:11px">· ${p.proj}</span></div>
+      <div class="tf-out">${fmtOut(p.out,120)}</div>
+      <div class="tf-tags">${tagChips([`proj=${p.proj}`,`branch=${p.branch}`])}</div>
+    </div>`).join("");
+}
+
+/* ==================== 塔视图 ==================== */
+let tv = { type:"worklog", gran:"day" };
+const GRANS = [["10min","l10","c10","10 分钟"],["30min","l30","c30","30 分钟"],["1h","l1h","c1h","1 小时"],["day","lday","cday","日历天"],["week","lweek","cweek","自然周"]];
+function renderTower(){
+  // 类型切换
+  document.getElementById("type-switch").innerHTML =
+    [["worklog","worklog · 真实数据"],["tool/errors","tool/errors · 示例（全粒度链）"]].map((t,i)=>`
+    <button class="btn ${tv.type===t[0]?"primary":""}" onclick="tv.type='${t[0]}';tv.gran='${tv.type==='worklog'?'day':'10min'}';renderTower()">${t[1]}</button>`).join("");
+  // 塔层
+  document.getElementById("tower-layers").innerHTML = [...GRANS].reverse().map(([g,cls,chip,label])=>{
+    const live = tv.type==="worklog" ? (g==="day"||g==="week") : true;
+    const active = tv.gran===g && live;
+    const metric = live ? (g==="day" ? `7 桶` : g==="week" ? `2 桶` : `${8+Math.floor(Math.random()*4)} 桶`) : `未配置`;
+    const sub = g==="10min" ? "当天精确回想" : g==="30min" ? "半小时切片" : g==="1h" ? "小时级切片" : g==="day" ? "本地零点对齐" : "周一起点";
+    return `<div class="layer ${cls} ${live?"": "l-off"} ${active?"l-active":""}" ${live?`onclick="tv.gran='${g}';renderTower()"`:""}>
+      <span class="chip ${chip}">${g}</span><span class="l-name">${label}</span><span class="l-sub">${sub}</span>
+      <span class="l-metric"><b>${metric.replace(" 桶","")}</b><span>${metric.includes("桶")?"时间桶":""}</span></span></div>`;
+  }).join("");
+  // 桶网格
+  const buckets = tv.gran==="day" ? SEED.dayBuckets : tv.gran==="week" ? SEED.weekBuckets :
+    SEED.dayBuckets.map(b=>({k:b.k,label:`${b.label} 2h`,cnt:Math.max(1,Math.floor(b.cnt/4)),sub:"演示档"}));
+  document.getElementById("bucket-title").textContent = `${tv.gran} · 时间桶${tv.type==="worklog"?"（真实数据）":""}`;
+  document.getElementById("bucket-hint").textContent = `共 ${buckets.length} 个 · 点击下钻`;
+  document.getElementById("bucket-grid").innerHTML = buckets.map((b,i)=>`
+    <div class="bucket ${tv.sel===b.k?"sel":""}" onclick="drillDown('${b.k}',${i},${b.cnt})">
+      <div class="b-date">${b.label}</div><div class="b-cnt"><b>${b.cnt}</b> 条${b.sub?` · ${b.sub}`:""}</div></div>`).join("");
+  if(!tv.sel){ document.getElementById("drill-crumb").innerHTML="← 点击左侧时间桶，下钻原始条目";
+    document.getElementById("drill-body").innerHTML=`<div class="tower-empty">选择桶后，此处展示该窗口内的原始条目（按引用链精确下钻，零 LLM）</div>`; }
+}
+function drillDown(k, idx, cnt){
+  tv.sel = k;
+  renderTower();
+  const b = (tv.gran==="day"?SEED.dayBuckets:tv.gran==="week"?SEED.weekBuckets:SEED.dayBuckets)[idx];
+  document.getElementById("drill-crumb").innerHTML = `<b>worklog</b> › <b>${tv.gran}</b> › 桶 ${b.label} ·
+    <span class="mono">${b.k}</span> · <span style="color:var(--accent)">${cnt} 条</span>`;
+  // 从最近条目里选 cnt 条（模拟真实下钻）
+  const seg = SEED.points.slice(0, Math.max(cnt, SEED.points.length));
+  document.getElementById("drill-body").innerHTML = seg.map(p=>`
+    <div class="point">
+      <div class="p-head"><span class="p-ts">${p.ts}</span>${stBadge(p.status)}<span class="muted" style="font-size:12px">${p.task}</span></div>
+      <div class="p-out">${fmtOut(p.out,150)}</div>
+      <div class="p-tags">${tagChips([`proj=${p.proj}`,`branch=${p.branch}`])}</div>
+    </div>`).join("");
+  toast(`已下钻 ${tv.gran} 桶 ${b.label}：${cnt} 条原始条目（零 LLM）`,"ok");
+}
+
+/* ==================== 回想 ==================== */
+function runQuery(){
+  const tag = document.getElementById("q-tag").value.trim();
+  let res = SEED.points;
+  if(tag && tag.includes("=")){ const [k,v]=tag.split("="); res = res.filter(p=>p[k]===v); }
+  const cnt = document.getElementById("q-count");
+  cnt.textContent = `${res.length} 条 · 结构回想（零 LLM）`;
+  document.getElementById("q-results").innerHTML = res.length===0
+    ? `<div class="tower-empty">无匹配条目</div>`
+    : res.map((p,i)=>`
+    <div class="res-row" style="padding:9px 0;border-bottom:1px solid var(--border)">
+      <div class="r-idx">${i+1}</div>
+      <div class="r-body">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span class="mono" style="font-size:11px;color:var(--faint)">${p.ts}</span>${stBadge(p.status)}
+          <b style="font-size:13px">${p.task}</b><span class="faint" style="font-size:11px">${p.proj}</span>
+        </div>
+        <div class="muted" style="font-size:12px;margin-top:3px">${fmtOut(p.out,170)}</div>
+        <div class="tf-tags" style="margin-top:5px">${tagChips([`proj=${p.proj}`,`branch=${p.branch}`])}</div>
+      </div>
+    </div>`).join("");
+}
+
+/* ---- 回想：模式切换 + 语义回顾（按窗口类型看总结） ---- */
+let rmode = "raw";
+let srv = { gran:"day", bucket:null, group:"all" };
+
+function renderRecall(){
+  document.querySelectorAll("#recall-mode .chip-sel").forEach(x=>{
+    const on = x.dataset.rmode===rmode; x.classList.toggle("on", on); });
+  document.getElementById("recall-raw").style.display = rmode==="raw"?"":"none";
+  document.getElementById("recall-summary").style.display = rmode==="summary"?"":"none";
+  if(rmode==="raw") runQuery(); else renderSummaryRecall();
+}
+document.querySelectorAll("#recall-mode .chip-sel").forEach(el=>el.onclick=()=>{ rmode=el.dataset.rmode; renderRecall(); });
+document.querySelectorAll("#s-gran .chip-sel").forEach(el=>el.onclick=()=>{
+  document.querySelectorAll("#s-gran .chip-sel").forEach(x=>x.classList.remove("on")); el.classList.add("on");
+  srv.gran=el.dataset.sgran; srv.bucket=null; srv.group="all"; renderSummaryRecall(); });
+
+const WIN_LABEL = { "1787932800000":"2026-08-29", "1787846400000":"2026-08-28", "1787760000000":"2026-08-27" };
+function winOf(s){ return WIN_LABEL[s.win.split(" ~ ")[0]]||""; }
+function sumsOfBucket(){
+  if(!srv.bucket) return [];
+  if(srv.gran==="week"){
+    const week = SEED.weekBuckets.find(x=>x.k===srv.bucket);
+    if(!week || !week.label.startsWith("08-24")) return [];
+    return SEED.summaries.filter(s=>winOf(s) && winOf(s)>="2026-08-24");
+  }
+  const b = SEED.dayBuckets.find(x=>x.k===srv.bucket);
+  return SEED.summaries.filter(s=>winOf(s)===b.label);
+}
+function renderSummaryRecall(){
+  const buckets = srv.gran==="day" ? SEED.dayBuckets : SEED.weekBuckets;
+  document.getElementById("s-buckets").innerHTML = buckets.map(b=>`
+    <div class="bucket ${srv.bucket===b.k?"sel":""}" onclick="srv.bucket='${b.k}';srv.group='all';renderSummaryRecall()">
+      <div class="b-date">${b.label}</div><div class="b-cnt">${b.sub?b.sub:""}</div></div>`).join("");
+  const sums = sumsOfBucket();
+  const gsel = document.getElementById("s-group");
+  const groups = [...new Set(sums.map(s=>s.group))];
+  gsel.innerHTML = `<option value="all">全部</option>` +
+    groups.map(g=>`<option value="${g}">【${g}】</option>`).join("") +
+    (groups.length?`<option value="未分组">未分组（无 tag）</option>`:"");
+  if(![...gsel.options].some(o=>o.value===srv.group)) srv.group="all";
+  gsel.value = srv.group;
+  const b = buckets.find(x=>x.k===srv.bucket);
+  document.getElementById("s-title").textContent = b ? `窗口 ${b.label} · ${srv.gran}` : "当前窗口摘要";
+  document.getElementById("s-hint").textContent = sums.length ? `${sums.length} 条总结记录${srv.group!=="all"?` · 分组 ${srv.group}`:""} · 语义回顾（读已生成摘要）` : "语义回顾依赖已总结窗口";
+  const shown = srv.group==="all" ? sums : sums.filter(s=>s.group===srv.group);
+  document.getElementById("s-results").innerHTML =
+    !b ? `<div class="tower-empty">← 选择左侧时间窗口，查看该窗口的语义摘要</div>`
+    : sums.length===0 ? `<div class="tower-empty">该窗口尚无语义摘要（窗口未闭合或未触发总结）<br><br><button class="btn primary" onclick="onTheFlySummarize()">为当前窗口触发总结 · 后台异步</button></div>`
+    : shown.length===0 ? `<div class="tower-empty">该窗口【${srv.group}】分组无摘要（可选「未分组」或其它分组）</div>`
+    : shown.sort((a,b)=>a.ts<b.ts?1:-1).map(sumCard).join("");
+}
+function onTheFlySummarize(){
+  switchView("summary"); runSummarize();
+  toast("已提交总结任务（后台异步，不阻塞）","ok");
+}
+document.getElementById("s-group").addEventListener("change", e=>{ srv.group=e.target.value; renderSummaryRecall(); });
+
+/* ==================== 语义总结 ==================== */
+function sumCard(s){
+  return `
+  <div class="sum-card">
+    <div class="s-head">
+      <span class="s-group">【${s.group}】</span>
+      <span class="s-meta">${s.ts} · 窗口 ${s.win}</span>
+      <span class="badge v mono" style="margin-left:auto">${s.model}</span>
+      <span class="badge b">SummaryRecord</span>
+    </div>
+    <div class="s-sections">
+      <div class="s-sec"><b>决策</b><ul>${s.dec.map(x=>`<li>${x}</li>`).join("")}</ul></div>
+      <div class="s-sec"><b>结论</b><ul>${s.con.map(x=>`<li>${x}</li>`).join("")}</ul></div>
+      <div class="s-sec"><b>待办</b><ul>${s.todo.map(x=>`<li>${x}</li>`).join("")}</ul></div>
+      <div class="s-sec"><b>状态变更</b><ul>${s.stat.map(x=>`<li>${x}</li>`).join("")}</ul></div>
+    </div>
+    <div class="s-kw">${s.kw.map(k=>`<span class="badge mono">${k}</span>`).join("")}</div>
+  </div>`;
+}
+function renderSummaries(){
+  document.getElementById("sum-list").innerHTML = SEED.summaries.map(sumCard).join("");
+}
+let sumTimer, sumStep=0;
+function runSummarize(){
+  const box=document.getElementById("sum-progress"); box.style.display="block";
+  box.innerHTML = `<div class="progress-track"><span class="p-step on"><span class="d"></span>提交</span>
+    <div class="bar"><i id="sum-bar"></i></div><span class="p-step" id="sum-step"><span class="d"></span>运行中</span>
+    <span class="mono" id="sum-pct" style="font-size:11px">0%</span></div>`;
+  clearInterval(sumTimer); let p=0;
+  sumTimer=setInterval(()=>{
+    p=Math.min(100,p+6+Math.random()*8);
+    document.getElementById("sum-bar").style.width=p+"%";
+    document.getElementById("sum-pct").textContent=Math.round(p)+"%";
+    if(p>=100){ clearInterval(sumTimer);
+      document.getElementById("sum-step").innerHTML=`<span class="d" style="background:var(--ok)"></span><span style="color:var(--ok)">完成 ✓ 已落库</span>`;
+      toast("总结完成：窗口×分组摘要已写入 worklog.summary","ok");
+      setTimeout(()=>{box.style.display="none";}, 2600); }
+  }, 260);
+}
+document.querySelectorAll("#sum-mode .chip-sel").forEach(el=>el.onclick=()=>{
+  document.querySelectorAll("#sum-mode .chip-sel").forEach(x=>x.classList.remove("on")); el.classList.add("on");
+  document.getElementById("sum-granularity").style.display = el.dataset.mode==="granularity"?"":"none";
+  document.getElementById("sum-custom").style.display = el.dataset.mode==="custom"?"":"none"; });
+document.querySelectorAll("#sum-gran .chip-sel").forEach(el=>el.onclick=()=>{
+  document.querySelectorAll("#sum-gran .chip-sel").forEach(x=>x.classList.remove("on")); el.classList.add("on"); });
+
+/* ==================== 类型管理 ==================== */
+function renderTypes(){
+  document.getElementById("type-table").innerHTML = `
+  <thead><tr><th>类型</th><th>描述</th><th>粒度链</th><th>分组维度</th><th>条目</th><th>自动总结</th><th style="text-align:right">操作</th></tr></thead>
+  <tbody><tr>
+    <td><span class="mono" style="color:#9fd8f0">worklog</span><br><span class="faint" style="font-size:11px">created 2026-08-16</span></td>
+    <td style="max-width:340px">工作日志（默认类型）：任务阶段/任务完成时追加一条工作日志，按天+按项目分组总结</td>
+    <td><span class="chip cday">day</span> <span class="chip cweek">week</span></td>
+    <td><span class="badge mono">proj</span></td>
+    <td class="mono">76</td>
+    <td><span class="badge g">✓ day/week</span></td>
+    <td style="text-align:right;white-space:nowrap">
+      <button class="btn sm" onclick="openDlg('dlg-typeinfo')">详情</button>
+      <button class="btn sm" onclick="switchView('summary')">总结</button>
+      <button class="btn sm danger" onclick="toast('已清空（模拟）：worklog 原始+总结序列清空，保留类型','ok')">清空</button>
+      <button class="btn sm danger" onclick="openDlg('dlg-danger')">删除</button>
+    </td></tr></tbody>`;
+}
+document.querySelectorAll("#lv-chips .chip-sel").forEach(el=>el.onclick=()=>el.classList.toggle("on"));
+function openTypeCreate(){ openDlg("dlg-create"); }
+
+/* ==================== 追加条目 ==================== */
+function appendPreview(){
+  const status = document.querySelector("#view-append .chip-sel.on[data-st]");
+  const payload = { task:document.getElementById("a-task").value||"……",
+    status: status?status.dataset.st:"完成",
+    outcome:document.getElementById("a-outcome").value,
+    decisions:document.getElementById("a-dec").value,
+    next:document.getElementById("a-next").value };
+  const tags = { proj:document.getElementById("a-proj").value||"chronomem" };
+  const br=document.getElementById("a-branch").value; if(br) tags.branch=br;
+  document.getElementById("append-preview").textContent =
+    JSON.stringify({ type:"worklog", payload, tags, ts:"now" }, null, 2);
+}
+["a-task","a-outcome","a-dec","a-next","a-proj","a-branch"].forEach(id=>document.getElementById(id).addEventListener("input",appendPreview));
+document.querySelectorAll("#view-append .chip-sel[data-st]").forEach(el=>el.onclick=()=>{
+  document.querySelectorAll("#view-append .chip-sel[data-st]").forEach(x=>x.classList.remove("on")); el.classList.add("on"); appendPreview(); });
+function doAppend(){
+  toast("条目已追加（模拟）：已写入 worklog 原始 series，结构物化 1 分钟内完成","ok");
+  document.getElementById("a-task").value=""; document.getElementById("a-outcome").value="";
+  document.getElementById("a-dec").value=""; document.getElementById("a-next").value=""; appendPreview();
+}
+
+/* ==================== 启动 ==================== */
+let initView = location.hash.replace("#","")||"overview";
+if(initView.startsWith("recall-summary")){
+  rmode="summary";
+  const m = initView.match(/recall-summary[?&]bucket=([A-Za-z0-9:\-]+)/);
+  if(m){
+    const lab = m[1];
+    const b = SEED.dayBuckets.find(x=>x.label===lab) || SEED.dayBuckets.find(x=>x.k===lab)
+      || SEED.weekBuckets.find(x=>x.label===lab) || SEED.weekBuckets.find(x=>x.k===lab);
+    if(b) srv.bucket = b.k;
+  }
+  initView="recall";
+}
+switchView(views.includes(initView)?initView:"overview");
+renderOverview(); renderTower(); renderSummaries(); renderTypes(); appendPreview();
+</script>
+</body>
+</html>
