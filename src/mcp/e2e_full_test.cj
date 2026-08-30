@@ -47,7 +47,7 @@ func chronomem_e2e_fullFlow() {
     })
     let transport = SessionHttpServerTransport()
     transport.registerRoutes(httpServer.distributor)
-    let svc = MemoryService.openInMemory(
+    let svc = MemoryService.openFile(freshTestDir(), 
         summarizer: Some(Summarizer(FakeSummarizerProvider("决策：A\n结论：B"), "fake")))
     let mcpServer = buildServer(transport, svc)
     mcpServer.start()

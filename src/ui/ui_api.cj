@@ -4,7 +4,7 @@ package chronomem.ui
 
 import chronomem.core.*
 import chronomem.mcp.MemoryService
-import tsdb.{Point, BucketRecord}
+import tsdb.{Point, BucketMeta, BucketRecord}
 import jsonvalue.*
 import std.collection.*
 import std.sort.*
@@ -105,6 +105,12 @@ public func uiCount(svc: MemoryService, name: String): Int64 {
 public func uiListBuckets(svc: MemoryService, name: String, granularity: String): ArrayList<BucketRecord> {
     if (svc.registry.timelineOf(name).isNone()) { return ArrayList<BucketRecord>() }
     svc.registry.timelineOf(name).getOrThrow().listBuckets(granularity, None, None)
+}
+
+// 轻量桶列表（只带 refs 条数，不构造 refs 对象数组——塔层/桶卡片/摘要窗口统计用）
+public func uiListBucketMetas(svc: MemoryService, name: String, granularity: String): ArrayList<BucketMeta> {
+    if (svc.registry.timelineOf(name).isNone()) { return ArrayList<BucketMeta>() }
+    svc.registry.timelineOf(name).getOrThrow().listBucketMetas(granularity, None, None)
 }
 
 public func uiDrillDown(svc: MemoryService, name: String, granularity: String, bucketKey: String): ArrayList<Point> {

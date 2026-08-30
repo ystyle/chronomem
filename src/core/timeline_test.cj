@@ -8,7 +8,7 @@ import std.collection.*
 
 @Test
 func timeline_appendQueryCountAndTagFilter() {
-    let store = inMemStore()
+    let store = fileStore()
     let tl = store.timeline("t1", "测试", Timeline.defaultLevels())
     tl.append(TEST_BASE, "a", tagsOf([("role", "user")]))
     tl.append(TEST_BASE + 1000, "b", tagsOf([("role", "assistant")]))
@@ -36,7 +36,7 @@ func timeline_appendQueryCountAndTagFilter() {
 
 @Test
 func timeline_materializeAndDrillDown() {
-    let store = inMemStore()
+    let store = fileStore()
     let tl = store.timeline("t2", "测试", Timeline.defaultLevels())
     tl.append(TEST_BASE, "m1", tagsOf([]))
     tl.append(TEST_BASE + 1000, "m2", tagsOf([]))
@@ -61,7 +61,7 @@ func timeline_materializeAndDrillDown() {
 
 @Test
 func timeline_bucketAtFallsBackToEarlierBucket() {
-    let store = inMemStore()
+    let store = fileStore()
     let tl = store.timeline("t3", "测试", Timeline.defaultLevels())
     tl.append(TEST_BASE, "x", tagsOf([]))
     tl.materialize(TEST_BASE, "测试")
@@ -76,7 +76,7 @@ func timeline_bucketAtFallsBackToEarlierBucket() {
 
 @Test
 func timeline_listBuckets() {
-    let store = inMemStore()
+    let store = fileStore()
     let tl = store.timeline("t4", "测试", Timeline.defaultLevels())
     tl.append(TEST_BASE, "x", tagsOf([]))
     tl.materialize(TEST_BASE, "测试")
@@ -116,6 +116,53 @@ func timeline_windowMsMapping() {
     @Expect(Timeline.windowMs("day"), Int64(86400000))
     @Expect(Timeline.windowMs("week"), Int64(604800000))
     @Expect(Timeline.windowMs("nope"), Int64(0))
+}
+
+@Test
+class TimelineBackfillTest {
+    // 回归：重启后历史桶缺失——materializeAll(backWindows) 补齐已闭合窗口缺失桶，且幂等
+    @TestCase
+    func backfillsClosedWindows() {
+        let store = fileStore()
+        let tl = store.timeline("backfill", "测试", dayWeekLevels())
+        let base = TEST_BASE
+        let DAY = Int64(86400000)
+        // 三个 day 窗口：两个已闭合历史 + 一个当窗（回溯 30 窗覆盖）
+        let w0 = tl.windowStartOf(base - 2 * DAY - 1000, "day")
+        let w1 = tl.windowStartOf(base - 1 * DAY - 1000, "day")
+        let w2 = tl.windowStartOf(base, "day")
+        let now = w2 + 5000
+        // tsdb 严格时序：按序写
+        tl.append(w0 + 1000, "p0", tagsOf([]))
+        tl.append(w1 + 1000, "p1", tagsOf([]))
+        tl.append(w2 + 1000, "p2", tagsOf([]))
+        // 默认（不补）：只有当窗桶
+        store.materializeAll(now)
+        @Expect(dayBucketCountOf(tl, w0), Int64(0))
+        @Expect(dayBucketCountOf(tl, w1), Int64(0))
+        @Expect(dayBucketCountOf(tl, w2), Int64(1))
+        // 补物化：历史桶出现（最旧到最新逐窗建链）
+        store.materializeAll(now, backWindows: 30)
+        @Expect(dayBucketCountOf(tl, w0), Int64(1))
+        @Expect(dayBucketCountOf(tl, w1), Int64(1))
+        @Expect(dayBucketCountOf(tl, w2), Int64(1))
+        @Expect(tl.drillDown("day", tl.windowKeyOf(w0, "day")).size, Int64(1))
+        @Expect(tl.drillDown("day", tl.windowKeyOf(w1, "day")).size, Int64(1))
+        // 幂等：再跑计数不变（已有桶跳过，不重写）
+        store.materializeAll(now, backWindows: 30)
+        @Expect(dayBucketCountOf(tl, w0), Int64(1))
+        @Expect(dayBucketCountOf(tl, w1), Int64(1))
+        store.close()
+    }
+}
+
+func dayBucketCountOf(tl: Timeline, ts: Int64): Int64 {
+    let key = tl.windowKeyOf(ts, "day")
+    var n = Int64(0)
+    for (m in tl.listBucketMetas("day", None, None)) {
+        if (m.bucketKey == key) { n += 1 }
+    }
+    n
 }
 
 @Test

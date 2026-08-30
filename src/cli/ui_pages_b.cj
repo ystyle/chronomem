@@ -108,7 +108,7 @@ public class SummaryPage <: Component {
         if (this.mode.get() == "custom") {
             return (parseEpochArg(this.fromMs.get()), parseEpochArg(this.toMs.get()))
         }
-        let buckets = uiListBuckets(svc, this.typeName.get(), this.gran.get())
+        let buckets = uiListBucketMetas(svc, this.typeName.get(), this.gran.get())
         if (buckets.size > 0) {
             let last = buckets[buckets.size - 1]
             let anchor = parseIsoUtcMs(last.bucketKey)

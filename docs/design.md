@@ -187,6 +187,11 @@ public struct SummaryRecord <: JsonSerializable & JsonDeserializable<SummaryReco
 | **语义摘要**（可选，LLM） | 任意类型 | `<type>.summary` series 的 `SummaryRecord` | 语义回顾（summary） | **有** |
 
 - **纯引用链 = 导航，不压缩**：下钻回想拿的是原始体量；「越久越粗」的**内容压缩**只由数值聚合与语义摘要承载——这正是「回想零 LLM 只对精确下钻成立」的原因（见 §1）。
+- **引用链的存储模型（表式引用行）**：桶记录与引用**分离存储**——
+  - 桶记录 `b:<series>:<level>:<bucketKey>` → 小 JSON（`summary` / `refsCount` / `windowStartMs` / `windowEndMs` / `createdAt`），恒 <1KB，列表/计数 O(1)；
+  - 引用行 `k:<series>:<level>:<bucketKey>:<seq 8 位>` → 单条 `Ref` JSON（`PointRef` / `BucketRef`，每条 ~60B），下钻前缀扫描 + 按 series 批量解析（一次 range 查询）；
+  - **动机**：旧格式把 refs 数组序列化进桶 value，badger `MemTable.put` 值上限 64KB（`UInt16 max`）→ 单桶 >~800 条时物化写入抛异常（物化静默失败、桶「点不开」——Web UI 时间桶一度全部失效的根因）；表式行无大小限制、写放大 N+1 次小 put（badger 批量毫秒级）、覆盖语义 = 事务内删旧 k 前缀 + 重写；
+  - **兼容**：旧格式（value 内 refs 数组）自动回退——`usesRefRows()`（refs 空 + refsCount>0）判定新格式，旧桶走数组路径；解码器同时兼容两种。
 - 泛化 liveboard `Timeline` / `TimelineStore`：**剥离 atelier.message 依赖**（不再耦合 Message 类型），payload 一律字符串载体（JSON），成为纯 tsdb 之上的通用分层时间线。
 - **粒度按类型配置**（§5.1）：`Timeline.materializeLevels()` 从全局写死改为**每 series 传入自身 levels**（默认 `10min→30min→1h→day→week`）；结构物化只建该类型声明的层级，逐层 `PointRef`/`BucketRef` 桶链，每层物化落盘不删下层、越久越粗；`drillDown` 沿链精确回忆。
 - `MaterializeScheduler`：后台线程每 60s 对全部已注册类型（含各 `<type>.summary`）统一**结构**物化（引用链 / 数值聚合）；幂等、空窗口零成本。**语义摘要不自动物化**（受 token 预算约束，见 §7.3）。

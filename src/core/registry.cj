@@ -99,6 +99,10 @@ public class MemoryTypeRegistry {
         for (p in points) {
             let meta = fromJsonString<TypeMeta>(p.payload)
             this.types[meta.name] = meta
+            // 关键：恢复 series 注册（TimelineStore.seriesLabels/seriesLevels 是内存态，
+            // 不恢复则重启后物化桶链/句柄创建只覆盖新类型的类型——old 类型能读点但永不物化）
+            this.store.timeline(meta.name, "记忆类型 " + meta.name, meta.levels)
+            this.store.timeline(MemoryTypeRegistry.summarySeriesOf(meta.name), "总结 " + meta.name, meta.levels)
         }
     }
 

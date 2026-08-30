@@ -1,2 +1,9 @@
 target/
 .cache/
+
+# 测试数据与运行时产物
+.testdata/
+.testdata-serve.log
+.bulkout.txt
+.fullout*.log
+docs/ui/shots/

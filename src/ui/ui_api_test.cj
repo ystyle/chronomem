@@ -5,10 +5,10 @@ import chronomem.core.*
 import std.collection.{ArrayList, HashMap}
 
 // UI 数据访问层（ui_api）测试：类型 CRUD / 追加校验 / 查询过滤 / 桶计数与下钻 / 总结读取 / 删除守卫。
-// 全部基于 MemoryService.openInMemory（零磁盘、零 LLM）。
+// 全部基于 MemoryService.openFile（文件型临时库、零 LLM）。
 
 func uiTestSvcWithWorklog(points: Array<(Int64, String, String)>): MemoryService {
-    let svc = MemoryService.openInMemory()
+    let svc = MemoryService.openFile(freshTestDir())
     let levels = ArrayList<String>()
     levels.add("day")
     levels.add("week")
@@ -26,7 +26,7 @@ func uiTestSvcWithWorklog(points: Array<(Int64, String, String)>): MemoryService
 
 @Test
 func uiApiCreateAndListTypes() {
-    let svc = MemoryService.openInMemory()
+    let svc = MemoryService.openFile(freshTestDir())
     let levels = ArrayList<String>()
     levels.add("day")
     let r = uiCreateType(svc, TypeMeta("t1", "描述", None, levels, None, false, None, 1))
@@ -36,6 +36,7 @@ func uiApiCreateAndListTypes() {
     // 重复创建被拒
     let dup = uiCreateType(svc, TypeMeta("t1", "d", None, levels, None, false, None, 1))
     @Expect(dup.ok, false)
+    svc.close()
 }
 
 @Test
@@ -52,7 +53,7 @@ func uiApiValidateTypeName() {
 
 @Test
 func uiApiAppendAndQuery() {
-    let svc = MemoryService.openInMemory()
+    let svc = MemoryService.openFile(freshTestDir())
     let levels = ArrayList<String>()
     levels.add("day")
     uiCreateType(svc, TypeMeta("worklog", "d", None, levels, None, false, None, 1))
@@ -69,25 +70,28 @@ func uiApiAppendAndQuery() {
     // tag 过滤命中/未命中
     @Expect(uiQuery(svc, "worklog", 0, 0, 20, "proj", "ct").size, Int64(1))
     @Expect(uiQuery(svc, "worklog", 0, 0, 20, "proj", "other").size, Int64(0))
+    svc.close()
 }
 
 @Test
 func uiApiAppendBadPayloadRejected() {
-    let svc = MemoryService.openInMemory()
+    let svc = MemoryService.openFile(freshTestDir())
     let levels = ArrayList<String>()
     levels.add("day")
     uiCreateType(svc, TypeMeta("worklog", "d", None, levels, None, false, None, 1))
     let r = uiAppend(svc, "worklog", 0, "not-json", ArrayList<(String, String)>())
     @Expect(r.ok, false)
     @Expect(r.message.contains("JSON"), true)
+    svc.close()
 }
 
 @Test
 func uiApiAppendUnknownTypeRejected() {
-    let svc = MemoryService.openInMemory()
+    let svc = MemoryService.openFile(freshTestDir())
     let r = uiAppend(svc, "nope", 0, "{}", ArrayList<(String, String)>())
     @Expect(r.ok, false)
     @Expect(r.message.contains("不存在"), true)
+    svc.close()
 }
 
 @Test
@@ -106,6 +110,7 @@ func uiApiTypeInfoBucketCounts() {
     @Expect(info.bucketCounts.size, Int64(2))
     @Expect(info.bucketCounts[0][1] >= Int64(1), true)
     @Expect(info.summaries, Int64(0))
+    svc.close()
 }
 
 @Test
@@ -126,6 +131,14 @@ func uiApiBucketsAndDrill() {
     // 最早的桶（08-28）1 条，次桶（08-29）2 条
     @Expect(uiDrillDown(svc, "worklog", "day", buckets[0].bucketKey).size, Int64(1))
     @Expect(uiDrillDown(svc, "worklog", "day", buckets[1].bucketKey).size, Int64(2))
+    // 轻量 metas：条数一致（refsCount），且 bucketKey/summary 对齐（防 GC 堆膨胀的列表通道）
+    let metas = uiListBucketMetas(svc, "worklog", "day")
+    @Expect(metas.size, Int64(2))
+    @Expect(metas[0].bucketKey, buckets[0].bucketKey)
+    @Expect(metas[0].refsCount, Int64(1))
+    @Expect(metas[1].bucketKey, buckets[1].bucketKey)
+    @Expect(metas[1].refsCount, Int64(2))
+    svc.close()
 }
 
 @Test
@@ -140,6 +153,7 @@ func uiApiSummariesRead() {
     @Expect(items[0].groupKey.getOrThrow(), "x")
     @Expect(items[0].model, "fake-model")
     @Expect(parseSummarySections(items[0].text).decisions[0], "分组维度可配置")
+    svc.close()
 }
 
 @Test
@@ -156,6 +170,7 @@ func uiApiSummariesWindowFilter() {
     let inWin = uiSummariesOfWindow(svc, "worklog", 1788019200000, 1788105600000)
     @Expect(inWin.size, Int64(1))
     @Expect(inWin[0].ts, Int64(100))
+    svc.close()
 }
 
 @Test
@@ -164,6 +179,7 @@ func uiApiTriggerSummarizeNoLlm() {
     let r = uiTriggerSummarize(svc, "worklog", 1788019200000, 1788105600000, "")
     @Expect(r.ok, false)
     @Expect(r.message.contains("LLM"), true)
+    svc.close()
 }
 
 @Test
@@ -180,4 +196,5 @@ func uiApiTruncateAndDeleteGuard() {
     let del2 = uiDeleteType(svc, "worklog")
     @Expect(del2.ok, true)
     @Expect(uiListTypes(svc).size, Int64(0))
+    svc.close()
 }

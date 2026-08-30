@@ -9,7 +9,7 @@ import std.time.*
 // 用 UTC 时区 + 注入 now 保证确定性。
 
 func schedSvc(): MemoryService {
-    MemoryService.openInMemory(
+    MemoryService.openFile(freshTestDir(), 
         summarizer: Some(Summarizer(FakeSummarizerProvider("决策：A\n结论：B"), "fake")),
         timeZone: TimeZone.UTC)
 }
@@ -42,6 +42,7 @@ func scheduler_defaultOff() {
     let sch = SummarizeScheduler(s, 5, 60000)
     let n = sch.runOnce(DAY_END + 60000 + 1000)
     @Expect(n, Int64(0))
+    s.close()
 }
 
 @Test
@@ -58,6 +59,7 @@ func scheduler_summarizesClosedSettledWindow() {
     @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
     let sums = handleSummaries(s, argsFromJson("{\"type\":\"log\"}"))
     @Expect(resultText(sums).indexOf("决策：A") != None, true)
+    s.close()
 }
 
 @Test
@@ -70,6 +72,7 @@ func scheduler_idempotent() {
     @Expect(sch.runOnce(now), Int64(1))
     // 已总结 → 不再重复
     @Expect(sch.runOnce(now), Int64(0))
+    s.close()
 }
 
 @Test
@@ -81,6 +84,7 @@ func scheduler_notSettledYet() {
     // now = 次日 00:00 + settle - 1 → 沉降未满
     let n = sch.runOnce(DAY_END + 59999)
     @Expect(n, Int64(0))
+    s.close()
 }
 
 @Test
@@ -93,6 +97,7 @@ func scheduler_cappedPerRun() {
     let sch = SummarizeScheduler(s, 1, 60000)   // 每轮上限 1
     let n = sch.runOnce(DAY_END + 60000 + 1000)
     @Expect(n, Int64(1))
+    s.close()
 }
 
 @Test
@@ -109,16 +114,18 @@ func scheduler_defaultTargetLevelsCoarsestTwo() {
             @Expect(levels[1], "week")
         case None => @Fail("类型不存在")
     }
+    s.close()
 }
 
 @Test
 func scheduler_noLlmDoesNothing() {
-    let s = MemoryService.openInMemory(timeZone: TimeZone.UTC)   // 无 LLM
+    let s = MemoryService.openFile(freshTestDir(), timeZone: TimeZone.UTC)   // 无 LLM
     makeDayType(s, "a", true)
     handleAppend(s, argsFromJson("{\"type\":\"a\",\"payload\":{},\"ts\":1704067200000}"))
     let sch = SummarizeScheduler(s, 5, 60000)
     let n = sch.runOnce(DAY_END + 60000 + 1000)
     @Expect(n, Int64(0))
+    s.close()
 }
 
 @Test
@@ -126,6 +133,7 @@ func scheduler_rejectsBadSummaryLevels() {
     let s = schedSvc()
     let r = handleTypeCreate(s, argsFromJson("{\"name\":\"x\",\"levels\":[\"day\"],\"auto_summarize\":true,\"summary_levels\":[\"week\"]}"))
     @Expect(r.isError, true)
+    s.close()
 }
 
 @Test
@@ -147,6 +155,7 @@ func scheduler_groupedTypeSummarizesEachProjOnce() {
     @Expect(txt.indexOf("【未分组】") != None, true)
     // 幂等：全部已总结 → 不再提交
     @Expect(sch.runOnce(DAY_END + 60000 + 1000), Int64(0))
+    s.close()
 }
 
 @Test
@@ -167,4 +176,5 @@ func scheduler_groupedTypeIdempotentPerGroup() {
     @Expect(txt.indexOf("【b】") != None, true)
     // 全部已总结 → 幂等
     @Expect(sch.runOnce(now), Int64(0))
+    s.close()
 }

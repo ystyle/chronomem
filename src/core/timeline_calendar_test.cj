@@ -18,7 +18,7 @@ func msOf(tz: TimeZone, y: Int64, mo: Int64, d: Int64, h: Int64, mi: Int64): Int
 
 @Test
 func timeline_calendarWindow_dayIsLocalMidnight() {
-    let store = TimelineStore.openInMemory(timeZone: tzPlus8())
+    let store = fileStore(timeZone: tzPlus8())
     let tl = store.timeline("cd1", "测试", Timeline.defaultLevels())
     // 2024-01-15 10:30 (+08) → 本地零点 2024-01-15 00:00 (+08)
     let start = tl.windowStartOf(msOf(tzPlus8(), 2024, 1, 15, 10, 30), "day")
@@ -33,7 +33,7 @@ func timeline_calendarWindow_dayIsLocalMidnight() {
 
 @Test
 func timeline_calendarWindow_weekStartsMonday() {
-    let store = TimelineStore.openInMemory(timeZone: tzPlus8())
+    let store = fileStore(timeZone: tzPlus8())
     let tl = store.timeline("cd2", "测试", Timeline.defaultLevels())
     // 2024-01-15 是周一；2024-01-17（周三）的周起点 = 2024-01-15 00:00
     @Expect(tl.windowStartOf(msOf(tzPlus8(), 2024, 1, 17, 8, 0), "week"),
@@ -46,7 +46,7 @@ func timeline_calendarWindow_weekStartsMonday() {
 
 @Test
 func timeline_calendarWindow_monthStartsFirst() {
-    let store = TimelineStore.openInMemory(timeZone: tzPlus8())
+    let store = fileStore(timeZone: tzPlus8())
     let tl = store.timeline("cd3", "测试", Timeline.defaultLevels())
     // 2024-01-31 23:00 的月窗口起点 = 2024-01-01 00:00
     @Expect(tl.windowStartOf(msOf(tzPlus8(), 2024, 1, 31, 23, 0), "month"),
@@ -56,7 +56,7 @@ func timeline_calendarWindow_monthStartsFirst() {
 
 @Test
 func timeline_calendarWindow_fineLevelsClockAligned() {
-    let store = TimelineStore.openInMemory(timeZone: tzPlus8())
+    let store = fileStore(timeZone: tzPlus8())
     let tl = store.timeline("cd4", "测试", Timeline.defaultLevels())
     // 10min 窗口钟表对齐（与 tz 无关）
     let ts = msOf(tzPlus8(), 2024, 1, 15, 10, 30)  // 10:30 → 10:30 所在 10min 段起点 10:30
@@ -68,8 +68,8 @@ func timeline_calendarWindow_fineLevelsClockAligned() {
 @Test
 func timeline_calendarWindow_dayDiffersByTimeZone() {
     // 同一绝对时刻：UTC 是 2024-01-14 20:00，+08 是 2024-01-15 04:00 → 各自本地零点不同
-    let utcStore = TimelineStore.openInMemory(timeZone: TimeZone.UTC)
-    let plus8Store = TimelineStore.openInMemory(timeZone: tzPlus8())
+    let utcStore = fileStore(timeZone: TimeZone.UTC)
+    let plus8Store = fileStore(timeZone: tzPlus8())
     let utcTl = utcStore.timeline("cd5", "测试", Timeline.defaultLevels())
     let plus8Tl = plus8Store.timeline("cd6", "测试", Timeline.defaultLevels())
     let absolute = msOf(tzPlus8(), 2024, 1, 15, 4, 0)   // = UTC 2024-01-14 20:00
@@ -81,7 +81,7 @@ func timeline_calendarWindow_dayDiffersByTimeZone() {
 
 @Test
 func timeline_calendarWindow_bucketKeySortable() {
-    let store = TimelineStore.openInMemory(timeZone: tzPlus8())
+    let store = fileStore(timeZone: tzPlus8())
     let tl = store.timeline("cd7", "测试", Timeline.defaultLevels())
     // 桶 key 形如 yyyy-MM-ddTHH:mm:ssZ，字典序 = 时间序
     let k1 = tl.windowKeyOf(msOf(tzPlus8(), 2024, 1, 10, 0, 0), "day")
@@ -95,7 +95,7 @@ func timeline_calendarWindow_bucketKeySortable() {
 
 @Test
 func timeline_calendarWindow_materializeAndDrillDownDay() {
-    let store = TimelineStore.openInMemory(timeZone: tzPlus8())
+    let store = fileStore(timeZone: tzPlus8())
     let l = ArrayList<String>()
     l.add("day")
     let tl = store.timeline("cd8", "测试", l)

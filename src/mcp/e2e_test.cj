@@ -1,5 +1,6 @@
 package chronomem.mcp
 
+import chronomem.core.*
 import jsonvalue.*
 import mcp.*
 import mcp.transport.*
@@ -33,7 +34,7 @@ func chronomem_e2e_connectAndListTools() {
 
     let transport = SessionHttpServerTransport()
     transport.registerRoutes(httpServer.distributor)
-    let svc = MemoryService.openInMemory()
+    let svc = MemoryService.openFile(freshTestDir())
     let mcpServer = buildServer(transport, svc)
     mcpServer.start()
     spawn { => httpServer.serve() }

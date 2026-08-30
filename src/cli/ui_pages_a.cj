@@ -10,7 +10,7 @@ import cjxt.components.*
 import chronomem.ui.*
 import chronomem.core.*
 import chronomem.mcp.MemoryService
-import tsdb.{Point, BucketRecord}
+import tsdb.{Point, BucketMeta, BucketRecord}
 import std.collection.{ArrayList, HashMap, HashSet}
 import std.time.TimeZone
 import std.convert.*
@@ -201,12 +201,12 @@ public class TowerPage <: Component {
             .placeholder("选择记忆类型")
             .bind(this.selType)
 
-        // 塔层（全链展示：未配置层禁用）
+        // 塔层（全链展示：未配置层禁用；桶统计走轻量 metas，不构造 refs 对象）
         let layers = ArrayList<IComponent>()
         let revOrder = ["week", "day", "1h", "30min", "10min"]
         for (level in revOrder) {
             let enabled = levels.contains(level)
-            let bucketCount = if (enabled) { uiListBuckets(svc, this.selType.get(), level).size } else { Int64(0) }
+            let bucketCount = if (enabled) { uiListBucketMetas(svc, this.selType.get(), level).size } else { Int64(0) }
             let active = enabled && level == this.selGran.get()
             let h: Option<ActionHandler> = if (enabled) {
                 Some({ ctx =>
@@ -219,8 +219,8 @@ public class TowerPage <: Component {
                 if (enabled) { bucketCount.toString() } else { "未配置" }, enabled, active, h))
         }
 
-        // 桶
-        let buckets = if (levels.contains(this.selGran.get())) { uiListBuckets(svc, this.selType.get(), this.selGran.get()) } else { ArrayList<BucketRecord>() }
+        // 桶（轻量 metas：refsCount 来自解码计数，零 extra 查询）
+        let buckets = if (levels.contains(this.selGran.get())) { uiListBucketMetas(svc, this.selType.get(), this.selGran.get()) } else { ArrayList<BucketMeta>() }
         let bucketChildren = ArrayList<IComponent>()
         bucketChildren.add(cardTitle(this.selGran.get() + " · 时间桶", "点击下钻原始条目"))
         if (buckets.size == 0) {
@@ -228,8 +228,8 @@ public class TowerPage <: Component {
         } else {
             let grid = ArrayList<IComponent>()
             for (b in buckets) {
-                // 桶条数 = refs 数（PointRef 直点 / BucketRef 子桶），零 DB 查询
-                let cnt = Int64(b.refs.size)
+                // 桶条数 = refsCount（PointRef 直点 / BucketRef 子桶），轻量解码零对象构造
+                let cnt = b.refsCount
                 grid.add(bucketCard(b.bucketKey, this.selGran.get(), cnt, b.bucketKey == this.selBucket.get(), { ctx =>
                     this.selBucket.set(b.bucketKey)
                     PatchResult.ReRender
@@ -261,7 +261,7 @@ public class TowerPage <: Component {
         ], attrs: Some(a("ui-page"))))
     }
 
-    func drillPanel(svc: MemoryService, meta: TypeMeta, buckets: ArrayList<BucketRecord>): IComponent {
+    func drillPanel(svc: MemoryService, meta: TypeMeta, buckets: ArrayList<BucketMeta>): IComponent {
         let children = ArrayList<IComponent>()
         if (this.selBucket.get() == "") {
             children.add(htmlSpan("<div class=\"ui-crumb\">← 点击左侧时间桶，下钻原始条目</div>"))
@@ -412,7 +412,7 @@ public class RecallPage <: Component {
             granRadio.add(Radio([text(l)], l))
         }
 
-        let buckets = uiListBuckets(svc, this.qType.get(), this.sGran.get())
+        let buckets = uiListBucketMetas(svc, this.qType.get(), this.sGran.get())
         let groupOptions = ArrayList<IComponent>()
         groupOptions.add(SelectOption([text("全部")], "all"))
         if (this.sBucket.get() != "") {
@@ -439,7 +439,7 @@ public class RecallPage <: Component {
             let grid = ArrayList<IComponent>()
             for (b in buckets) {
                 let bk = b.bucketKey
-                let cnt = Int64(b.refs.size)
+                let cnt = b.refsCount
                 grid.add(bucketCard(bk, this.sGran.get(), cnt, bk == this.sBucket.get(), { ctx =>
                     this.sBucket.set(bk)
                     this.sGroup.set("all")
@@ -488,7 +488,7 @@ public class RecallPage <: Component {
         ], attrs: Some(a("ui-stack")))
     }
 
-    func bucketFromMs(buckets: ArrayList<BucketRecord>): Int64 {
+    func bucketFromMs(buckets: ArrayList<BucketMeta>): Int64 {
         for (b in buckets) {
             if (b.bucketKey == this.sBucket.get()) {
                 let tl = svc().registry.timelineOf(this.qType.get()).getOrThrow()
@@ -502,7 +502,7 @@ public class RecallPage <: Component {
         0
     }
 
-    func bucketToMs(buckets: ArrayList<BucketRecord>): Int64 {
+    func bucketToMs(buckets: ArrayList<BucketMeta>): Int64 {
         for (b in buckets) {
             if (b.bucketKey == this.sBucket.get()) {
                 let tl = svc().registry.timelineOf(this.qType.get()).getOrThrow()
