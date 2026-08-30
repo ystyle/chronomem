@@ -233,7 +233,8 @@ public class TowerPage <: Component {
         } else {
             let grid = ArrayList<IComponent>()
             for (b in buckets) {
-                let cnt = uiDrillDown(svc, this.selType, this.selGran, b.bucketKey).size
+                // 桶条数 = refs 数（PointRef 直点 / BucketRef 子桶），零 DB 查询
+                let cnt = Int64(b.refs.size)
                 grid.add(bucketCard(b.bucketKey, this.selGran, cnt, b.bucketKey == this.selBucket, { ctx =>
                     this.selBucket = b.bucketKey
                     PatchResult.ReRender
@@ -464,7 +465,7 @@ public class RecallPage <: Component {
             let grid = ArrayList<IComponent>()
             for (b in buckets) {
                 let bk = b.bucketKey
-                let cnt = uiDrillDown(svc, this.qType, this.sGran, bk).size
+                let cnt = Int64(b.refs.size)
                 grid.add(bucketCard(bk, this.sGran, cnt, bk == this.sBucket, { ctx =>
                     this.sBucket = bk
                     this.sGroup = "all"

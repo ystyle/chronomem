@@ -167,7 +167,7 @@ func appendBullet(out: SummarySections, sec: String, line: String): Unit {
     var t = trimSpace(line)
     if (t.startsWith("- ")) { t = t[2..t.size] }
     if (t.startsWith("* ")) { t = t[2..t.size] }
-    if (t.startsWith("·")) { t = t[1..t.size] }
+    if (t.startsWith("·")) { t = t[3..t.size] }
     t = trimSpace(t)
     if (t == "") { return }
     match (sec) {

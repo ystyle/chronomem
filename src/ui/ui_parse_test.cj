@@ -53,6 +53,16 @@ func uiParseBulletLinesOnly() {
 }
 
 @Test
+func uiParseBulletDotPrefix() {
+    // "·" 为 3 字节 UTF-8：前缀剥离不能切成续字节（曾导致 Invalid utf8）
+    let text = "决策：\n· 分组维度可配置\n· 无 tag 条目归未分组\n\n结论：\n- 完成"
+    let s = parseSummarySections(text)
+    @Expect(s.decisions.size, Int64(2))
+    @Expect(s.decisions[0], "分组维度可配置")
+    @Expect(s.decisions[1], "无 tag 条目归未分组")
+}
+
+@Test
 func uiParseEmptyText() {
     let s = parseSummarySections("")
     @Expect(s.decisions.size, Int64(0))
