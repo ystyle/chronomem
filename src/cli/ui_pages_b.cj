@@ -1,4 +1,6 @@
 // 忆时塔 Web UI · 页面（2/2）：语义总结 + 记忆类型管理 + 追加条目
+// 交互状态一律 Signal<T>（cjxt 脏追踪只认 Signal 订阅；普通字段+ReRender 不会产生补丁）；
+// 表单统一使用 cjxt 组件库（Input/Select/RadioGroup/Switch/CheckboxGroup，对齐 Element Plus）。
 
 package chronomem.cli
 
@@ -12,25 +14,26 @@ import jsonvalue.*
 import std.collection.{ArrayList, HashMap, HashSet}
 import std.time.TimeZone
 import std.convert.*
+import std.sort.*
 
 // ==================== 语义总结 ====================
 
 @Page["/summary", "语义总结", uiNoGuard, UiLayout]
 public class SummaryPage <: Component {
-    var typeName: String = ""
-    var mode: String = "granularity"
-    var gran: String = "day"
-    var fromMs: String = ""
-    var toMs: String = ""
-    var instructions: String = ""
-    var notice: String = ""
+    var typeName = Signal<String>("")
+    var mode = Signal<String>("granularity")
+    var gran = Signal<String>("day")
+    var fromMs = Signal<String>("")
+    var toMs = Signal<String>("")
+    var instructions = Signal<String>("")
+    var notice = Signal<String>("")
 
     public init() {}
 
     func ensureType(svc: MemoryService): Unit {
-        if (this.typeName == "") {
+        if (this.typeName.get() == "") {
             let types = uiListTypes(svc)
-            if (types.size > 0) { this.typeName = types[0].name }
+            if (types.size > 0) { this.typeName.set(types[0].name) }
         }
     }
 
@@ -41,68 +44,58 @@ public class SummaryPage <: Component {
         let children = ArrayList<IComponent>()
         for (__it in pageTitle("语义总结", "LLM 把窗口条目提炼为结构化摘要（决策/结论/待办/状态变更/关键词），落库为总结记录；后台异步执行，幂等（窗口×分组已有摘要则跳过）。")) { children.add(__it) }
 
-        // 触发总结表单
-        let form = ArrayList<IComponent>()
-        form.add(cardTitle("触发总结", "后台异步 · 幂等"))
-        // 类型
-        let typeRow = ArrayList<IComponent>()
-        for (t in uiListTypes(svc)) {
-            let c = div([text(t.name)], attrs: Some(a(if (this.typeName == t.name) { "ui-chip-sel on" } else { "ui-chip-sel" })))
-            let name = t.name
-            typeRow.add(c.onClick({ ctx =>
-                this.typeName = name
-                PatchResult.ReRender
-            }))
-        }
-        form.add(this.field("记忆类型", div(typeRow.toArray(), attrs: Some(a("ui-chips")))))
-        // 方式
-        let modeRow = ArrayList<IComponent>()
-        modeRow.add(this.modeChip("granularity", "按粒度窗口"))
-        modeRow.add(this.modeChip("custom", "显式窗口（任务阶段）"))
-        form.add(this.field("总结方式", div(modeRow.toArray(), attrs: Some(a("ui-chips")))))
-        // 粒度 or 窗口
-        let meta = uiGetType(svc, this.typeName)
+        let meta = uiGetType(svc, this.typeName.get())
         let levels: ArrayList<String> = match (meta) {
             case Some(m) => sortLevels(m.levels)
             case None => ArrayList<String>()
         }
-        if (this.gran == "" || !levels.contains(this.gran)) {
-            this.gran = if (levels.size > 0) { levels[0] } else { "day" }
+        if (this.gran.get() == "" || !levels.contains(this.gran.get())) {
+            this.gran.set(if (levels.size > 0) { levels[0] } else { "day" })
         }
-        if (this.mode == "granularity") {
-            let granRow = ArrayList<IComponent>()
-            for (l in levels) {
-                let c = div([text(l)], attrs: Some(a(if (this.gran == l) { "ui-chip-sel on" } else { "ui-chip-sel" })))
-                let g = l
-                granRow.add(c.onClick({ ctx =>
-                    this.gran = g
-                    PatchResult.ReRender
-                }))
-            }
-            form.add(this.field("粒度（类型 levels 内）", div(granRow.toArray(), attrs: Some(a("ui-chips")))))
+
+        // ---------- 触发总结表单（EP Form） ----------
+        let typeOptions = ArrayList<IComponent>()
+        for (t in uiListTypes(svc)) {
+            typeOptions.add(SelectOption([text(t.name)], t.name))
+        }
+        let granRadio = ArrayList<IComponent>()
+        for (l in levels) {
+            granRadio.add(Radio([text(l)], l))
+        }
+        let form = ArrayList<IComponent>()
+        form.add(FormItem([Select(typeOptions.toArray()).placeholder("记忆类型").bind(this.typeName)]).label("记忆类型"))
+        form.add(FormItem([RadioGroup([
+            Radio([text("按粒度窗口")], "granularity"),
+            Radio([text("显式窗口（任务阶段）")], "custom"),
+        ]).bind(this.mode)]).label("总结方式"))
+        if (this.mode.get() == "granularity") {
+            form.add(FormItem([RadioGroup(granRadio.toArray()).bind(this.gran)]).label("粒度（类型 levels 内）"))
         } else {
-            form.add(this.inpField("窗口起始（epoch ms）", this.fromMs, { ctx => this.fromMs = paramStr(ctx.params, "value"); PatchResult.ReRender }))
-            form.add(this.inpField("窗口结束（epoch ms）", this.toMs, { ctx => this.toMs = paramStr(ctx.params, "value"); PatchResult.ReRender }))
+            form.add(FormItem([Input().placeholder("epoch ms").bind(this.fromMs)]).label("窗口起始"))
+            form.add(FormItem([Input().placeholder("epoch ms").bind(this.toMs)]).label("窗口结束"))
         }
-        form.add(this.inpField("补充指令 instructions（可选）", this.instructions, { ctx => this.instructions = paramStr(ctx.params, "value"); PatchResult.ReRender }))
-        // 提交
+        form.add(FormItem([Input().placeholder("如：提炼本次任务的决策与待办").bind(this.instructions)]).label("补充指令 instructions（可选）"))
+
         let submit = div([text("提交总结任务")], attrs: Some(a("ui-btn primary")))
         let submitted = submit.onClick({ ctx =>
             let (fromMs, toMs) = this.resolveWindow(svc)
-            let r = uiTriggerSummarize(svc, this.typeName, fromMs, toMs, this.instructions)
-            this.notice = r.message
+            let r = uiTriggerSummarize(svc, this.typeName.get(), fromMs, toMs, this.instructions.get())
+            this.notice.set(r.message)
             PatchResult.ReRender
         })
-        form.add(div([submitted], attrs: Some(a("ui-summary-submit"))))
-        if (this.notice != "") {
-            form.add(htmlSpan("<div style=\"margin-top:8px;font-size:12px;color:var(--accent)\">" + this.notice + "</div>"))
-        }
-        children.add(div(form.toArray(), attrs: Some(a("ui-card"))))
+        let formCard = ArrayList<IComponent>()
+        formCard.add(cardTitle("触发总结", "后台异步 · 幂等"))
+        formCard.add(div([
+            Form(form.toArray()),
+            div([submitted], attrs: Some(a("ui-summary-submit"))),
+            div([text(this.notice.get())], attrs: Some(a("ui-notice"))),
+        ], attrs: Some(a("ui-form-wrap"))))
+        children.add(div(formCard.toArray(), attrs: Some(a("ui-card"))))
 
-        // 总结记录
+        // ---------- 总结记录 ----------
         let list = ArrayList<IComponent>()
         list.add(cardTitle("总结记录", "SummaryRecord · 最新在前 · 窗口×分组各一条"))
-        let sums = uiSummaries(svc, this.typeName, 100)
+        let sums = uiSummaries(svc, this.typeName.get(), 100)
         if (sums.size == 0) {
             list.add(emptyBox("暂无总结记录。未配置 LLM 时总结不可用；配置后触发窗口总结即可生成。"))
         } else {
@@ -112,45 +105,21 @@ public class SummaryPage <: Component {
         div(children.toArray(), attrs: Some(a("ui-page")))
     }
 
-    func modeChip(key: String, label: String): IComponent {
-        let c = div([text(label)], attrs: Some(a(if (this.mode == key) { "ui-chip-sel on" } else { "ui-chip-sel" })))
-        c.onClick({ ctx =>
-            this.mode = key
-            PatchResult.ReRender
-        })
-    }
-
     func resolveWindow(svc: MemoryService): (Int64, Int64) {
-        if (this.mode == "custom") {
-            return (parseEpochArg(this.fromMs), parseEpochArg(this.toMs))
+        if (this.mode.get() == "custom") {
+            return (parseEpochArg(this.fromMs.get()), parseEpochArg(this.toMs.get()))
         }
-        // 按粒度：取最近一个已闭合物化桶窗口
-        let buckets = uiListBuckets(svc, this.typeName, this.gran)
+        let buckets = uiListBuckets(svc, this.typeName.get(), this.gran.get())
         if (buckets.size > 0) {
             let last = buckets[buckets.size - 1]
             let anchor = parseIsoUtcMs(last.bucketKey)
             if (anchor > 0) {
-                let tl = svc.registry.timelineOf(this.typeName).getOrThrow()
-                let win = tl.windowRangeOf(anchor, this.gran)
+                let tl = svc.registry.timelineOf(this.typeName.get()).getOrThrow()
+                let win = tl.windowRangeOf(anchor, this.gran.get())
                 return (win[0], win[1])
             }
         }
         (0, 0)
-    }
-
-    func field(label: String, inner: IComponent): IComponent {
-        div([
-            htmlSpan("<label>" + label + "</label>"),
-            inner,
-        ], attrs: Some(a("ui-field")))
-    }
-
-    func inpField(label: String, value: String, onInput: ActionHandler): IComponent {
-        let handled = input(attrs: Some(a("ui-inp"))).on("blur", onInput).attr("value", value)
-        div([
-            htmlSpan("<label>" + label + "</label>"),
-            handled,
-        ], attrs: Some(a("ui-field")))
     }
 }
 
@@ -158,18 +127,18 @@ public class SummaryPage <: Component {
 
 @Page["/types", "记忆类型", uiNoGuard, UiLayout]
 public class TypesPage <: Component {
-    var createOpen: Bool = false
-    var detailOpen: Bool = false
-    var dangerOpen: Bool = false
-    var forceDelete: Bool = false
-    var notice: String = ""
-    // 创建表单
-    var cName: String = ""
-    var cDesc: String = ""
-    var cLevels: ArrayList<String> = ArrayList<String>()
-    var cGroupBy: String = ""
-    var cRetention: String = ""
-    var cAuto: Bool = true
+    var createOpen = Signal<Bool>(false)
+    var detailOpen = Signal<Bool>(false)
+    var dangerOpen = Signal<Bool>(false)
+    var notice = Signal<String>("")
+    var cName = Signal<String>("")
+    var cDesc = Signal<String>("")
+    var cLevels = Signal<ArrayList<String>>(ArrayList<String>(["day", "week"]))
+    var cGroupBy = Signal<String>("")
+    var cRetention = Signal<String>("")
+    var cAuto = Signal<Bool>(true)
+    var detailName = Signal<String>("")
+    var dangerName = Signal<String>("")
 
     public init() {}
 
@@ -183,24 +152,25 @@ public class TypesPage <: Component {
         head.add(div([text("类型列表")], attrs: Some(a("ui-card-title"))))
         let createBtn = div([text("+ 创建类型")], attrs: Some(a("ui-btn primary sm")))
         let createHandled = createBtn.onClick({ ctx =>
-            this.createOpen = true
+            this.createOpen.set(true)
             PatchResult.ReRender
         })
         head.add(div([createHandled], attrs: Some(a("ui-head-right"))))
         list.add(div(head.toArray(), attrs: Some(a("ui-card-title ui-card-title-flex"))))
         list.add(this.typeTable(svc))
-        if (this.notice != "") {
-            list.add(htmlSpan("<div style=\"margin-top:8px;font-size:12px\">" + this.notice + "</div>"))
+        let noticeTxt = this.notice.get()
+        if (noticeTxt != "") {
+            list.add(htmlSpan("<div style=\"margin-top:8px;font-size:12px\">" + noticeTxt + "</div>"))
         }
         list.add(htmlSpan("<div class=\"ui-danger-zone\"><div style=\"font-size:12.5px;color:var(--danger);font-weight:600;margin-bottom:6px\">危险操作</div><div class=\"ui-muted\" style=\"font-size:12px\">清空（TRUNCATE）删除类型全部条目但保留类型；删除（DROP）需先清空，且不可恢复。</div></div>"))
         children.add(div(list.toArray(), attrs: Some(a("ui-card"))))
-        if (this.createOpen) {
+        if (this.createOpen.get()) {
             children.add(this.createDialog(svc))
         }
-        if (this.detailOpen) {
+        if (this.detailOpen.get()) {
             children.add(this.detailDialog(svc))
         }
-        if (this.dangerOpen) {
+        if (this.dangerOpen.get()) {
             children.add(this.dangerDialog(svc))
         }
         div(children.toArray(), attrs: Some(a("ui-page")))
@@ -247,72 +217,49 @@ public class TypesPage <: Component {
         let actions = ArrayList<IComponent>()
         let detail = div([text("详情")], attrs: Some(a("ui-btn sm")))
         actions.add(detail.onClick({ ctx =>
-            this.detailName = name
-            this.detailOpen = true
+            this.detailName.set(name)
+            this.detailOpen.set(true)
             PatchResult.ReRender
         }))
         let trash = div([text("清空")], attrs: Some(a("ui-btn sm danger")))
         actions.add(trash.onClick({ ctx =>
             let r = uiTruncate(svc, name)
-            this.notice = r.message
+            this.notice.set(r.message)
             PatchResult.ReRender
         }))
         let del = div([text("删除")], attrs: Some(a("ui-btn sm danger")))
         actions.add(del.onClick({ ctx =>
-            this.dangerName = name
-            this.dangerOpen = true
+            this.dangerName.set(name)
+            this.dangerOpen.set(true)
             PatchResult.ReRender
         }))
         div(actions.toArray(), attrs: Some(a("ui-tactions")))
     }
 
-    func levelsHtml(levels: ArrayList<String>): String {
-        let sb = StringBuilder()
-        for (l in levels) {
-            sb.append("<span class=\"ui-chip " + levelChipClass(l) + "\">" + l + "</span> ")
-        }
-        sb.toString()
-    }
-
     func createDialog(svc: MemoryService): IComponent {
-        let dlg = ArrayList<IComponent>()
-        dlg.add(this.inpField("类型名（白名单 [A-Za-z0-9_/-]）", this.cName, { ctx => this.cName = paramStr(ctx.params, "value"); PatchResult.ReRender }))
-        dlg.add(this.inpField("描述", this.cDesc, { ctx => this.cDesc = paramStr(ctx.params, "value"); PatchResult.ReRender }))
-        // levels
-        let levelRow = ArrayList<IComponent>()
+        // levels 多选（EP CheckboxGroup）
+        let levelChecks = ArrayList<IComponent>()
         for (l in ["10min", "30min", "1h", "3h", "day", "week", "month"]) {
-            let on = this.cLevels.contains(l)
-            let c = div([text(l)], attrs: Some(a(if (on) { "ui-chip-sel on" } else { "ui-chip-sel" })))
-            let g = l
-            let handled = c.onClick({ ctx =>
-                if (this.cLevels.contains(g)) {
-                    let next = ArrayList<String>()
-                    for (x in this.cLevels) { if (x != g) { next.add(x) } }
-                    this.cLevels = next
-                } else {
-                    this.cLevels.add(g)
-                }
-                PatchResult.ReRender
-            })
-            levelRow.add(handled)
+            levelChecks.add(Checkbox([text(l)], l))
         }
-        dlg.add(this.field("粒度链 levels（升序）", div(levelRow.toArray(), attrs: Some(a("ui-chips")))))
-        dlg.add(this.inpField("总结分组维度 summary_group_by（tag 键，可留空）", this.cGroupBy, { ctx => this.cGroupBy = paramStr(ctx.params, "value"); PatchResult.ReRender }))
-        dlg.add(this.inpField("保留期 retention（如 30d，可留空）", this.cRetention, { ctx => this.cRetention = paramStr(ctx.params, "value"); PatchResult.ReRender }))
-        // auto switch
-        let swCls = "ui-switch" + (if (this.cAuto) { " on" } else { "" })
-        let sw = htmlSpan("<span class=\"" + swCls + "\" style=\"display:inline-block;vertical-align:middle\"><span class=\"knob\"></span></span>")
-        dlg.add(this.field("后台自动语义总结 auto_summarize", div([sw], attrs: Some(a("ui-switch-row")))))
+        let dlg = ArrayList<IComponent>()
+        dlg.add(FormItem([Input().placeholder("如 proj/decisions").bind(this.cName)]).label("类型名（白名单 [A-Za-z0-9_/-]）"))
+        dlg.add(FormItem([Input().placeholder("这个类型记什么").bind(this.cDesc)]).label("描述"))
+        dlg.add(FormItem([CheckboxGroup(levelChecks.toArray()).bind(this.cLevels)]).label("粒度链 levels（升序；默认 10min→30min→1h→day→week）"))
+        dlg.add(FormItem([Input().placeholder("如 proj（tag 键，上限 2）").bind(this.cGroupBy)]).label("总结分组维度 summary_group_by"))
+        dlg.add(FormItem([Input().placeholder("如 30d，留空=全量保留").bind(this.cRetention)]).label("保留期 retention"))
+        dlg.add(FormItem([Switch().activeText("开启").inactiveText("关闭").bind(this.cAuto)]).label("后台自动语义总结 auto_summarize"))
+
         let foot = ArrayList<IComponent>()
         let cancel = div([text("取消")], attrs: Some(a("ui-btn ghost")))
         foot.add(cancel.onClick({ ctx =>
-            this.createOpen = false
+            this.createOpen.set(false)
             PatchResult.ReRender
         }))
         let confirm = div([text("创建")], attrs: Some(a("ui-btn primary")))
         let confirmed = confirm.onClick({ ctx =>
-            let groupBy = if (this.cGroupBy == "") { Option<ArrayList<String>>.None } else {
-                let g = this.cGroupBy.split(",")
+            let groupBy = if (this.cGroupBy.get() == "") { Option<ArrayList<String>>.None } else {
+                let g = this.cGroupBy.get().split(",")
                 let arr = ArrayList<String>()
                 for (x in g) {
                     let t = trimSpace(x)
@@ -320,13 +267,13 @@ public class TypesPage <: Component {
                 }
                 if (arr.size == 0) { Option<ArrayList<String>>.None } else { Some(arr) }
             }
-            let retention = if (this.cRetention == "") { Option<String>.None } else { Some(this.cRetention) }
-            let levels = if (this.cLevels.size == 0) { defaultLevelsOf() } else { sortLevels(this.cLevels) }
-            let meta = TypeMeta(trimSpace(this.cName), this.cDesc, Option<String>.None, levels, retention,
-                this.cAuto, Option<ArrayList<String>>.None, nowMs(), summaryGroupBy: groupBy)
+            let retention = if (this.cRetention.get() == "") { Option<String>.None } else { Some(this.cRetention.get()) }
+            let levels = if (this.cLevels.get().size == 0) { defaultLevelsOf() } else { sortLevels(this.cLevels.get()) }
+            let meta = TypeMeta(trimSpace(this.cName.get()), this.cDesc.get(), Option<String>.None, levels, retention,
+                this.cAuto.get(), Option<ArrayList<String>>.None, nowMs(), summaryGroupBy: groupBy)
             let r = uiCreateType(svc, meta)
-            this.notice = r.message
-            this.createOpen = false
+            this.notice.set(r.message)
+            this.createOpen.set(false)
             PatchResult.ReRender
         })
         foot.add(confirmed)
@@ -341,7 +288,8 @@ public class TypesPage <: Component {
 
     func detailDialog(svc: MemoryService): IComponent {
         let body = ArrayList<IComponent>()
-        match (uiGetType(svc, this.detailName)) {
+        let name = this.detailName.get()
+        match (uiGetType(svc, name)) {
             case Some(meta) =>
                 let info = uiTypeInfo(svc, meta.name).getOrThrow()
                 let tr = StringBuilder()
@@ -355,7 +303,7 @@ public class TypesPage <: Component {
                     tr.append("<dt>" + level + " 桶</dt><dd>" + cnt.toString() + "</dd>")
                 }
                 tr.append("<dt>auto_summarize</dt><dd>" + meta.autoSummarize.toString() + "</dd>")
-                tr.append("<dt>retention</dt><dd>" + (match (meta.retention) { case Some(r) => r case None => "无（全量保留）" }) + "</dd>")
+                tr.append("<dt>retention</dt><dd>" + (match (meta.retention) { case Some(rr) => rr case None => "无（全量保留）" }) + "</dd>")
                 tr.append("<dt>createdAt</dt><dd>" + fmtDateTime(meta.createdAt, svc.store.timeZoneOf()) + "</dd>")
                 body.add(htmlSpan("<dl class=\"ui-meta-kv\" style=\"margin-bottom:12px\">" + tr.toString() + "</dl>"))
                 body.add(cardTitle("TypeMeta（json.stream）", ""))
@@ -365,13 +313,11 @@ public class TypesPage <: Component {
         let foot = ArrayList<IComponent>()
         let close = div([text("关闭")], attrs: Some(a("ui-btn ghost")))
         foot.add(close.onClick({ ctx =>
-            this.detailOpen = false
+            this.detailOpen.set(false)
             PatchResult.ReRender
         }))
-        this.dialog("类型详情 · " + this.detailName, body.toArray(), foot.toArray())
+        this.dialog("类型详情 · " + name, body.toArray(), foot.toArray())
     }
-
-    var detailName: String = ""
 
     func groupTextOf(meta: TypeMeta): String {
         match (meta.summaryGroupBy) {
@@ -381,59 +327,43 @@ public class TypesPage <: Component {
     }
 
     func dangerDialog(svc: MemoryService): IComponent {
+        let name = this.dangerName.get()
         let body = ArrayList<IComponent>()
         body.add(htmlSpan("<div style=\"font-size:12.5px;color:var(--muted);margin-bottom:10px\">DROP 语义：原始 + 总结序列必须为空，请先执行清空。此操作<b style=\"color:var(--danger)\">不可恢复</b>：</div>"))
         let foot = ArrayList<IComponent>()
         let cancel = div([text("取消")], attrs: Some(a("ui-btn ghost")))
         foot.add(cancel.onClick({ ctx =>
-            this.dangerOpen = false
+            this.dangerOpen.set(false)
             PatchResult.ReRender
         }))
         let truncate = div([text("先清空（TRUNCATE）")], attrs: Some(a("ui-btn danger sm")))
         let truncHandled = truncate.onClick({ ctx =>
-            let r = uiTruncate(svc, this.dangerName)
-            this.notice = r.message
+            let r = uiTruncate(svc, name)
+            this.notice.set(r.message)
             PatchResult.ReRender
         })
         foot.add(truncHandled)
         let del = div([text("删除（DROP）")], attrs: Some(a("ui-btn danger")))
         let delHandled = del.onClick({ ctx =>
-            let r = uiDeleteType(svc, this.dangerName)
+            let r = uiDeleteType(svc, name)
             if (r.ok) {
-                this.dangerOpen = false
+                this.dangerOpen.set(false)
             }
-            this.notice = r.message
+            this.notice.set(r.message)
             PatchResult.ReRender
         })
         foot.add(delHandled)
-        this.dialog("删除类型 · " + this.dangerName, body.toArray(), foot.toArray())
+        this.dialog("删除类型 · " + name, body.toArray(), foot.toArray())
     }
 
-    var dangerName: String = ""
-
-    func dialog(title: String, body: Array<IComponent>, foot: Array<IComponent>): IComponent {
+    func dialog(title: String, bodyArr: Array<IComponent>, footArr: Array<IComponent>): IComponent {
         div([
             div([
                 htmlSpan("<div class=\"ui-dlg-head\"><h3>" + title + "</h3></div>"),
-                div(body.toArray(), attrs: Some(a("ui-dlg-body"))),
-                div(foot.toArray(), attrs: Some(a("ui-dlg-foot"))),
+                div(bodyArr.toArray(), attrs: Some(a("ui-dlg-body"))),
+                div(footArr.toArray(), attrs: Some(a("ui-dlg-foot"))),
             ], attrs: Some(a("ui-dlg"))),
         ], attrs: Some(a("ui-dlg-mask show")))
-    }
-
-    func field(label: String, inner: IComponent): IComponent {
-        div([
-            htmlSpan("<label>" + label + "</label>"),
-            inner,
-        ], attrs: Some(a("ui-field")))
-    }
-
-    func inpField(label: String, value: String, onInput: ActionHandler): IComponent {
-        let handled = input(attrs: Some(a("ui-inp"))).on("blur", onInput).attr("value", value)
-        div([
-            htmlSpan("<label>" + label + "</label>"),
-            handled,
-        ], attrs: Some(a("ui-field")))
     }
 }
 
@@ -441,23 +371,23 @@ public class TypesPage <: Component {
 
 @Page["/append", "追加条目", uiNoGuard, UiLayout]
 public class AppendPage <: Component {
-    var typeName: String = ""
-    var task: String = ""
-    var status: String = "完成"
-    var outcome: String = ""
-    var decisions: String = ""
-    var next: String = ""
-    var proj: String = "chronomem"
-    var branch: String = ""
-    var ts: String = ""
-    var notice: String = ""
+    var typeName = Signal<String>("")
+    var task = Signal<String>("")
+    var status = Signal<String>("完成")
+    var outcome = Signal<String>("")
+    var decisions = Signal<String>("")
+    var next = Signal<String>("")
+    var proj = Signal<String>("chronomem")
+    var branch = Signal<String>("")
+    var ts = Signal<String>("")
+    var notice = Signal<String>("")
 
     public init() {}
 
     func ensureType(svc: MemoryService): Unit {
-        if (this.typeName == "") {
+        if (this.typeName.get() == "") {
             let types = uiListTypes(svc)
-            if (types.size > 0) { this.typeName = types[0].name }
+            if (types.size > 0) { this.typeName.set(types[0].name) }
         }
     }
 
@@ -467,99 +397,80 @@ public class AppendPage <: Component {
         this.ensureType(svc)
         let children = ArrayList<IComponent>()
         for (__it in pageTitle("追加条目", "mem/append：宽松模式，任意 JSON payload + tags，缺省 ts = now；先落原始 series，结构物化 1 分钟内完成。")) { children.add(__it) }
-        let form = ArrayList<IComponent>()
-        // 类型
-        let typeRow = ArrayList<IComponent>()
+
+        let typeOptions = ArrayList<IComponent>()
         for (t in uiListTypes(svc)) {
-            let c = div([text(t.name)], attrs: Some(a(if (this.typeName == t.name) { "ui-chip-sel on" } else { "ui-chip-sel" })))
-            let name = t.name
-            typeRow.add(c.onClick({ ctx =>
-                this.typeName = name
-                PatchResult.ReRender
-            }))
+            typeOptions.add(SelectOption([text(t.name)], t.name))
         }
-        form.add(this.field("记忆类型", div(typeRow.toArray(), attrs: Some(a("ui-chips")))))
-        form.add(this.inpField("task", this.task, { ctx => this.task = paramStr(ctx.params, "value"); PatchResult.ReRender }))
-        // status chips
-        let statusRow = ArrayList<IComponent>()
-        for (s0 in ["完成", "阶段完成", "进行中"]) {
-            let c = div([text(s0)], attrs: Some(a(if (this.status == s0) { "ui-chip-sel on" } else { "ui-chip-sel" })))
-            let s1 = s0
-            statusRow.add(c.onClick({ ctx =>
-                this.status = s1
-                PatchResult.ReRender
-            }))
-        }
-        form.add(this.field("status", div(statusRow.toArray(), attrs: Some(a("ui-chips")))))
-        form.add(this.inpField("outcome", this.outcome, { ctx => this.outcome = paramStr(ctx.params, "value"); PatchResult.ReRender }))
-        form.add(this.inpField("decisions（可选）", this.decisions, { ctx => this.decisions = paramStr(ctx.params, "value"); PatchResult.ReRender }))
-        form.add(this.inpField("next（可选）", this.next, { ctx => this.next = paramStr(ctx.params, "value"); PatchResult.ReRender }))
-        let grid = ArrayList<IComponent>()
-        grid.add(this.inpField("tags · proj", this.proj, { ctx => this.proj = paramStr(ctx.params, "value"); PatchResult.ReRender }))
-        grid.add(this.inpField("tags · branch（可选）", this.branch, { ctx => this.branch = paramStr(ctx.params, "value"); PatchResult.ReRender }))
-        form.add(div(grid.toArray(), attrs: Some(a("ui-grid2"))))
-        form.add(this.inpField("ts（epoch ms，空 = now）", this.ts, { ctx => this.ts = paramStr(ctx.params, "value"); PatchResult.ReRender }))
+
+        let form = ArrayList<IComponent>()
+        form.add(FormItem([Select(typeOptions.toArray()).placeholder("记忆类型").bind(this.typeName)]).label("记忆类型"))
+        form.add(FormItem([Input().placeholder("任务/阶段名").bind(this.task)]).label("task"))
+        form.add(FormItem([RadioGroup([
+            Radio([text("完成")], "完成"),
+            Radio([text("阶段完成")], "阶段完成"),
+            Radio([text("进行中")], "进行中"),
+        ]).bind(this.status)]).label("status"))
+        form.add(FormItem([this.longInput("做了什么 / 结果", this.outcome)]).label("outcome"))
+        form.add(FormItem([this.longInput("关键决策（可选）", this.decisions)]).label("decisions"))
+        form.add(FormItem([this.longInput("后续待办（可选）", this.next)]).label("next"))
+        form.add(FormItem([Input().placeholder("如 chronomem").bind(this.proj)]).label("tags · proj"))
+        form.add(FormItem([Input().placeholder("如 feat/web-ui（可选）").bind(this.branch)]).label("tags · branch"))
+        form.add(FormItem([Input().placeholder("空 = 当前时间").bind(this.ts)]).label("ts（epoch ms）"))
+
         let submit = div([text("追加条目")], attrs: Some(a("ui-btn primary")))
         let submitted = submit.onClick({ ctx =>
             let r = this.doAppend(svc)
-            this.notice = r.message
+            this.notice.set(r.message)
             if (r.ok) {
-                this.task = ""
-                this.outcome = ""
-                this.decisions = ""
-                this.next = ""
+                this.task.set("")
+                this.outcome.set("")
+                this.decisions.set("")
+                this.next.set("")
             }
             PatchResult.ReRender
         })
-        let submitWrap = ArrayList<IComponent>()
-        submitWrap.add(submitted)
-        submitWrap.add(htmlSpan("<span class=\"ui-faint\" style=\"font-size:11.5px\"> 宽松模式：不做字段强校验</span>"))
-        form.add(div(submitWrap.toArray(), attrs: Some(a("ui-append-submit"))))
-        if (this.notice != "") {
-            let cls = if (this.notice.startsWith("已")) { "var(--ok)" } else { "var(--danger)" }
-            form.add(htmlSpan("<div style=\"margin-top:8px;font-size:12px;color:" + cls + "\">" + this.notice + "</div>"))
-        }
-        children.add(div(form.toArray(), attrs: Some(a("ui-card"))))
-        // JSON 预览
+        let formCard = ArrayList<IComponent>()
+        formCard.add(cardTitle("worklog 模板结构", "任务阶段 / 任务完成时记一条"))
+        formCard.add(div([
+            Form(form.toArray()),
+            div([submitted, htmlSpan("<span class=\"ui-faint\" style=\"font-size:11.5px\"> 宽松模式：不做字段强校验</span>")], attrs: Some(a("ui-append-submit"))),
+            div([text(this.notice.get())], attrs: Some(a("ui-notice"))),
+        ], attrs: Some(a("ui-form-wrap"))))
+        children.add(div(formCard.toArray(), attrs: Some(a("ui-card"))))
         let preview = ArrayList<IComponent>()
-        preview.add(cardTitle("实时 payload", "worklog 模板结构（task/status/outcome/decisions/next + tags）"))
+        preview.add(cardTitle("实时 payload", "task/status/outcome/decisions/next + tags"))
         preview.add(jsonPreview(this.buildPayload()))
         children.add(div(preview.toArray(), attrs: Some(a("ui-card"))))
         div(children.toArray(), attrs: Some(a("ui-page")))
     }
 
+    // 长文本：VNode textarea + EP 样式（el-textarea__inner），走 bind 通道
+    func longInput(placeholder: String, sig: Signal<String>): IComponent {
+        let m = HashMap<String, String>()
+        m.add("class", "el-textarea__inner")
+        m.add("placeholder", placeholder)
+        let ta = VNode("textarea", Array<IComponent>(), attrs: Some(m))
+        ta.bind(sig)
+    }
+
     func doAppend(svc: MemoryService): UiResult {
         let tags = ArrayList<(String, String)>()
-        tags.add(("proj", this.proj))
-        if (this.branch != "") { tags.add(("branch", this.branch)) }
-        let tsArg = parseEpochArg(this.ts)
+        tags.add(("proj", this.proj.get()))
+        if (this.branch.get() != "") { tags.add(("branch", this.branch.get())) }
+        let tsArg = parseEpochArg(this.ts.get())
         let payload = this.buildPayload()
-        uiAppend(svc, this.typeName, tsArg, payload, tags)
+        uiAppend(svc, this.typeName.get(), tsArg, payload, tags)
     }
 
     func buildPayload(): String {
         let m = HashMap<String, JsonValue>()
-        m.add("task", JsonValue.String(this.task))
-        m.add("status", JsonValue.String(this.status))
-        m.add("outcome", JsonValue.String(this.outcome))
-        m.add("decisions", JsonValue.String(this.decisions))
-        m.add("next", JsonValue.String(this.next))
+        m.add("task", JsonValue.String(this.task.get()))
+        m.add("status", JsonValue.String(this.status.get()))
+        m.add("outcome", JsonValue.String(this.outcome.get()))
+        m.add("decisions", JsonValue.String(this.decisions.get()))
+        m.add("next", JsonValue.String(this.next.get()))
         let v = JsonValue.Map(m)
         v.stringify()
-    }
-
-    func field(label: String, inner: IComponent): IComponent {
-        div([
-            htmlSpan("<label>" + label + "</label>"),
-            inner,
-        ], attrs: Some(a("ui-field")))
-    }
-
-    func inpField(label: String, value: String, onInput: ActionHandler): IComponent {
-        let handled = input(attrs: Some(a("ui-inp"))).on("blur", onInput).attr("value", value)
-        div([
-            htmlSpan("<label>" + label + "</label>"),
-            handled,
-        ], attrs: Some(a("ui-field")))
     }
 }
