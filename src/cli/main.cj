@@ -14,8 +14,11 @@ import tang.compose.ComposeDistributor
 main() {
     let cfg = ChronomemConfig.fromEnv()
     let svc = MemoryService.open(cfg)
-    // 优雅关闭尝试：atExit 只在正常退出/部分信号时触发（docker SIGTERM 是否触发待实测），
-    // 数据持久化已由 syncWrites=true 兜底（SIGKILL 也不丢）
+    // 优雅退出（docker stop / Ctrl+C 语义，badger-cj ≥ 1.6.8）：SIGTERM → 停后台总结
+    // 执行器 → tsdb close（flush 落盘）→ exit(0)。容器场景 atExit 不触发，靠这里兜底；
+    // 数据持久化另有 syncWrites=true 兜底（SIGKILL 也不丢）。
+    svc.registerSignalShutdown()
+    // 正常退出路径兜底（main 返回 / std.env.exit，close 幂等）
     atExit({ =>
         println("chronomem atExit: closing store")
         svc.close()
