@@ -1,5 +1,6 @@
 package chronomem.mcp
 
+import chronomem.core.*
 import jsonvalue.*
 import mcp.*
 import mcp.transport.*
@@ -7,6 +8,7 @@ import ystyle::jsonrpc.Result
 import std.collection.*
 import std.sync.*
 import stdx.net.http.*
+import tang.compose.ComposeDistributor
 
 // 端口占位（afterBind 回填临时端口）
 class PortHolder {
@@ -20,9 +22,14 @@ func chronomem_e2e_connectAndListTools() {
     let portCond = synchronized(portLock) { portLock.condition() }
     let holder = PortHolder()
 
+    // 与生产一致：ComposeDistributor 组合，MCP 挂 /mcp
+    let transport = SessionHttpServerTransport()
+    let compose = ComposeDistributor()
+        .mount("/mcp", McpRouteDistributor(transport))
     let httpServer = ServerBuilder()
         .addr("127.0.0.1")
         .port(0)
+        .distributor(compose)
         .build()
     httpServer.afterBind({ =>
         synchronized(portLock) {
@@ -31,9 +38,7 @@ func chronomem_e2e_connectAndListTools() {
         }
     })
 
-    let transport = SessionHttpServerTransport()
-    transport.registerRoutes(httpServer.distributor)
-    let svc = MemoryService.openInMemory()
+    let svc = MemoryService.openFile(freshTestDir())
     let mcpServer = buildServer(transport, svc)
     mcpServer.start()
     spawn { => httpServer.serve() }
@@ -44,7 +49,7 @@ func chronomem_e2e_connectAndListTools() {
         }
     }
 
-    let baseUrl = "http://127.0.0.1:" + holder.value.toString()
+    let baseUrl = "http://127.0.0.1:" + holder.value.toString() + "/mcp"
     let client = McpClient(SessionHttpClientTransport(baseUrl))
     match (client.connect(Implementation("chronomem-test", "1.0.0"))) {
         case Result.Ok(initResult) => @Expect(initResult.serverInfo.name, "chronomem")

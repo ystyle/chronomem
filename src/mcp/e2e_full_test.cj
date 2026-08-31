@@ -8,6 +8,7 @@ import ystyle::jsonrpc.Result
 import std.collection.*
 import std.sync.*
 import stdx.net.http.*
+import tang.compose.ComposeDistributor
 
 class FullPortHolder {
     var value: UInt16 = 0
@@ -35,9 +36,14 @@ func chronomem_e2e_fullFlow() {
     let portCond = synchronized(portLock) { portLock.condition() }
     let holder = FullPortHolder()
 
+    // 与生产一致：ComposeDistributor 组合，MCP 挂 /mcp
+    let transport = SessionHttpServerTransport()
+    let compose = ComposeDistributor()
+        .mount("/mcp", McpRouteDistributor(transport))
     let httpServer = ServerBuilder()
         .addr("127.0.0.1")
         .port(0)
+        .distributor(compose)
         .build()
     httpServer.afterBind({ =>
         synchronized(portLock) {
@@ -45,9 +51,7 @@ func chronomem_e2e_fullFlow() {
             portCond.notifyAll()
         }
     })
-    let transport = SessionHttpServerTransport()
-    transport.registerRoutes(httpServer.distributor)
-    let svc = MemoryService.openInMemory(
+    let svc = MemoryService.openFile(freshTestDir(), 
         summarizer: Some(Summarizer(FakeSummarizerProvider("决策：A\n结论：B"), "fake")))
     let mcpServer = buildServer(transport, svc)
     mcpServer.start()
@@ -59,7 +63,7 @@ func chronomem_e2e_fullFlow() {
         }
     }
 
-    let client = McpClient(SessionHttpClientTransport("http://127.0.0.1:" + holder.value.toString()))
+    let client = McpClient(SessionHttpClientTransport("http://127.0.0.1:" + holder.value.toString() + "/mcp"))
     match (client.connect(Implementation("chronomem-e2e", "1.0.0"))) {
         case Result.Ok(_) => ()
         case Result.Err(e) => @Fail("connect 失败: " + e.toString())

@@ -8,7 +8,7 @@ import std.env.getProcessId
 
 @Test
 func registry_createAndList() {
-    let store = inMemStore()
+    let store = fileStore()
     let reg = MemoryTypeRegistry(store)
     reg.create(testMeta("worklog", dayWeekLevels()))
     reg.create(testMeta("proj/decisions", Timeline.defaultLevels()))
@@ -39,7 +39,13 @@ func registry_persistAndReload() {
     let path = "/tmp/chronomem_registry_test_" + getProcessId().toString()
     let store = TimelineStore.open(path)
     let reg = MemoryTypeRegistry(store)
-    reg.create(testMeta("worklog", dayWeekLevels()))
+    let meta = testMeta("worklog", dayWeekLevels())
+    reg.create(meta)
+    // 写一条数据（后续验证重开后物化桶链）
+    match (reg.timelineOf("worklog")) {
+        case Some(tl) => tl.append(TEST_BASE, "{\"task\":\"x\"}", HashMap<String, String>())
+        case None => @Fail("timelineOf None")
+    }
     store.close()
 
     // 重开 → 注册表从 __meta 恢复
@@ -53,12 +59,27 @@ func registry_persistAndReload() {
             @Expect(m.description, "desc worklog")
         case None => @Fail("重开后类型丢失")
     }
+    // 回归：重启后系列注册必须恢复（seriesLabels 内存态），
+    // 否则物化桶链只覆盖启动时段注册的类型——旧类型永远不物化。
+    match (reg2.timelineOf("worklog")) {
+        case Some(tl) =>
+            tl.materialize(TEST_BASE, "记忆类型 worklog")
+            let metas = tl.listBucketMetas("day", None, None)
+            @Expect(metas.size > 0, true)
+            let dKey = tl.windowKeyOf(TEST_BASE, "day")
+            var found = false
+            for (m in metas) {
+                if (m.bucketKey == dKey) { found = true }
+            }
+            @Expect(found, true)
+        case None => @Fail("重开后 timelineOf None")
+    }
     store2.close()
 }
 
 @Test
 func registry_duplicateCreateRejected() {
-    let store = inMemStore()
+    let store = fileStore()
     let reg = MemoryTypeRegistry(store)
     reg.create(testMeta("worklog", dayWeekLevels()))
     var threw = false
@@ -69,7 +90,7 @@ func registry_duplicateCreateRejected() {
 
 @Test
 func registry_rejectsInvalidTypeName() {
-    let store = inMemStore()
+    let store = fileStore()
     let reg = MemoryTypeRegistry(store)
     var threw = false
     try { reg.create(testMeta("../evil", dayWeekLevels())) } catch (_) { threw = true }
@@ -88,7 +109,7 @@ func registry_rejectsInvalidTypeName() {
 
 @Test
 func registry_rejectsInvalidLevels() {
-    let store = inMemStore()
+    let store = fileStore()
     let reg = MemoryTypeRegistry(store)
     let bad = ArrayList<String>()
     bad.add("5min")
@@ -100,7 +121,7 @@ func registry_rejectsInvalidLevels() {
 
 @Test
 func registry_rejectsInvalidSummaryGroupBy() {
-    let store = inMemStore()
+    let store = fileStore()
     let reg = MemoryTypeRegistry(store)
 
     // 超过 2 维 → 拒绝

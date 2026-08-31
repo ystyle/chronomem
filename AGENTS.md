@@ -62,3 +62,9 @@ LLM_BASE_URL=... LLM_API_KEY=... LLM_MODEL=... \
 - **Docker 部署**：镜像内绑 `0.0.0.0`（`CHRONOLOG_ADDR`，否则端口映射连不上）；compose 栈数据目录 `~/docker/chronomem/data` 先建好并 chown 1000:1000 再 up（docker 自动建会 root/nobody）；`--static` 只消除 libcangjie-runtime 依赖，glibc/liburing 仍需 archlinux + `liburing` 包。
 - **`--static` 仅对可执行文件生效**：库包会出现无害 warning（-Woff driver-arg 可压）。
 - **`-lstdx.crypto.digest`**：stdx.net.http 链接符号，chronomem [package] link-option 已带。
+
+## 私有项目声明
+
+- **本项目为私有/内部项目，不发布到仓颉中心仓（禁止 `cjpm publish`）**。
+- 依赖以 path 方式引用本地库（`mcp-cj` / `tsdb-cj` / `llm_api` / `cron-cj` / `cjxt` 等），另引用中心仓库（`jsonvalue` / `ystyle::jsonrpc`）。
+- 中心仓库（如 `badgercj`）升级后，按需同步本仓库依赖版本即可，**不因此发布本项目**；若依赖的本地库（如 `tsdb-cj`）需发版，由其仓库自行发布，本仓库只改 path/版本引用。

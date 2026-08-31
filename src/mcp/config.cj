@@ -21,11 +21,14 @@ public class ChronomemConfig {
     public let summaryMaxPerRun: Int64
     public let summarySettleMs: Int64
     public let seedWorklog: Bool
+    public let uiPort: UInt16
+    public let uiEnabled: Bool
 
     public init(dir: String, addr: String, port: UInt16, llmBaseUrl: String,
         llmApiKey: String, llmModel: String, llmProvider: String,
         timeZoneId: String, materializeCron: String, summaryCron: String,
-        summaryMaxPerRun: Int64, summarySettleMs: Int64, seedWorklog: Bool) {
+        summaryMaxPerRun: Int64, summarySettleMs: Int64, seedWorklog: Bool,
+        uiPort!: UInt16 = 8901, uiEnabled!: Bool = true) {
         this.dir = dir
         this.addr = addr
         this.port = port
@@ -39,6 +42,8 @@ public class ChronomemConfig {
         this.summaryMaxPerRun = summaryMaxPerRun
         this.summarySettleMs = summarySettleMs
         this.seedWorklog = seedWorklog
+        this.uiPort = uiPort
+        this.uiEnabled = uiEnabled
     }
 
     // 从进程环境变量构造（测试可通过 setVariable/removeVariable 控制）
@@ -62,12 +67,22 @@ public class ChronomemConfig {
             envOr("CHRONOLOG_SUMMARY_CRON", "*/10 * * * *"),
             envIntOr("CHRONOLOG_SUMMARY_MAX_PER_RUN", 5),
             envIntOr("CHRONOLOG_SUMMARY_SETTLE", 600000),
-            envBoolOr("CHRONOLOG_SEED_WORKLOG", true))
+            envBoolOr("CHRONOLOG_SEED_WORKLOG", true),
+            uiPort: envUInt16Or("CHRONOLOG_UI_PORT", 8901),
+            uiEnabled: envBoolOr("CHRONOLOG_UI_ENABLED", true))
     }
 
     // 语义总结可用性：未配置 baseURL/model 时 summarize 应报错（其余工具不依赖 LLM）
     public func hasLlmConfig(): Bool {
         this.llmBaseUrl != "" && this.llmModel != ""
+    }
+}
+
+func envUInt16Or(name: String, fallback: UInt16): UInt16 {
+    match (getVariable(name)) {
+        case Some(v) =>
+            if (v == "") { fallback } else { try { UInt16(Int64.parse(v)) } catch (_) { fallback } }
+        case None => fallback
     }
 }
 

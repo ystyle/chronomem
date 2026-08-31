@@ -236,11 +236,13 @@ public class Timeline {
         let fEnd = this.nextWindowStartMs(fStart, levels[0]) - 1
         let fKey = this.windowKeyOf(ts, levels[0])
         let points = this.tsdb.query(this.series).range(fStart, fEnd).find()
+        println("materialize " + this.series + " finer=" + levels[0] + " fStart=" + fStart.toString() + " fEnd=" + fEnd.toString() + " pts=" + points.size.toString())
         if (points.size > 0) {
             let refs = ArrayList<Ref>()
             for (p in points) { refs.add(Ref.PointRef(this.series, p.ts)) }
             this.tsdb.bucket(this.series, levels[0], fKey,
-                levels[0] + " 窗口" + label + " " + points.size.toString() + " 条", refs)
+                levels[0] + " 窗口" + label + " " + points.size.toString() + " 条", refs,
+                ttl: None, windowStartMs: fStart, windowEndMs: fEnd)
         }
         // 逐层向上：当前窗口内已存在的下一层子桶 → BucketRef
         for (i in 1..levels.size) {
@@ -261,9 +263,43 @@ public class Timeline {
             }
             if (refs.size > 0) {
                 this.tsdb.bucket(this.series, level, key,
-                    level + " 窗口覆盖 " + refs.size.toString() + " 个 " + finer + " 子桶", refs)
+                    level + " 窗口覆盖 " + refs.size.toString() + " 个 " + finer + " 子桶", refs,
+                    ttl: None, windowStartMs: start, windowEndMs: end)
             }
         }
+    }
+
+    // 补齐最近 backWindows 个已闭合窗口缺失的桶（重启恢复/数据回填）：
+    // - 只补「最细层桶不存在」的已闭合窗口（幂等：已有桶跳过，不重写）；
+    // - 当窗沿用 materialize 原语义（每次物化）；
+    // - 服务重启后历史桶不再依赖「当窗才物化」（否则重启即丢历史桶，UI 塔视图空白）。
+    public func materializeMissingClosed(now: Int64, label: String, backWindows: Int64): Unit {
+        let finest = this.levels[0]
+        // 候选锚点（窗口起点）：当窗 + 最近 backWindows 个历史窗口；起点 - 1ms 必落上一窗口
+        let anchors = ArrayList<Int64>()
+        var anchor = this.windowStartOf(now, finest)
+        anchors.add(anchor)
+        for (i in 0..backWindows) {
+            anchor = this.windowStartOf(anchor - 1, finest)
+            anchors.add(anchor)
+        }
+        // 从旧到新补物化（下层桶先行，上层 chain 依赖子桶存在）
+        var idx = anchors.size - 1
+        while (idx >= 0) {
+            let ts = anchors[Int64(idx)]
+            idx -= 1
+            let key = this.windowKeyOf(ts, finest)
+            if (this.tsdb.bucketSummary(this.series, finest, key).isSome()) {
+                continue
+            }
+            let end = this.nextWindowStartMs(ts, finest) - 1
+            if (end >= now) {
+                continue   // 未闭合窗口不补（当窗由下方 materialize(now) 处理）
+            }
+            this.materialize(ts, label)
+        }
+        // 当窗物化（原调度语义）
+        this.materialize(now, label)
     }
 
     // ---------- 精确回想：沿分层桶下钻到原始点 ----------
@@ -274,14 +310,31 @@ public class Timeline {
         result
     }
 
+    // 批量解析（性能关键）：同一系列的点引用聚合成窗口一次 range 查询（badger 单点 get 慢，
+    // 桶内 27 点逐点查询在容器卷上 ~秒级；批量一次查询毫秒级）。BucketRef 递归逐层。
     private func resolveRefs(refs: ArrayList<Ref>, out: ArrayList<Point>): Unit {
+        // 先按 series 聚合 PointRef 的 ts 区间
+        let bySeries = HashMap<String, (Int64, Int64)>()
         for (r in refs) {
             match (r) {
                 case Ref.PointRef(s, t) =>
-                    let pts = this.tsdb.query(s).range(t, t).find()
-                    for (p in pts) { out.add(p) }
+                    match (bySeries.get(s)) {
+                        case Some((lo, hi)) => bySeries[s] = (if (lo < t) { lo } else { t }, if (hi > t) { hi } else { t })
+                        case None => bySeries[s] = (t, t)
+                    }
+                case _ => ()
+            }
+        }
+        for ((s, win) in bySeries) {
+            let pts = this.tsdb.query(s).range(win[0], win[1]).find()
+            for (p in pts) { out.add(p) }
+        }
+        // BucketRef（聚合层下钻）单独递归
+        for (r in refs) {
+            match (r) {
                 case Ref.BucketRef(s, l, k) =>
                     this.resolveRefs(this.tsdb.drillDown(s, l, k), out)
+                case _ => ()
             }
         }
     }
@@ -297,6 +350,11 @@ public class Timeline {
 
     public func listBuckets(granularity: String, from: Option<String>, to: Option<String>): ArrayList<BucketRecord> {
         this.tsdb.listBuckets(this.series, granularity, from, to)
+    }
+
+    // 轻量桶列表（不构造 refs 对象数组；UI 塔层/桶卡片统计走这里，防 GC 堆膨胀）
+    public func listBucketMetas(granularity: String, from: Option<String>, to: Option<String>): ArrayList<BucketMeta> {
+        this.tsdb.listBucketMetas(this.series, granularity, from, to)
     }
 
     // 某粒度下「覆盖 anchor」的物化桶键；anchor 所在桶未物化时回退到最近的更早桶
@@ -339,8 +397,8 @@ public class TimelineStore {
 
     // syncWrites=true：每次 append 同步落盘（badger fsync），容器/进程被 SIGTERM/SIGKILL 也不丢数据
     public static func open(path: String, timeZone!: TimeZone = TimeZone.Local,
-        syncWrites!: Bool = false): TimelineStore {
-        TimelineStore(Tsdb.open(path, syncWrites: syncWrites), timeZone)
+        syncWrites!: Bool = false, memTableSize!: UInt64 = 16 * 1024 * 1024u64): TimelineStore {
+        TimelineStore(Tsdb.open(path, memTableSize: memTableSize, syncWrites: syncWrites), timeZone)
     }
 
     public static func openInMemory(timeZone!: TimeZone = TimeZone.Local): TimelineStore {
@@ -371,8 +429,9 @@ public class TimelineStore {
         Timeline(this.tsdb, series, levels, this.timeZone)
     }
 
-    // 全部已注册 series 统一分层物化（MaterializeScheduler 每 60s 调用；幂等、空窗口零成本）
-    public func materializeAll(now: Int64): Unit {
+    // 全部已注册 series 统一分层物化（MaterializeScheduler 每 60s 调用；幂等、空窗口零成本）。
+    // backWindows > 0：同时补齐最近 backWindows 个已闭合窗口缺失的桶（重启恢复历史桶，§8.6）。
+    public func materializeAll(now: Int64, backWindows!: Int64 = 0): Unit {
         // 快照复制在锁内（毫秒级），物化在锁外（避免长临界区阻塞 type_create 等）
         let snapshot = synchronized(this.mapLock) {
             let l = ArrayList<(String, String, ArrayList<String>)>()
@@ -385,7 +444,13 @@ public class TimelineStore {
             l
         }
         for ((series, label, levels) in snapshot) {
-            Timeline(this.tsdb, series, levels, this.timeZone).materialize(now, label)
+            println("materializeAll series=" + series + " levels=" + levels.toString())
+            let tl = Timeline(this.tsdb, series, levels, this.timeZone)
+            if (backWindows > 0) {
+                tl.materializeMissingClosed(now, label, backWindows)
+            } else {
+                tl.materialize(now, label)
+            }
         }
     }
 }
@@ -400,9 +465,11 @@ public class MaterializeScheduler {
         this.store = store
     }
 
-    // 单次物化（cron 触发与测试共用）
+    // 单次物化（cron 触发与测试共用）：当窗 + 最近 30 个已闭合窗口缺失桶补齐（重启恢复历史桶）
     public func materializeNow(): Unit {
-        this.store.materializeAll(nowMs())
+        println("chronomem materializeNow start: " + nowMs().toString())
+        this.store.materializeAll(nowMs(), backWindows: 30)
+        println("chronomem materializeNow done")
     }
 
     // 启动后台周期物化（cron 表达式或 @every <duration>，缺省 @every 1m；与结构物化时区对齐）

@@ -30,11 +30,11 @@ class FakeSummarizerProvider <: Provider {
 }
 
 // 无 LLM 的内存服务
-func svc(): MemoryService { MemoryService.openInMemory() }
+func svc(): MemoryService { MemoryService.openFile(freshTestDir()) }
 
 // 带 fake LLM 的内存服务
 func svcWithLlm(): MemoryService {
-    MemoryService.openInMemory(summarizer: Some(Summarizer(FakeSummarizerProvider("决策：A\n结论：B"), "fake")))
+    MemoryService.openFile(freshTestDir(), summarizer: Some(Summarizer(FakeSummarizerProvider("决策：A\n结论：B"), "fake")))
 }
 
 func argsFromJson(json: String): HashMap<String, JsonValue> {
@@ -74,6 +74,7 @@ func handlers_typeCreateAndList() {
     // 重复创建 → error
     let r6 = handleTypeCreate(s, argsFromJson("{\"name\":\"worklog\"}"))
     @Expect(r6.isError, true)
+    s.close()
 }
 
 @Test
@@ -87,6 +88,7 @@ func handlers_typeInfo() {
     // 不存在 → error
     let r2 = handleTypeInfo(s, argsFromJson("{\"name\":\"nope\"}"))
     @Expect(r2.isError, true)
+    s.close()
 }
 
 // ---------- append / query ----------
@@ -118,6 +120,7 @@ func handlers_appendAndQuery() {
     // 条目数正确
     @Expect(s.registry.countEntries("worklog"), Int64(3))
     _ = r3
+    s.close()
 }
 
 // ---------- recall（exact 下钻 / summary 语义回顾） ----------
@@ -137,6 +140,7 @@ func handlers_recallExactDrillDown() {
     let r2 = handleRecall(s, argsFromJson("{\"type\":\"worklog\",\"granularity\":\"month\"}"))
     @Expect(r2.isError, true)
     @Expect(resultText(r2).indexOf("不在") != None, true)
+    s.close()
 }
 
 @Test
@@ -146,6 +150,7 @@ func handlers_recallRejectsGranularityOutsideLevels() {
     let r = handleRecall(s, argsFromJson("{\"type\":\"worklog\",\"granularity\":\"10min\"}"))
     @Expect(r.isError, true)
     @Expect(resultText(r).indexOf("不在") != None, true)
+    s.close()
 }
 
 @Test
@@ -166,6 +171,8 @@ func handlers_recallSummaryMode() {
     handleAppend(s2, argsFromJson("{\"type\":\"worklog\",\"payload\":{},\"ts\":1704110400000}"))
     let r2 = handleRecall(s2, argsFromJson("{\"type\":\"worklog\",\"granularity\":\"10min\",\"windowStartMs\":1704110400000,\"mode\":\"summary\"}"))
     @Expect(resultText(r2).indexOf("尚无") != None, true)
+    s.close()
+    s2.close()
 }
 
 // ---------- summarize / summaries ----------
@@ -177,6 +184,7 @@ func handlers_summarizeNoLlmIsError() {
     let r = handleSummarize(s, argsFromJson("{\"type\":\"worklog\",\"granularity\":\"10min\"}"))
     @Expect(r.isError, true)
     @Expect(resultText(r).indexOf("未配置 LLM") != None, true)
+    s.close()
 }
 
 @Test
@@ -212,6 +220,9 @@ func handlers_summarizeAndListSummaries() {
     // status 缺 job_id → error
     let bad = handleSummarizeStatus(s3, HashMap<String, JsonValue>())
     @Expect(bad.isError, true)
+    s.close()
+    s2.close()
+    s3.close()
 }
 
 // ---------- truncate / type_delete ----------
@@ -229,6 +240,7 @@ func handlers_truncateClearsEntries() {
     @Expect(s.registry.has("t"), true)
     handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{},\"ts\":1704067320000}"))
     @Expect(s.registry.countEntries("t"), Int64(1))
+    s.close()
 }
 
 @Test
@@ -238,6 +250,7 @@ func handlers_typeDeleteEmptySucceeds() {
     let r = handleTypeDelete(s, argsFromJson("{\"type\":\"t\"}"))
     @Expect(resultText(r).indexOf("已删除") != None, true)
     @Expect(s.registry.has("t"), false)
+    s.close()
 }
 
 @Test
@@ -252,6 +265,7 @@ func handlers_typeDeleteNonEmptyRejected() {
     handleTruncate(s, argsFromJson("{\"type\":\"t\"}"))
     let r2 = handleTypeDelete(s, argsFromJson("{\"type\":\"t\"}"))
     @Expect(resultText(r2).indexOf("已删除") != None, true)
+    s.close()
 }
 
 @Test
@@ -264,6 +278,7 @@ func handlers_typeDeleteWithSummaryRejected() {
     let r = handleTypeDelete(s, argsFromJson("{\"type\":\"t\"}"))
     @Expect(r.isError, true)
     @Expect(resultText(r).indexOf("非空") != None, true)
+    s.close()
 }
 
 // ---------- buckets ----------
@@ -279,6 +294,7 @@ func handlers_buckets() {
     let r2 = handleBuckets(s, argsFromJson("{\"type\":\"worklog\",\"granularity\":\"day\"}"))
     @Expect(resultText(r2).indexOf("暂无") != None, false)  // day 桶经物化链可能已建，容忍
     _ = r2
+    s.close()
 }
 
 // ---------- fmtTs 时区 ----------
@@ -299,7 +315,7 @@ func handlers_fmtTsUsesConfiguredTimeZone() {
 // 正确窗口 = +08 本地日 08-26 00:00~23:59:59 = 1787673600000~1787759999999。
 // epoch 锚定会给出 1787702400000~1787788799999（UTC 日），即回归前的 bug。
 func plus8Svc(): MemoryService {
-    MemoryService.openInMemory(
+    MemoryService.openFile(freshTestDir(), 
         summarizer: Some(Summarizer(FakeSummarizerProvider("决策：A\n结论：B"), "fake")),
         timeZone: TimeZone("UTC+08:00", Duration.hour * 8))
 }
@@ -318,6 +334,7 @@ func handlers_summarizeDayGranularityAlignsLocalCalendar() {
     // 落库的总结窗口也应为本地日
     let rs = handleSummaries(s, argsFromJson("{\"type\":\"worklog\"}"))
     @Expect(resultText(rs).indexOf("1787673600000~1787759999999") != None, true)
+    s.close()
 }
 
 @Test
@@ -332,13 +349,14 @@ func handlers_recallSummaryModeAlignsLocalCalendar() {
     let rs = handleSummaries(s, argsFromJson("{\"type\":\"worklog\"}"))
     @Expect(resultText(rs).indexOf("1787673600000~1787759999999") != None, true)
     @Expect(resultText(rs).indexOf("1787702400000") != None, false)
+    s.close()
 }
 
 // ---------- 按分组维度总结（summary_group_by） ----------
 
 // 建一个按 proj 分组、带 fake LLM、+08 时区的服务，同窗口写 2 个项目 + 1 条无 tag
 func groupedSvc(): MemoryService {
-    let s = MemoryService.openInMemory(
+    let s = MemoryService.openFile(freshTestDir(), 
         summarizer: Some(Summarizer(FakeSummarizerProvider("决策：A\n结论：B"), "fake")),
         timeZone: TimeZone("UTC+08:00", Duration.hour * 8))
     handleTypeCreate(s, argsFromJson("{\"name\":\"worklog\",\"levels\":[\"day\"],\"summary_group_by\":[\"proj\"]}"))
@@ -362,6 +380,7 @@ func handlers_typeCreateWithSummaryGroupBy() {
     // 超 2 维 → 拒绝
     let r2 = handleTypeCreate(s, argsFromJson("{\"name\":\"t\",\"summary_group_by\":[\"a\",\"b\",\"c\"]}"))
     @Expect(r2.isError, true)
+    s.close()
 }
 
 @Test
@@ -387,6 +406,7 @@ func handlers_summarizeGroupsByProj() {
     let rct2 = resultText(rc2)
     @Expect(rct2.indexOf("【xisp】") != None, true)
     @Expect(rct2.indexOf("【chronomem】") != None, false)
+    s.close()
 }
 
 @Test
@@ -408,6 +428,7 @@ func handlers_summarizeGroupIdempotentAndRecompute() {
     let r3 = handleSummarize(s, argsFromJson("{\"type\":\"worklog\",\"from\":1787673600000,\"to\":1787759999999,\"recompute\":true}"))
     @Expect(resultText(r3).indexOf("已提交") != None, true)
     @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
+    s.close()
 }
 
 @Test
@@ -420,4 +441,5 @@ func handlers_summarizeWholeWindowWhenNoGroupBy() {
     @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
     let txt = resultText(handleSummaries(s, argsFromJson("{\"type\":\"worklog\"}")))
     @Expect(txt.indexOf("【") != None, false)   // 无分组标记
+    s.close()
 }

@@ -51,6 +51,16 @@ public class MemoryService {
         svc
     }
 
+    // 磁盘库（测试/嵌入用；与 open 不同：不播种 worklog、不做 LLM 装配）
+    // memTableSize 4MB（arena 8MB）：测试并发多库，默认 16MB 会在默认 256MB GC 堆下 OOM
+    public static func openFile(dir: String, summarizer!: Option<Summarizer> = None, timeZone!: TimeZone = TimeZone.Local): MemoryService {
+        let store = TimelineStore.open(dir, timeZone: timeZone, memTableSize: 4 * 1024 * 1024u64)
+        let registry = MemoryTypeRegistry(store)
+        let svc = MemoryService(store, registry, summarizer)
+        svc.initSummarizeRunner()
+        svc
+    }
+
     // 创建并启动后台总结执行器（幂等）
     public func initSummarizeRunner(): Unit {
         if (this.summarizeRunner.isNone()) {
@@ -66,6 +76,24 @@ public class MemoryService {
             case None => ()
         }
         this.store.close()
+    }
+
+    // 注册优雅退出（docker stop / Ctrl+C）：SIGINT/SIGTERM → 先停后台总结执行器
+    // （防止其继续写已关闭的 tsdb），再由 badger 信号路径优雅关闭 tsdb（flush 全部
+    // memtable 落盘，数据不丢），exitAfterClose=true（默认）时 close 后退出进程
+    // （docker stop 语义）。
+    // 与 atExit（仅正常退出路径触发）互补——容器场景 atExit 不执行，靠这里兜底。
+    // 库不主动注册——main 入口调用一次即可；非 Linux 平台 no-op（badger-cj 条件编译）。
+    public func registerSignalShutdown(exitAfterClose!: Bool = true): Unit {
+        let tsdb = this.store.rawTsdb()
+        tsdb.registerShutdownHook({ =>
+            println("chronomem: signal shutdown, stopping summarize runner")
+            match (this.summarizeRunner) {
+                case Some(r) => r.stop()
+                case None => ()
+            }
+        })
+        tsdb.registerSignalShutdown(exitAfterClose: exitAfterClose)
     }
 }
 

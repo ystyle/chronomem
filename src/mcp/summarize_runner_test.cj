@@ -47,6 +47,7 @@ func runner_submitReturnsIdAndAsyncStores() {
         case Some(text) => @Expect(text.indexOf("决策：A") != None, true)
         case None => @Fail("store=false 结果未暂存")
     }
+    s.close()
 }
 
 @Test
@@ -66,11 +67,12 @@ func runner_serialExecutionOrder() {
     // 三窗口摘要都落库（同类型多总结记录）
     let sums = handleSummaries(s, argsFromJson("{\"type\":\"worklog\"}"))
     @Expect(resultText(sums).indexOf("决策：A") != None, true)
+    s.close()
 }
 
 @Test
 func runner_failingLlmMarksFailed() {
-    let s = MemoryService.openInMemory(
+    let s = MemoryService.openFile(freshTestDir(), 
         summarizer: Some(Summarizer(FailingSummarizerProvider(), "failing")))
     handleTypeCreate(s, argsFromJson("{\"name\":\"worklog\"}"))
     handleAppend(s, argsFromJson("{\"type\":\"worklog\",\"payload\":{},\"ts\":1704110400000}"))
@@ -80,6 +82,7 @@ func runner_failingLlmMarksFailed() {
     // 失败不影响其他功能：append 仍可用
     let r = handleAppend(s, argsFromJson("{\"type\":\"worklog\",\"payload\":{\"m\":2},\"ts\":1704110500000}"))
     @Expect(r.isError, false)
+    s.close()
 }
 
 @Test
@@ -88,6 +91,7 @@ func runner_unknownIdStatus() {
     let runner = s.summarizeRunner.getOrThrow()
     @Expect(runner.status(999999), "unknown")
     @Expect(runner.getResult(999999).isNone(), true)
+    s.close()
 }
 
 @Test
@@ -99,4 +103,5 @@ func runner_noLlmStillSubmitsButFails() {
     let id = runner.submit("worklog", 1704110400000, 1704110999999, "", false)
     @Expect(runner.waitFor(id), "failed")
     @Expect(runner.status(id), "failed")
+    s.close()
 }
