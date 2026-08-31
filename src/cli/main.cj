@@ -7,8 +7,10 @@ import mcp.transport.*
 import std.env.atExit
 import stdx.log.LogLevel
 import stdx.net.http.*
+import tang.compose.ComposeDistributor
 
 // 忆时塔入口：`chronomem.cli serve` —— 常驻 streamable HTTP MCP 守护进程。
+// 单端口合并：MCP 挂 /mcp，Web UI（cjxt）占根路径空间（fallback）。
 main() {
     let cfg = ChronomemConfig.fromEnv()
     let svc = MemoryService.open(cfg)
@@ -26,27 +28,29 @@ main() {
         let sumScheduler = SummarizeScheduler.fromConfig(svc, cfg)
         sumScheduler.start(spec: cfg.summaryCron)
     }
-    // Web UI（嵌入同进程）：spawn 独立线程跑 cjxt App（tang），与 MCP 服务并行；
-    // 页面直接调用 svc（同进程直连，无 HTTP 开销）。CHRONOLOG_UI_ENABLED=false 可关。
+    // 组合分发器：MCP 挂 /mcp，UI（如启用）占根路径
+    let transport = SessionHttpServerTransport()
+    let compose = ComposeDistributor()
+        .mount("/mcp", McpRouteDistributor(transport))
     if (cfg.uiEnabled) {
-        let svcRef = svc
-        let host2 = cfg.addr
-        let port2 = cfg.uiPort
-        spawn {
-            serveUi(svcRef, host2, port2)
-        }
+        // UI 与 MCP 同端口：页面/静态/WS 走根路径，MCP 走 /mcp（页面直接调 svc，无 HTTP 开销）
+        let uiApp = buildUiApp(svc, cfg.addr)
+        compose.setFallback(uiApp.router())
     }
     let httpServer = ServerBuilder()
         .addr(cfg.addr)
         .port(cfg.port)
+        .distributor(compose)
         .build()
     // 关闭 stdx http server 的 WARN 级连接日志（Socket is closed / Broken pipe 等噪音，
     // 其它语言 HTTP 服务器不打这类日志；仅保留 ERROR/FATAL）
     httpServer.logger.level = LogLevel.ERROR
-    let transport = SessionHttpServerTransport()
-    transport.registerRoutes(httpServer.distributor)
     let mcpServer = buildServer(transport, svc)
     mcpServer.start()
-    println("忆时塔 chronomem 监听 http://" + cfg.addr + ":" + cfg.port.toString() + "（存储 " + cfg.dir + "）")
+    if (cfg.uiEnabled) {
+        println("忆时塔 chronomem 监听 http://" + cfg.addr + ":" + cfg.port.toString() + "（MCP: /mcp, UI: /）存储 " + cfg.dir)
+    } else {
+        println("忆时塔 chronomem 监听 http://" + cfg.addr + ":" + cfg.port.toString() + "/mcp（存储 " + cfg.dir + "）")
+    }
     httpServer.serve()
 }
