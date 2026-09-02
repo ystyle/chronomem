@@ -111,6 +111,21 @@ func handlers_appendAndQuery() {
     @Expect(resultText(r2).indexOf("B") != None, true)
     // limit
     let r3 = handleQuery(s, argsFromJson("{\"type\":\"worklog\",\"limit\":2}"))
+    let t3 = resultText(r3)
+    @Expect(t3.indexOf("共 3 条") != None, true)
+    @Expect(t3.indexOf("第 1/2 页") != None, true)
+    @Expect(t3.indexOf("page=2") != None, true)
+    @Expect(t3.indexOf("\"task\":\"C\"") != None, true)   // 第 1 页 = 最新 2 条
+    @Expect(t3.indexOf("\"task\":\"A\"") == None, true)
+    // 第 2 页
+    let r3p2 = handleQuery(s, argsFromJson("{\"type\":\"worklog\",\"limit\":2,\"page\":2}"))
+    let t3p2 = resultText(r3p2)
+    @Expect(t3p2.indexOf("第 2/2 页") != None, true)
+    @Expect(t3p2.indexOf("\"task\":\"A\"") != None, true)  // 最旧 1 条在第 2 页
+    @Expect(t3p2.indexOf("page=3") == None, true)          // 末页无下一页提示
+    // 超界页码 → 空结果但给出页信息
+    let r3p9 = handleQuery(s, argsFromJson("{\"type\":\"worklog\",\"limit\":2,\"page\":9}"))
+    @Expect(resultText(r3p9).indexOf("无更多条目") != None, true)
     // 不存在类型 → error
     let r4 = handleAppend(s, argsFromJson("{\"type\":\"nope\",\"payload\":{}}"))
     @Expect(r4.isError, true)
@@ -441,5 +456,29 @@ func handlers_summarizeWholeWindowWhenNoGroupBy() {
     @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
     let txt = resultText(handleSummaries(s, argsFromJson("{\"type\":\"worklog\"}")))
     @Expect(txt.indexOf("【") != None, false)   // 无分组标记
+    s.close()
+}
+
+@Test
+func handlers_summarizeLargeWindowBatched() {
+    // ③ 分批流式：350 条（跨 2 批 keyset 页）总结结果与逐批边界无关——
+    // 全部条目都进入汇总（refs 数 = 350），不漏不重
+    let s = svcWithLlm()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"worklog\",\"summary_group_by\":[\"proj\"]}"))
+    for (i in 0..350) {
+        handleAppend(s, argsFromJson("{\"type\":\"worklog\",\"payload\":{\"task\":\"t" + i.toString()
+            + "\"},\"tags\":{\"proj\":\"p" + (i % 3).toString() + "\"},\"ts\":" + (1704110400000 + i).toString() + "}"))
+    }
+    let from = 1704110400000
+    let to = 1704110400000 + 349
+    let r = handleSummarize(s, argsFromJson("{\"type\":\"worklog\",\"from\":" + from.toString()
+        + ",\"to\":" + to.toString() + "}"))
+    @Expect(resultText(r).indexOf("已提交") != None, true)
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
+    // 三个分组（p0/p1/p2）各自落一条总结
+    let txt = resultText(handleSummaries(s, argsFromJson("{\"type\":\"worklog\"}")))
+    @Expect(txt.indexOf("【p0】") != None, true)
+    @Expect(txt.indexOf("【p1】") != None, true)
+    @Expect(txt.indexOf("【p2】") != None, true)
     s.close()
 }

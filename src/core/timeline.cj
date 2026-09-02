@@ -208,8 +208,64 @@ public class Timeline {
         q.find()
     }
 
+    // 页码分页查询：返回 (本页点, 总数)。page 从 1 起；pageSize 为每页条数。
+    // count 全量（key-only/索引）一次 + offset 下推取本页——不做全量内存切片，
+    // 大条目量时无 payload 峰值（配合 tsdb Query.offset/timestamps 语义）。
+    public func queryPointsPage(from: Int64, to: Int64, page: Int64, pageSize: Int64,
+        tagFilter: Option<(String, String)>): (ArrayList<Point>, Int64) {
+        let size = if (pageSize > 0) { pageSize } else { 20 }
+        let p = if (page > 0) { page } else { 1 }
+        var q = this.tsdb.query(this.series).reverse()
+        if (from > 0 || to > 0) {
+            q = q.range(from, if (to > 0) { to } else { Int64.Max })
+        }
+        if (let Some((tag, value)) <- tagFilter) {
+            q = q.filter(tag, value)
+        }
+        let total = q.count()
+        let points = q.offset((p - 1) * size).limit(size).find()
+        (points, total)
+    }
+
+    // 窗口内全部 ts（ts-only 扫描，不读 payload）——物化/补齐引用链用
+    public func windowTimestamps(from: Int64, to: Int64): ArrayList<Int64> {
+        this.tsdb.query(this.series).range(from, to).timestamps()
+    }
+
+    // 分批遍历窗口内全部点（keyset 游标翻页）：每批 ≤ batchSize 条，回调后即弃
+    // ——边读边拼原语：summarize/物化等场景避免整窗 ArrayList<Point> 驻留，
+    // 大窗口 + 大 payload 时内存峰值从 O(窗口字节) 降到 O(单批字节)。
+    // 窗口为空时不回调，返回 false。
+    public func forEachWindowPoint(from: Int64, to: Int64, batchSize: Int64,
+        fn: (ArrayList<Point>) -> Unit): Bool {
+        let batch = if (batchSize > 0) { batchSize } else { 200 }
+        var afterTs: Int64 = -1
+        var afterSeq: Int64 = -1
+        var any = false
+        let q = this.tsdb.query(this.series).range(from, to).reverse()
+        while (true) {
+            let page = if (afterTs >= 0) {
+                q.findPage(afterTs: afterTs, afterSeq: afterSeq, limit: batch)
+            } else {
+                q.findPage(limit: batch)
+            }
+            if (page.items.size == 0) { break }
+            any = true
+            fn(page.items)
+            if (!page.hasMore()) { break }
+            afterTs = page.nextTs
+            afterSeq = page.nextSeq
+        }
+        any
+    }
+
     public func count(): Int64 {
         this.tsdb.query(this.series).count()
+    }
+
+    // 时间范围内条目数（key-only 计数，不读 payload——空窗口判定用）
+    public func countIn(from: Int64, to: Int64): Int64 {
+        this.tsdb.query(this.series).range(from, to).count()
     }
 
     // ---------- 删除（TRUNCATE / DROP，委托 tsdb） ----------
@@ -235,15 +291,18 @@ public class Timeline {
         let fStart = this.windowStartOf(ts, levels[0])
         let fEnd = this.nextWindowStartMs(fStart, levels[0]) - 1
         let fKey = this.windowKeyOf(ts, levels[0])
-        let points = this.tsdb.query(this.series).range(fStart, fEnd).find()
+        // ts-only 扫描：物化只需窗口内点的 ts 建 PointRef，payload 零读取
+        // （此前 range().find() 把整窗 payload 全量 decode——分钟级 cron 全量读
+        // 是长跑内存峰值主源；timestamps() 只解析 key 的 ts）
+        let winTs = this.tsdb.query(this.series).range(fStart, fEnd).timestamps()
         // 日志瘦身：空窗口静默（原每窗口一行，30 窗口×4 series/轮 = 120+ 行刷屏，
         // 字符串分配累积 GC 堆压力）；仅在有数据/建桶时输出一行。
-        if (points.size > 0) {
-            println("materialize " + this.series + " finer=" + levels[0] + " fStart=" + fStart.toString() + " fEnd=" + fEnd.toString() + " pts=" + points.size.toString())
+        if (winTs.size > 0) {
+            println("materialize " + this.series + " finer=" + levels[0] + " fStart=" + fStart.toString() + " fEnd=" + fEnd.toString() + " pts=" + winTs.size.toString())
             let refs = ArrayList<Ref>()
-            for (p in points) { refs.add(Ref.PointRef(this.series, p.ts)) }
+            for (t in winTs) { refs.add(Ref.PointRef(this.series, t)) }
             this.tsdb.bucket(this.series, levels[0], fKey,
-                levels[0] + " 窗口" + label + " " + points.size.toString() + " 条", refs,
+                levels[0] + " 窗口" + label + " " + winTs.size.toString() + " 条", refs,
                 ttl: None, windowStartMs: fStart, windowEndMs: fEnd)
         }
         // 逐层向上：当前窗口内已存在的下一层子桶 → BucketRef

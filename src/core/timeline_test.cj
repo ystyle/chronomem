@@ -174,3 +174,36 @@ func timeline_addCronEntrySupportsEveryAndCron() {
     @Expect(c.getEntries().size, Int64(2))
     c.stop()
 }
+
+// ② ts-only 物化：windowTimestamps 只取 ts 不读 payload；materialize 用 ts-only
+// 后桶引用完整、drillDown 仍能取回原始 payload（引用 ts 正确性验证）
+@Test
+func timeline_windowTimestampsAndMaterializeTsOnly() {
+    let store = fileStore()
+    let tl = store.timeline("t9", "测试", Timeline.defaultLevels())
+    tl.append(TEST_BASE, "m1", tagsOf([]))
+    tl.append(TEST_BASE + 1000, "m2", tagsOf([]))
+    tl.append(TEST_BASE + 2000, "m3", tagsOf([]))
+
+    // windowTimestamps：窗口内全部 ts（旧→新），与查询 payload 解出的 ts 一致
+    let winTs = tl.windowTimestamps(TEST_BASE, TEST_BASE + 2000)
+    @Expect(winTs.size, Int64(3))
+    @Expect(winTs[0], TEST_BASE)
+    @Expect(winTs[2], TEST_BASE + 2000)
+    let all = tl.queryPoints(0, 0, 0, None)   // 最新在前
+    for (i in 0..all.size) {
+        @Expect(all[all.size - 1 - i].ts == winTs[i], true)
+    }
+
+    // materialize（ts-only 路径）→ 桶引用完整、下钻可取回原始 payload
+    tl.materialize(TEST_BASE, "测试")
+    let tenKey = tl.windowKeyOf(TEST_BASE, "10min")
+    let ten = tl.drillDown("10min", tenKey)
+    @Expect(ten.size, Int64(3))
+    let got = HashSet<String>()
+    for (p in ten) { got.add(p.payload) }
+    @Expect(got.contains("m1"), true)
+    @Expect(got.contains("m2"), true)
+    @Expect(got.contains("m3"), true)
+    store.close()
+}
