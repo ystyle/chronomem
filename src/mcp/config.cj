@@ -23,12 +23,13 @@ public class ChronomemConfig {
     public let seedWorklog: Bool
     public let uiPort: UInt16
     public let uiEnabled: Bool
+    public let gcThresholdMb: Int64
 
     public init(dir: String, addr: String, port: UInt16, llmBaseUrl: String,
         llmApiKey: String, llmModel: String, llmProvider: String,
         timeZoneId: String, materializeCron: String, summaryCron: String,
         summaryMaxPerRun: Int64, summarySettleMs: Int64, seedWorklog: Bool,
-        uiPort!: UInt16 = 8901, uiEnabled!: Bool = true) {
+        uiPort!: UInt16 = 8901, uiEnabled!: Bool = true, gcThresholdMb!: Int64 = 64) {
         this.dir = dir
         this.addr = addr
         this.port = port
@@ -44,6 +45,7 @@ public class ChronomemConfig {
         this.seedWorklog = seedWorklog
         this.uiPort = uiPort
         this.uiEnabled = uiEnabled
+        this.gcThresholdMb = gcThresholdMb
     }
 
     // 从进程环境变量构造（测试可通过 setVariable/removeVariable 控制）
@@ -69,7 +71,8 @@ public class ChronomemConfig {
             envIntOr("CHRONOLOG_SUMMARY_SETTLE", 600000),
             envBoolOr("CHRONOLOG_SEED_WORKLOG", true),
             uiPort: envUInt16Or("CHRONOLOG_UI_PORT", 8901),
-            uiEnabled: envBoolOr("CHRONOLOG_UI_ENABLED", true))
+            uiEnabled: envBoolOr("CHRONOLOG_UI_ENABLED", true),
+            gcThresholdMb: envIntOr("CHRONOLOG_GC_THRESHOLD_MB", 64))
     }
 
     // 语义总结可用性：未配置 baseURL/model 时 summarize 应报错（其余工具不依赖 LLM）

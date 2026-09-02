@@ -236,8 +236,10 @@ public class Timeline {
         let fEnd = this.nextWindowStartMs(fStart, levels[0]) - 1
         let fKey = this.windowKeyOf(ts, levels[0])
         let points = this.tsdb.query(this.series).range(fStart, fEnd).find()
-        println("materialize " + this.series + " finer=" + levels[0] + " fStart=" + fStart.toString() + " fEnd=" + fEnd.toString() + " pts=" + points.size.toString())
+        // 日志瘦身：空窗口静默（原每窗口一行，30 窗口×4 series/轮 = 120+ 行刷屏，
+        // 字符串分配累积 GC 堆压力）；仅在有数据/建桶时输出一行。
         if (points.size > 0) {
+            println("materialize " + this.series + " finer=" + levels[0] + " fStart=" + fStart.toString() + " fEnd=" + fEnd.toString() + " pts=" + points.size.toString())
             let refs = ArrayList<Ref>()
             for (p in points) { refs.add(Ref.PointRef(this.series, p.ts)) }
             this.tsdb.bucket(this.series, levels[0], fKey,
