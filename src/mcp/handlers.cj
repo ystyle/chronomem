@@ -461,11 +461,31 @@ public func handleQuery(svc: MemoryService, args: HashMap<String, JsonValue>): C
     let from = argInt(args, "from")
     let to = argInt(args, "to")
     let limit = argInt(args, "limit")
+    let page = argInt(args, "page")
     let tagFilter = argTagPair(args, "tag")
     let tl = svc.registry.timelineOf(name).getOrThrow()
-    let points = tl.queryPoints(from, to, if (limit > 0) { limit } else { 20 }, tagFilter)
-    if (points.size == 0) { return CallToolResult.text("（无匹配条目）") }
-    CallToolResult.text(formatPoints(points, svc.store.timeZoneOf()))
+    let pageSize = if (limit > 0) { limit } else { 20 }
+    // 页码分页（page ≥ 1 时生效，默认第 1 页；limit = 每页条数）：
+    // 响应头给出总数/总页数，AI 可据此翻页取完，不遗漏（此前单次全量取 limit 条）。
+    let (points, total) = tl.queryPointsPage(from, to, page, pageSize, tagFilter)
+    if (total == 0) { return CallToolResult.text("（无匹配条目）") }
+    let sb = StringBuilder()
+    // 分页头：共 N 条 · 第 p/totalPages 页 · 每页 L 条
+    let totalPages = (total + pageSize - 1) / pageSize
+    let curPage = if (page > 0) { page } else { 1 }
+    if (points.size == 0) {
+        sb.append("（无更多条目：共 " + total.toString() + " 条 · 第 " + curPage.toString() + "/"
+            + totalPages.toString() + " 页 · 每页 " + pageSize.toString() + " 条）")
+        return CallToolResult.text(sb.toString())
+    }
+    sb.append("共 " + total.toString() + " 条 · 第 " + curPage.toString() + "/" + totalPages.toString()
+        + " 页 · 每页 " + pageSize.toString() + " 条")
+    if (curPage < totalPages) {
+        sb.append("（下一页请带 page=" + (curPage + 1).toString() + "）")
+    }
+    sb.append("\n")
+    sb.append(formatPoints(points, svc.store.timeZoneOf()))
+    CallToolResult.text(sb.toString())
 }
 
 public func handleRecall(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
@@ -673,9 +693,10 @@ public func registerTools(server: McpServer, svc: MemoryService): Unit {
     s5.addField("type", "string", "类型名", required: true)
     s5.addField("from", "integer", "起始时间（毫秒，0=不限）")
     s5.addField("to", "integer", "结束时间（毫秒，0=不限）")
-    s5.addField("limit", "integer", "条数（默认 20）")
+    s5.addField("limit", "integer", "每页条数（默认 20；响应头给总数/总页数，翻页用 page）")
+    s5.addField("page", "integer", "页码（1 起，默认 1；首页响应会提示下一页的 page 值）")
     s5.addField("tag", "string", "标签过滤 key=value")
-    let t5 = Tool("mem/query", "结构回想：最近/时间范围/tag 过滤原始条目（零 LLM）", s5)
+    let t5 = Tool("mem/query", "结构回想：最近/时间范围/tag 过滤原始条目（零 LLM）；分页返回（响应头含 总数·第x/y页，按提示翻页取完，勿一次拉超大 limit）", s5)
     server.addTool(t5, { params => handleQuery(svc, params.arguments) })
 
     // mem/recall

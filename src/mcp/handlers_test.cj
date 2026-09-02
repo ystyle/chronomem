@@ -111,6 +111,21 @@ func handlers_appendAndQuery() {
     @Expect(resultText(r2).indexOf("B") != None, true)
     // limit
     let r3 = handleQuery(s, argsFromJson("{\"type\":\"worklog\",\"limit\":2}"))
+    let t3 = resultText(r3)
+    @Expect(t3.indexOf("共 3 条") != None, true)
+    @Expect(t3.indexOf("第 1/2 页") != None, true)
+    @Expect(t3.indexOf("page=2") != None, true)
+    @Expect(t3.indexOf("\"task\":\"C\"") != None, true)   // 第 1 页 = 最新 2 条
+    @Expect(t3.indexOf("\"task\":\"A\"") == None, true)
+    // 第 2 页
+    let r3p2 = handleQuery(s, argsFromJson("{\"type\":\"worklog\",\"limit\":2,\"page\":2}"))
+    let t3p2 = resultText(r3p2)
+    @Expect(t3p2.indexOf("第 2/2 页") != None, true)
+    @Expect(t3p2.indexOf("\"task\":\"A\"") != None, true)  // 最旧 1 条在第 2 页
+    @Expect(t3p2.indexOf("page=3") == None, true)          // 末页无下一页提示
+    // 超界页码 → 空结果但给出页信息
+    let r3p9 = handleQuery(s, argsFromJson("{\"type\":\"worklog\",\"limit\":2,\"page\":9}"))
+    @Expect(resultText(r3p9).indexOf("无更多条目") != None, true)
     // 不存在类型 → error
     let r4 = handleAppend(s, argsFromJson("{\"type\":\"nope\",\"payload\":{}}"))
     @Expect(r4.isError, true)

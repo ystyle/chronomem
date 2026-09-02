@@ -208,6 +208,30 @@ public class Timeline {
         q.find()
     }
 
+    // 页码分页查询：返回 (本页点, 总数)。page 从 1 起；pageSize 为每页条数。
+    // count 全量（key-only/索引）一次 + offset 下推取本页——不做全量内存切片，
+    // 大条目量时无 payload 峰值（配合 tsdb Query.offset/timestamps 语义）。
+    public func queryPointsPage(from: Int64, to: Int64, page: Int64, pageSize: Int64,
+        tagFilter: Option<(String, String)>): (ArrayList<Point>, Int64) {
+        let size = if (pageSize > 0) { pageSize } else { 20 }
+        let p = if (page > 0) { page } else { 1 }
+        var q = this.tsdb.query(this.series).reverse()
+        if (from > 0 || to > 0) {
+            q = q.range(from, if (to > 0) { to } else { Int64.Max })
+        }
+        if (let Some((tag, value)) <- tagFilter) {
+            q = q.filter(tag, value)
+        }
+        let total = q.count()
+        let points = q.offset((p - 1) * size).limit(size).find()
+        (points, total)
+    }
+
+    // 窗口内全部 ts（ts-only 扫描，不读 payload）——物化/补齐引用链用
+    public func windowTimestamps(from: Int64, to: Int64): ArrayList<Int64> {
+        this.tsdb.query(this.series).range(from, to).timestamps()
+    }
+
     public func count(): Int64 {
         this.tsdb.query(this.series).count()
     }
