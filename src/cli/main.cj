@@ -5,6 +5,7 @@ import chronomem.mcp.*
 import mcp.*
 import mcp.transport.*
 import std.env.atExit
+import std.runtime.*
 import stdx.log.LogLevel
 import stdx.net.http.*
 import tang.compose.ComposeDistributor
@@ -13,7 +14,14 @@ import tang.compose.ComposeDistributor
 // 单端口合并：MCP 挂 /mcp，Web UI（cjxt）占根路径空间（fallback）。
 main() {
     let cfg = ChronomemConfig.fromEnv()
+    // GC 阈值调优（防长期运行堆逼近 256MB 上限导致写路径 OOM，见 fix/gc-heap-oom）：
+    // 默认 64MB —— GC 提前触发回收，堆水位稳定在低位（实测 125~135MB，余量 120MB+），
+    // 不再依赖"堆逼近上限才 GC"的默认策略。setGCThreshold 单位 KB。
+    setGCThreshold(UInt64(cfg.gcThresholdMb) * 1024)
     let svc = MemoryService.open(cfg)
+    // 启动一次性堆配置日志（诊断用，不打日志的进程可忽略；验证 GC 阈值生效）
+    println("chronomem gcThreshold=" + cfg.gcThresholdMb.toString() + "MB maxHeap=" +
+        (getMaxHeapSize() / 1048576).toString() + "MB")
     // 优雅退出（docker stop / Ctrl+C 语义，badger-cj ≥ 1.6.8）：SIGTERM → 停后台总结
     // 执行器 → tsdb close（flush 落盘）→ exit(0)。容器场景 atExit 不触发，靠这里兜底；
     // 数据持久化另有 syncWrites=true 兜底（SIGKILL 也不丢）。

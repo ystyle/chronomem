@@ -20,6 +20,7 @@ func chronomem_config_defaults() {
     removeVariable("CHRONOLOG_SUMMARY_MAX_PER_RUN")
     removeVariable("CHRONOLOG_SUMMARY_SETTLE")
     removeVariable("CHRONOLOG_SEED_WORKLOG")
+    removeVariable("CHRONOLOG_GC_THRESHOLD_MB")
 
     let cfg = ChronomemConfig.fromEnv()
     @Expect(cfg.port, UInt16(8900))
@@ -32,6 +33,7 @@ func chronomem_config_defaults() {
     @Expect(cfg.summaryMaxPerRun, Int64(5))
     @Expect(cfg.summarySettleMs, Int64(600000))
     @Expect(cfg.seedWorklog, true)
+    @Expect(cfg.gcThresholdMb, Int64(64))
     match (getVariable("HOME")) {
         case Some(h) => @Expect(cfg.dir, h + "/.chronolog")
         case None => @Expect(cfg.dir, ".chronolog")
@@ -52,6 +54,7 @@ func chronomem_config_override() {
     setVariable("CHRONOLOG_SUMMARY_MAX_PER_RUN", "2")
     setVariable("CHRONOLOG_SUMMARY_SETTLE", "30000")
     setVariable("CHRONOLOG_SEED_WORKLOG", "false")
+    setVariable("CHRONOLOG_GC_THRESHOLD_MB", "128")
 
     let cfg = ChronomemConfig.fromEnv()
     @Expect(cfg.dir, "/tmp/chronomem_cfg")
@@ -67,6 +70,7 @@ func chronomem_config_override() {
     @Expect(cfg.summaryMaxPerRun, Int64(2))
     @Expect(cfg.summarySettleMs, Int64(30000))
     @Expect(cfg.seedWorklog, false)
+    @Expect(cfg.gcThresholdMb, Int64(128))
 
     removeVariable("CHRONOLOG_DIR")
     removeVariable("CHRONOLOG_ADDR")
@@ -80,6 +84,7 @@ func chronomem_config_override() {
     removeVariable("CHRONOLOG_SUMMARY_MAX_PER_RUN")
     removeVariable("CHRONOLOG_SUMMARY_SETTLE")
     removeVariable("CHRONOLOG_SEED_WORKLOG")
+    removeVariable("CHRONOLOG_GC_THRESHOLD_MB")
 }
 
 @Test

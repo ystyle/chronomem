@@ -19,6 +19,11 @@ tang = "1.0.4"
 jsonvalue = "1.1.0"
 "ystyle::jsonrpc" = "0.7.2"
 
+# 依赖链统一替换为本地 json-rpc 源码（receiveLoop Error 防护修复未发版，
+# registry 0.7.2 无此修复；mcp-cj 传递依赖同样被替换，避免版本分裂）
+[replace]
+"ystyle::jsonrpc" = { path = "../json-rpc/jsonrpc" }
+
 [package.package-configuration."chronomem.cli"]
 output-type = "executable"
 compile-option = "--static -Woff unused"
