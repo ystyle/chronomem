@@ -232,8 +232,40 @@ public class Timeline {
         this.tsdb.query(this.series).range(from, to).timestamps()
     }
 
+    // 分批遍历窗口内全部点（keyset 游标翻页）：每批 ≤ batchSize 条，回调后即弃
+    // ——边读边拼原语：summarize/物化等场景避免整窗 ArrayList<Point> 驻留，
+    // 大窗口 + 大 payload 时内存峰值从 O(窗口字节) 降到 O(单批字节)。
+    // 窗口为空时不回调，返回 false。
+    public func forEachWindowPoint(from: Int64, to: Int64, batchSize: Int64,
+        fn: (ArrayList<Point>) -> Unit): Bool {
+        let batch = if (batchSize > 0) { batchSize } else { 200 }
+        var afterTs: Int64 = -1
+        var afterSeq: Int64 = -1
+        var any = false
+        let q = this.tsdb.query(this.series).range(from, to).reverse()
+        while (true) {
+            let page = if (afterTs >= 0) {
+                q.findPage(afterTs: afterTs, afterSeq: afterSeq, limit: batch)
+            } else {
+                q.findPage(limit: batch)
+            }
+            if (page.items.size == 0) { break }
+            any = true
+            fn(page.items)
+            if (!page.hasMore()) { break }
+            afterTs = page.nextTs
+            afterSeq = page.nextSeq
+        }
+        any
+    }
+
     public func count(): Int64 {
         this.tsdb.query(this.series).count()
+    }
+
+    // 时间范围内条目数（key-only 计数，不读 payload——空窗口判定用）
+    public func countIn(from: Int64, to: Int64): Int64 {
+        this.tsdb.query(this.series).range(from, to).count()
     }
 
     // ---------- 删除（TRUNCATE / DROP，委托 tsdb） ----------

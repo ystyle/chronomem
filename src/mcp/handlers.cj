@@ -189,27 +189,38 @@ func groupKeyOf(meta: TypeMeta, p: Point): Option<String> {
     }
 }
 
-// 把窗口内 points 按分组维度分桶；无分组维度时返回单桶（key = None）
-func bucketByGroup(meta: TypeMeta, points: ArrayList<Point>): HashMap<Option<String>, ArrayList<Point>> {
-    let buckets = HashMap<Option<String>, ArrayList<Point>>()
-    for (p in points) {
-        let key = groupKeyOf(meta, p)
-        match (buckets.get(key)) {
-            case Some(list) => list.add(p)
-            case None =>
-                let list = ArrayList<Point>()
-                list.add(p)
-                buckets[key] = list
-        }
-    }
-    buckets
-}
-
 // groupKey 的展示名：None → "整窗"；未分组 → "未分组"；否则原值
 func groupLabel(key: Option<String>): String {
     match (key) {
         case None => "整窗"
         case Some(v) => if (v == UNGROUPED_GROUP) { "未分组" } else { v }
+    }
+}
+
+// 分批流式入桶累积器（lambda 不能捕获可变局部变量，捕获本对象引用改内部字段）：
+// 窗口点按组分桶为 EntryText（边读边拼），total 计数；每批 Point 即弃。
+class SummaryBucketAccumulator {
+    public let buckets = HashMap<Option<String>, ArrayList<EntryText>>()
+    public var total: Int64 = 0
+    private let meta: TypeMeta
+
+    public init(meta: TypeMeta) {
+        this.meta = meta
+    }
+
+    public func absorb(points: ArrayList<Point>): Unit {
+        for (p in points) {
+            this.total += 1
+            let key = groupKeyOf(this.meta, p)
+            let entry = EntryText(p.ts, p.payload)
+            match (this.buckets.get(key)) {
+                case Some(list) => list.add(entry)
+                case None =>
+                    let list = ArrayList<EntryText>()
+                    list.add(entry)
+                    this.buckets[key] = list
+            }
+        }
     }
 }
 
@@ -223,19 +234,19 @@ func doSummarize(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64,
         case Some(_) => ()
     }
     let tl = svc.registry.timelineOf(name).getOrThrow()
-    let points = tl.queryPoints(winFrom, winTo, 0, None)
-    if (points.size == 0) {
-        return CallToolResult.text("该窗口无条目，无需总结")
-    }
     let meta = svc.registry.get(name).getOrThrow()
-    let buckets = bucketByGroup(meta, points)
-    if (buckets.size == 0) {
+    // 分批流式读窗口（keyset 翻页，每批 ≤200）：边读边按组累积 EntryText，
+    // 点对象每批即弃——避免整窗 ArrayList<Point> 驻留（大窗口+大 payload
+    // 时内存峰值从 O(窗口字节) 降到 O(单批字节+最终文本)）。
+    let acc = SummaryBucketAccumulator(meta)
+    tl.forEachWindowPoint(winFrom, winTo, 200, { points => acc.absorb(points) })
+    if (acc.total == 0) {
         return CallToolResult.text("该窗口无条目，无需总结")
     }
     let sb = StringBuilder()
     var anyStored = false
     var anyGenerated = false
-    for ((groupKey, groupPoints) in buckets) {
+    for ((groupKey, entries) in acc.buckets) {
         // 幂等：已有覆盖该窗口的同分组总结则跳过（除非 recompute）
         if (!recompute) {
             if (latestOverlappingSummary(svc, name, winFrom, winTo, groupKey).isSome()) {
@@ -243,8 +254,6 @@ func doSummarize(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64,
                 continue
             }
         }
-        let entries = ArrayList<EntryText>()
-        for (p in groupPoints) { entries.add(EntryText(p.ts, p.payload)) }
         let rec = svc.summarizer.getOrThrow().summarize(winFrom, winTo, entries, instructions, groupKey: groupKey)
         if (store) {
             let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
