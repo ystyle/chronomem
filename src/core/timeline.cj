@@ -259,15 +259,18 @@ public class Timeline {
         let fStart = this.windowStartOf(ts, levels[0])
         let fEnd = this.nextWindowStartMs(fStart, levels[0]) - 1
         let fKey = this.windowKeyOf(ts, levels[0])
-        let points = this.tsdb.query(this.series).range(fStart, fEnd).find()
+        // ts-only 扫描：物化只需窗口内点的 ts 建 PointRef，payload 零读取
+        // （此前 range().find() 把整窗 payload 全量 decode——分钟级 cron 全量读
+        // 是长跑内存峰值主源；timestamps() 只解析 key 的 ts）
+        let winTs = this.tsdb.query(this.series).range(fStart, fEnd).timestamps()
         // 日志瘦身：空窗口静默（原每窗口一行，30 窗口×4 series/轮 = 120+ 行刷屏，
         // 字符串分配累积 GC 堆压力）；仅在有数据/建桶时输出一行。
-        if (points.size > 0) {
-            println("materialize " + this.series + " finer=" + levels[0] + " fStart=" + fStart.toString() + " fEnd=" + fEnd.toString() + " pts=" + points.size.toString())
+        if (winTs.size > 0) {
+            println("materialize " + this.series + " finer=" + levels[0] + " fStart=" + fStart.toString() + " fEnd=" + fEnd.toString() + " pts=" + winTs.size.toString())
             let refs = ArrayList<Ref>()
-            for (p in points) { refs.add(Ref.PointRef(this.series, p.ts)) }
+            for (t in winTs) { refs.add(Ref.PointRef(this.series, t)) }
             this.tsdb.bucket(this.series, levels[0], fKey,
-                levels[0] + " 窗口" + label + " " + points.size.toString() + " 条", refs,
+                levels[0] + " 窗口" + label + " " + winTs.size.toString() + " 条", refs,
                 ttl: None, windowStartMs: fStart, windowEndMs: fEnd)
         }
         // 逐层向上：当前窗口内已存在的下一层子桶 → BucketRef
