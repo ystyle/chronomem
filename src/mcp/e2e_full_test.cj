@@ -114,3 +114,71 @@ func chronomem_e2e_fullFlow() {
     transport.close()
     httpServer.close()
 }
+
+// HTTP 报文总长预检（fix/append-size-limit）：>MAX_MCP_BODY_BYTES 的 POST 在
+// distributor 层凭 Content-Length 直接 413（零 body 读零解析）——病态大报文
+// 即使被业务限长拒绝，parse 阶段的瞬时分配仍会顶爆 256MB GC 堆（生产 OOM
+// 卡死防线）。业务限长（256KB 单条 payload）见 handlers_appendSizeLimit。
+@Test
+func chronomem_e2e_bodyLimitReject413() {
+    let portLock = Mutex()
+    let portCond = synchronized(portLock) { portLock.condition() }
+    let holder = FullPortHolder()
+
+    let transport = SessionHttpServerTransport()
+    let compose = ComposeDistributor()
+        .mount("/mcp", McpRouteDistributor(transport))
+    let httpServer = ServerBuilder()
+        .addr("127.0.0.1")
+        .port(0)
+        .distributor(compose)
+        .build()
+    httpServer.afterBind({ =>
+        synchronized(portLock) {
+            holder.value = httpServer.port
+            portCond.notifyAll()
+        }
+    })
+    let svc = MemoryService.openFile(freshTestDir())
+    let mcpServer = buildServer(transport, svc)
+    mcpServer.start()
+    spawn { => httpServer.serve() }
+
+    synchronized(portLock) {
+        while (holder.value == 0) {
+            portCond.wait(timeout: 5 * Duration.second)
+        }
+    }
+
+    let client = ClientBuilder().build()
+    // 超限（600KB > 512KB）：413 快速拒绝
+    let big = StringBuilder()
+    for (i in 0..(MAX_MCP_BODY_BYTES + 100 * 1024)) {
+        big.append("x")
+    }
+    let req413 = HttpRequestBuilder()
+        .url("http://127.0.0.1:" + holder.value.toString() + "/mcp")
+        .header("content-type", "application/json")
+        .body(big.toString())
+        .post()
+        .build()
+    let resp413 = client.send(req413)
+    @Expect(resp413.status, 413)
+    // 未超限（300KB < 512KB）：放行到 MCP（无效 jsonrpc 也走处理 → 非 413）
+    let mid = StringBuilder()
+    for (i in 0..(300 * 1024)) {
+        mid.append("x")
+    }
+    let reqOk = HttpRequestBuilder()
+        .url("http://127.0.0.1:" + holder.value.toString() + "/mcp")
+        .header("content-type", "application/json")
+        .body(mid.toString())
+        .post()
+        .build()
+    let respOk = client.send(reqOk)
+    @Expect(respOk.status != 413, true)
+
+    transport.close()
+    httpServer.close()
+    svc.close()
+}

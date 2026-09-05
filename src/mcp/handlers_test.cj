@@ -138,6 +138,36 @@ func handlers_appendAndQuery() {
     s.close()
 }
 
+// 大条目限长（生产 OOM 防线，fix/append-size-limit）：单条 payload 序列化后超过
+// MAX_APPEND_PAYLOAD_BYTES 拒绝——950KB 级病态输入在 256MB GC 堆下以 ~200MB 瞬时
+// 分配顶爆堆 → OOM → 请求悬挂（忆时塔曾因此卡死；长连接卡顿同源）。
+// 限长后单请求峰值分配被压到堆内安全区间（实测 100KB 级峰值 ~15-20MB）。
+@Test
+func handlers_appendSizeLimit() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"worklog\"}"))
+
+    // 超限（上限 + 1 字节 ASCII，rune 数 = 字节数）：拒绝且报错文案含上限
+    let over = StringBuilder()
+    for (i in 0..(MAX_APPEND_PAYLOAD_BYTES + 1)) {
+        over.append("x")
+    }
+    let r1 = handleAppend(s, argsFromJson("{\"type\":\"worklog\",\"payload\":{\"d\":\"" + over.toString() + "\"}}"))
+    @Expect(r1.isError, true)
+    @Expect(resultText(r1).indexOf("上限") != None, true)
+    @Expect(s.registry.countEntries("worklog"), Int64(0))
+
+    // 明显小于上限的条目正常写入
+    let ok = StringBuilder()
+    for (i in 0..4096) {
+        ok.append("x")
+    }
+    let r2 = handleAppend(s, argsFromJson("{\"type\":\"worklog\",\"payload\":{\"d\":\"" + ok.toString() + "\"}}"))
+    @Expect(r2.isError, false)
+    @Expect(s.registry.countEntries("worklog"), Int64(1))
+    s.close()
+}
+
 // ---------- recall（exact 下钻 / summary 语义回顾） ----------
 
 @Test
