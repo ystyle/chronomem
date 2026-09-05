@@ -29,7 +29,11 @@ public class MemoryService {
         }
         let tz = resolveTimeZone(cfg.timeZoneId)
         // syncWrites: true —— 记忆服务写低频，同步落盘换「进程被 SIGTERM/SIGKILL 也不丢数据」
-        let store = TimelineStore.open(tsdbDir, timeZone: tz, syncWrites: true)
+        // memTableSize = cfg.memTableSizeMb（默认 4MB，CHRONOLOG_MEMTABLE_SIZE_MB 可调）：
+        // 16MB（arena 32MB）同步 flush 峰值在默认 256MB GC 堆下 OOM（生产两次事故，
+        // 见 fix/memtable-size-oom）；4MB → 单次 flush 峰值 ~50MB，堆内安全。
+        let store = TimelineStore.open(tsdbDir, timeZone: tz, syncWrites: true,
+            memTableSize: UInt64(cfg.memTableSizeMb) * 1024 * 1024u64)
         let registry = MemoryTypeRegistry(store)
         // 开箱即用：默认播种 worklog 类型（幂等；CHRONOLOG_SEED_WORKLOG=false 可关）
         if (cfg.seedWorklog) {

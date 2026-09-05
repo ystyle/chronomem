@@ -21,6 +21,7 @@ func chronomem_config_defaults() {
     removeVariable("CHRONOLOG_SUMMARY_SETTLE")
     removeVariable("CHRONOLOG_SEED_WORKLOG")
     removeVariable("CHRONOLOG_GC_THRESHOLD_MB")
+    removeVariable("CHRONOLOG_MEMTABLE_SIZE_MB")
 
     let cfg = ChronomemConfig.fromEnv()
     @Expect(cfg.port, UInt16(8900))
@@ -34,6 +35,9 @@ func chronomem_config_defaults() {
     @Expect(cfg.summarySettleMs, Int64(600000))
     @Expect(cfg.seedWorklog, true)
     @Expect(cfg.gcThresholdMb, Int64(64))
+    // memTableSize 默认 4MB：16MB（arena 32MB）同步 flush 峰值在默认 256MB GC 堆下
+    // OOM（忆时塔两次生产事故根因，见 fix/memtable-size-oom）
+    @Expect(cfg.memTableSizeMb, Int64(4))
     match (getVariable("HOME")) {
         case Some(h) => @Expect(cfg.dir, h + "/.chronolog")
         case None => @Expect(cfg.dir, ".chronolog")
@@ -55,6 +59,7 @@ func chronomem_config_override() {
     setVariable("CHRONOLOG_SUMMARY_SETTLE", "30000")
     setVariable("CHRONOLOG_SEED_WORKLOG", "false")
     setVariable("CHRONOLOG_GC_THRESHOLD_MB", "128")
+    setVariable("CHRONOLOG_MEMTABLE_SIZE_MB", "8")
 
     let cfg = ChronomemConfig.fromEnv()
     @Expect(cfg.dir, "/tmp/chronomem_cfg")
@@ -71,6 +76,7 @@ func chronomem_config_override() {
     @Expect(cfg.summarySettleMs, Int64(30000))
     @Expect(cfg.seedWorklog, false)
     @Expect(cfg.gcThresholdMb, Int64(128))
+    @Expect(cfg.memTableSizeMb, Int64(8))
 
     removeVariable("CHRONOLOG_DIR")
     removeVariable("CHRONOLOG_ADDR")
@@ -85,6 +91,7 @@ func chronomem_config_override() {
     removeVariable("CHRONOLOG_SUMMARY_SETTLE")
     removeVariable("CHRONOLOG_SEED_WORKLOG")
     removeVariable("CHRONOLOG_GC_THRESHOLD_MB")
+    removeVariable("CHRONOLOG_MEMTABLE_SIZE_MB")
 }
 
 @Test
