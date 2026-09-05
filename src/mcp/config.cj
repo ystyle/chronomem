@@ -24,12 +24,17 @@ public class ChronomemConfig {
     public let uiPort: UInt16
     public let uiEnabled: Bool
     public let gcThresholdMb: Int64
+    // badger memTableSize（MB）：4MB → arena 8MB，同步 flush 峰值 ~50MB，默认 256MB
+    // GC 堆内安全。曾默认 16MB（arena 32MB）：flush 峰值实测 ~170MB 活对象顶爆堆
+    // → OOM → 写路径全断（忆时塔两次生产事故，见 fix/memtable-size-oom）。
+    public let memTableSizeMb: Int64
 
     public init(dir: String, addr: String, port: UInt16, llmBaseUrl: String,
         llmApiKey: String, llmModel: String, llmProvider: String,
         timeZoneId: String, materializeCron: String, summaryCron: String,
         summaryMaxPerRun: Int64, summarySettleMs: Int64, seedWorklog: Bool,
-        uiPort!: UInt16 = 8901, uiEnabled!: Bool = true, gcThresholdMb!: Int64 = 64) {
+        uiPort!: UInt16 = 8901, uiEnabled!: Bool = true, gcThresholdMb!: Int64 = 64,
+        memTableSizeMb!: Int64 = 4) {
         this.dir = dir
         this.addr = addr
         this.port = port
@@ -46,6 +51,7 @@ public class ChronomemConfig {
         this.uiPort = uiPort
         this.uiEnabled = uiEnabled
         this.gcThresholdMb = gcThresholdMb
+        this.memTableSizeMb = memTableSizeMb
     }
 
     // 从进程环境变量构造（测试可通过 setVariable/removeVariable 控制）
@@ -72,7 +78,8 @@ public class ChronomemConfig {
             envBoolOr("CHRONOLOG_SEED_WORKLOG", true),
             uiPort: envUInt16Or("CHRONOLOG_UI_PORT", 8901),
             uiEnabled: envBoolOr("CHRONOLOG_UI_ENABLED", true),
-            gcThresholdMb: envIntOr("CHRONOLOG_GC_THRESHOLD_MB", 64))
+            gcThresholdMb: envIntOr("CHRONOLOG_GC_THRESHOLD_MB", 64),
+            memTableSizeMb: envIntOr("CHRONOLOG_MEMTABLE_SIZE_MB", 4))
     }
 
     // 语义总结可用性：未配置 baseURL/model 时 summarize 应报错（其余工具不依赖 LLM）

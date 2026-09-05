@@ -37,10 +37,10 @@ public func freshTestDir(): String {
 }
 
 // 文件型 TimelineStore（测试用）
-// memTableSize 用 4MB（arena 8MB）：测试并发多库，默认 16MB（arena 32MB）会在
-// 256MB 默认 GC 堆下 OOM；4MB 对"大桶"压测仍远高于 64KB 病态配置，行为贴近生产。
+// 走默认 memTableSize（4MB，arena 8MB，见 fix/memtable-size-oom——16MB/arena 32MB 的
+// flush 峰值在 256MB GC 堆下 OOM）；4MB 对"大桶"压测仍远高于 64KB 病态配置，行为贴近生产。
 public func fileStore(timeZone!: TimeZone = TimeZone.Local): TimelineStore {
-    TimelineStore.open(freshTestDir(), timeZone: timeZone, memTableSize: 4 * 1024 * 1024u64)
+    TimelineStore.open(freshTestDir(), timeZone: timeZone)
 }
 
 public func tagsOf(kv: Array<(String, String)>): HashMap<String, String> {

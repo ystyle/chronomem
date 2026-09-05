@@ -457,8 +457,11 @@ public class TimelineStore {
     private let mapLock = Mutex()
 
     // syncWrites=true：每次 append 同步落盘（badger fsync），容器/进程被 SIGTERM/SIGKILL 也不丢数据
+    // memTableSize 默认 4MB（arena 8MB）：16MB（arena 32MB）的同步 flush 峰值在默认
+    // 256MB GC 堆下 OOM——memtable 攒满即触发（低频写入只是把周期拉长），生产忆时塔
+    // 两次事故根因（见 fix/memtable-size-oom）。需要更大批量吞吐的场景可显式调大。
     public static func open(path: String, timeZone!: TimeZone = TimeZone.Local,
-        syncWrites!: Bool = false, memTableSize!: UInt64 = 16 * 1024 * 1024u64): TimelineStore {
+        syncWrites!: Bool = false, memTableSize!: UInt64 = 4 * 1024 * 1024u64): TimelineStore {
         TimelineStore(Tsdb.open(path, memTableSize: memTableSize, syncWrites: syncWrites), timeZone)
     }
 
