@@ -9,6 +9,12 @@ import tsdb.*
 
 // ---------- 参数解析 / 结果辅助 ----------
 
+// 单条 append payload 上限（字节，序列化后 utf8 计）。忆时塔为日志型存储（实测
+// 单条 <50KB），256KB 上限是生产 OOM 防线（fix/append-size-limit）：950KB 级病态
+// 输入在默认 256MB GC 堆下瞬时分配 ~200MB 顶爆堆 → OOM → 请求悬挂。上限需远小于
+// badger 1MB 内联阈值（限长后所有条目走 memtable 内联，行为一致）。
+public let MAX_APPEND_PAYLOAD_BYTES = Int64(256 * 1024)
+
 func argStr(args: HashMap<String, JsonValue>, name: String): String {
     match (args.get(name)) {
         case Some(JsonValue.String(s)) => s
@@ -456,6 +462,14 @@ public func handleAppend(svc: MemoryService, args: HashMap<String, JsonValue>): 
         case Some(_) => ()
     }
     let payloadJson = args.get("payload").getOrThrow().stringify()
+    // 单条限长（生产 OOM 防线，见 MAX_APPEND_PAYLOAD_BYTES）：大 payload 的请求处理
+    // 瞬时分配放大 ~5-7×，顶爆 256MB GC 堆 → OOM → 请求悬挂/服务卡死。
+    let payloadBytes = payloadJson.toArray().size
+    if (payloadBytes > MAX_APPEND_PAYLOAD_BYTES) {
+        return toolError("条目过大：" + (payloadBytes / 1024).toString()
+            + "KB 超过上限 " + (MAX_APPEND_PAYLOAD_BYTES / 1024).toString()
+            + "KB（忆时塔为日志型存储，超大文本请拆分后追加）")
+    }
     let ts = argInt(args, "ts")
     let tsFinal = if (ts > 0) { ts } else { nowMs() }
     let tags = argTags(args, "tags")
