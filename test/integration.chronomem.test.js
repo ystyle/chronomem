@@ -76,6 +76,16 @@ test('chronomem round-trip: create → append → query → cleanup', async (t) 
       assert.equal(updated.failure, null, `type_update failed: ${updated.failure}`)
     }
 
+    // 1b. The type's self-heal second leg: re-applying the same config must succeed
+    // (a same-value `levels` is a tolerated no-op, which is what the plugin relies on).
+    const ensured = await call('mem/type_update', {
+      name: SELFTEST_TYPE,
+      levels: ['day', 'week'],
+      auto_summarize: false,
+      summary_group_by: [],
+    })
+    assert.equal(ensured.failure, null, `idempotent type_update failed: ${ensured.failure}`)
+
     // 2. Append one real entry built by the very builder the plugin uses.
     const entry = turnEntry(
       { session: 'selftest-session', agent: 'selftest-session', proj: 'selftest' },
