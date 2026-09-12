@@ -51,6 +51,58 @@ func argLevels(args: HashMap<String, JsonValue>, name: String, def: ArrayList<St
     }
 }
 
+// 可选字符串参数：缺省 / null / 空串 → None（用于"清空该字段"），否则 Some(值)。
+// 与 argStr 的区别：argStr 无法区分"未传"和"传了空串"，而 type_update 需要这个区分。
+func argOptStr(args: HashMap<String, JsonValue>, name: String): Option<String> {
+    match (args.get(name)) {
+        case Some(JsonValue.String(s)) => if (s == "") { None } else { Some(s) }
+        case _ => None
+    }
+}
+
+// 可选字符串数组参数：缺省 / null / 空数组 → None（清空），否则 Some(列表)。
+// 与 argLevels 同理：空数组表达"清空"而非"用缺省"。
+func argOptList(args: HashMap<String, JsonValue>, name: String): Option<ArrayList<String>> {
+    match (args.get(name)) {
+        case Some(JsonValue.Array(arr)) =>
+            let l = ArrayList<String>()
+            for (v in arr) {
+                match (v) {
+                    case JsonValue.String(s) => l.add(s)
+                    case _ => ()
+                }
+            }
+            if (l.size > 0) { Some(l) } else { None }
+        case _ => None
+    }
+}
+
+// 两个字符串列表内容相同（长度 + 逐元素）。仓颉 ArrayList 的 == 依赖 T 的 Equatable，
+// 这里显式比较，避免依赖隐式约束。
+func sameStringList(a: ArrayList<String>, b: ArrayList<String>): Bool {
+    if (a.size != b.size) { return false }
+    for (i in 0..a.size) {
+        if (a[i] != b[i]) { return false }
+    }
+    true
+}
+
+// 两个可选字符串列表相等（含 None 与非 None 混合）。
+func sameOptList(a: Option<ArrayList<String>>, b: Option<ArrayList<String>>): Bool {
+    match (a) {
+        case None =>
+            match (b) {
+                case None => true
+                case Some(_) => false
+            }
+        case Some(x) =>
+            match (b) {
+                case None => false
+                case Some(y) => sameStringList(x, y)
+            }
+    }
+}
+
 func argTags(args: HashMap<String, JsonValue>, name: String): HashMap<String, String> {
     let out = HashMap<String, String>()
     match (args.get(name)) {
@@ -396,6 +448,65 @@ public func handleTypeCreate(svc: MemoryService, args: HashMap<String, JsonValue
     CallToolResult.text("已创建类型 " + name + "（粒度 " + levelsString(levels) + autoTag + groupTag + "）")
 }
 
+// 更新已有类型的可变配置：description / schema / retention / auto_summarize /
+// summary_levels / summary_group_by。
+// - **levels 与 name 不可修改**：levels 的物化桶链不可逆，改值必须 truncate + type_delete 重建；
+//   传与现值相同的 levels 按 no-op 接受 —— bridge "查存在 → 缺则建 / 有则校正" 的幂等自愈依赖这一点。
+// - 字段语义：**省略 = 保持不变；传空串 / 空数组 = 清空；其余 = 覆盖**。
+// - 类型不存在 → 报错（本工具不创建类型，创建走 mem/type_create）。
+public func handleTypeUpdate(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
+    let name = argStr(args, "name")
+    if (name == "") { return toolError("缺少参数 name") }
+    let oldOpt = svc.registry.get(name)
+    match (oldOpt) {
+        case None => return toolError("类型不存在: " + name + "（mem/type_update 只更新已有类型，创建请用 mem/type_create）")
+        case Some(_) => ()
+    }
+    let old = oldOpt.getOrThrow()
+    if (args.contains("levels")) {
+        let wanted = argLevels(args, "levels", ArrayList<String>())
+        if (!sameStringList(wanted, old.levels)) {
+            return toolError("levels 不可修改（物化桶链不可逆）：当前 " + old.levels.toString()
+                + "，请求 " + wanted.toString()
+                + "；如需变更请 mem/truncate + mem/type_delete 后重新 mem/type_create")
+        }
+    }
+    let description = if (args.contains("description")) { argStr(args, "description") } else { old.description }
+    let schema = if (args.contains("schema")) { argOptStr(args, "schema") } else { old.schema }
+    let retention = if (args.contains("retention")) { argOptStr(args, "retention") } else { old.retention }
+    let autoSummarize = if (args.contains("auto_summarize")) {
+        argBool(args, "auto_summarize", old.autoSummarize)
+    } else {
+        old.autoSummarize
+    }
+    let summaryLevels = if (args.contains("summary_levels")) { argOptList(args, "summary_levels") } else { old.summaryLevels }
+    let summaryGroupBy = if (args.contains("summary_group_by")) { argOptList(args, "summary_group_by") } else { old.summaryGroupBy }
+    let changed = ArrayList<String>()
+    if (description != old.description) { changed.add("description") }
+    if (schema != old.schema) { changed.add("schema") }
+    if (retention != old.retention) { changed.add("retention") }
+    if (autoSummarize != old.autoSummarize) { changed.add("auto_summarize") }
+    if (!sameOptList(summaryLevels, old.summaryLevels)) { changed.add("summary_levels") }
+    if (!sameOptList(summaryGroupBy, old.summaryGroupBy)) { changed.add("summary_group_by") }
+    if (changed.size == 0) {
+        return CallToolResult.text("已更新类型 " + name + "（无变化）")
+    }
+    let meta = TypeMeta(old.name, description, schema, old.levels, retention, autoSummarize,
+        summaryLevels, old.createdAt, summaryGroupBy: summaryGroupBy)
+    try {
+        svc.registry.updateMeta(meta)
+    } catch (e: Exception) {
+        return toolError(e.toString())
+    }
+    let autoTag = if (autoSummarize) { "，自动总结" } else { "" }
+    let groupTag = match (summaryGroupBy) {
+        case Some(dims) => "，按分组总结（" + dims.toString() + "）"
+        case None => ""
+    }
+    CallToolResult.text("已更新类型 " + name + "：" + changed.toString()
+        + "（粒度 " + levelsString(old.levels) + autoTag + groupTag + "）")
+}
+
 public func handleListTypes(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
     let types = svc.registry.list()
     if (types.size == 0) {
@@ -421,6 +532,20 @@ public func handleTypeInfo(svc: MemoryService, args: HashMap<String, JsonValue>)
     sb.append("类型: " + name + "\n")
     sb.append("描述: " + svc.registry.get(name).getOrThrow().description + "\n")
     sb.append("粒度链: " + levelsString(svc.registry.get(name).getOrThrow().levels) + "\n")
+    let autoText = if (svc.registry.get(name).getOrThrow().autoSummarize) { "true" } else { "false" }
+    sb.append("自动总结: " + autoText + "\n")
+    match (svc.registry.get(name).getOrThrow().summaryLevels) {
+        case Some(ls) => sb.append("总结粒度: " + ls.toString() + "\n")
+        case None => ()
+    }
+    match (svc.registry.get(name).getOrThrow().retention) {
+        case Some(r) => sb.append("保留期: " + r + "\n")
+        case None => ()
+    }
+    match (svc.registry.get(name).getOrThrow().schema) {
+        case Some(sc) => sb.append("字段描述: 已设置（" + sc.size.toString() + " 字符）\n")
+        case None => ()
+    }
     match (svc.registry.get(name).getOrThrow().summaryGroupBy) {
         case Some(dims) => sb.append("总结分组维度: " + dims.toString() + "\n")
         case None => ()
@@ -678,6 +803,22 @@ public func registerTools(server: McpServer, svc: MemoryService): Unit {
     s1.addField("summary_group_by", "array", "总结分组维度（可选；tag 键列表，如 [\"proj\"]，上限 2 个；None=整窗总结）")
     let t1 = Tool("mem/type_create", "创建记忆类型（自动建 <type>.summary 总结 series）", s1)
     server.addTool(t1, { params => handleTypeCreate(svc, params.arguments) })
+
+    // mem/type_update（更新可变配置；levels/name 不可改）
+    let sUpd = schemaBuilder()
+    sUpd.addField("name", "string", "类型名（必须已存在；本工具不创建类型）", required: true)
+    sUpd.addField("description", "string", "新描述（空串=清空；省略=不变）")
+    sUpd.addField("schema", "string", "新字段描述 JSON（空串=清空；省略=不变）")
+    sUpd.addField("retention", "string", "新保留期，如 30d（空串=清空；省略=不变）")
+    sUpd.addField("auto_summarize", "boolean", "后台自动语义总结开关（省略=不变）")
+    sUpd.addField("summary_levels", "array", "自动总结粒度（[]=清空回缺省；省略=不变）")
+    sUpd.addField("summary_group_by", "array", "总结分组维度 tag 键（上限 2 个；[]=清空；省略=不变）")
+    sUpd.addField("levels", "array", "仅作一致性校验：只接受与现值相同的粒度链（levels 不可修改）")
+    let updDesc = "更新已有类型的可变配置（description/schema/retention/auto_summarize/" +
+        "summary_levels/summary_group_by）；省略的字段保持不变，空串/空数组表示清空；" +
+        "levels 与 name 不可修改（物化桶链不可逆），levels 传相同值按无变化接受"
+    let tUpd = Tool("mem/type_update", updDesc, sUpd)
+    server.addTool(tUpd, { params => handleTypeUpdate(svc, params.arguments) })
 
     // mem/list_types
     let s2 = schemaBuilder()
