@@ -216,6 +216,8 @@ test('resolveConfig applies defaults', () => {
   assert.equal(c.token, '')
   assert.equal(c.enabled, true)
   assert.equal(c.queueMax, 500)
+  assert.equal(c.retryMax, 5)
+  assert.equal(c.retryBackoffMs, 250)
   assert.equal(c.turnNoteMax, 6000)
   assert.equal(c.compactNoteMax, 16000)
   assert.equal(c.turnMinTools, 1)

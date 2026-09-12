@@ -54,6 +54,8 @@ profile 变更需要**重启该 profile 的 dsh 进程**才生效。
 | `turnMinTools` | `DSH_MEM_BRIDGE_TURN_MIN_TOOLS` | `1` | 轮次计入条件一：轮内工具数 ≥ |
 | `turnMinLen` | `DSH_MEM_BRIDGE_TURN_MIN_LEN` | `120` | 轮次计入条件二：末条回复 ≥ 字数；与条件一为**「或」** |
 | `queueMax` | `DSH_MEM_BRIDGE_QUEUE_MAX` | `500` | 内存写入队列上限，满则丢最旧 |
+| `retryMax` | `DSH_MEM_BRIDGE_RETRY_MAX` | `5` | 单条写入的最大尝试次数（含首次），用尽即丢并计数日志 |
+| `retryBackoffMs` | `DSH_MEM_BRIDGE_RETRY_BACKOFF_MS` | `250` | 退避基数（毫秒，指数递增）；`0` = 不等待 |
 
 ## 开发
 
