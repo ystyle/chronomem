@@ -54,7 +54,9 @@ test('clipText treats a non-positive max as no limit, and non-strings as empty',
 test('firstLine takes the first line only, then clips', () => {
   assert.equal(firstLine('first\nsecond\nthird', 100), 'first')
   assert.equal(firstLine('  padded  \nrest', 100), 'padded')
-  assert.equal(firstLine('x'.repeat(50), 10).length > 10, true)
+  // 标题只截尾，不插「省略」标记（首尾截断留给 note）
+  assert.equal(firstLine('x'.repeat(50), 10), 'x'.repeat(10) + '…')
+  assert.equal(firstLine('y'.repeat(10), 10), 'y'.repeat(10))
 })
 
 test('textOfBlocks keeps text blocks only', () => {
