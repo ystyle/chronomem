@@ -14,7 +14,7 @@ import assert from 'node:assert/strict'
 import plugin, { apply } from '../lib/index.js'
 
 /** A fake Cordis context capturing listeners and effects. */
-function fakeCtx() {
+function fakeCtx(services = {}) {
   const listeners = new Map()
   const effects = []
   return {
@@ -29,8 +29,8 @@ function fakeCtx() {
       const dispose = callback()
       return typeof dispose === 'function' ? dispose : () => {}
     },
-    get() {
-      return undefined
+    get(name) {
+      return services[name]
     },
     emit(name, ...args) {
       const handler = listeners.get(name)
@@ -38,6 +38,24 @@ function fakeCtx() {
       return handler(...args)
     },
   }
+}
+
+/** A stub `llm` service that streams back one canned reply. */
+function stubLlm(reply, calls = []) {
+  return {
+    stream(options) {
+      calls.push(options)
+      return (async function* generate() {
+        yield { type: 'text-delta', index: 0, text: reply }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      })()
+    },
+  }
+}
+
+/** A stub host default-model service. */
+function stubModel(provider = 'stub-provider', model = 'stub-model') {
+  return { currentSelection: () => ({ provider, model }) }
 }
 
 /** Capture the requests a plugin run issues. */
@@ -402,4 +420,166 @@ test('a connect failure IS retried up to retryMax', async () => {
     globalThis.fetch = original
   }
   assert.equal(attempts, 3, 'the tower being down is safe to retry')
+})
+
+// ---------------------------------------------------------------- L2b close / workflow
+
+/** Route the stubbed fetch by MCP tool name so query and append can differ. */
+function withRoutedFetch(handlers, run) {
+  const calls = []
+  const original = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body)
+    const tool = body.params.name
+    calls.push({ url, body, tool })
+    const text = handlers[tool] === undefined ? 'ok' : handlers[tool]
+    return {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: async () => JSON.stringify({
+        jsonrpc: '2.0',
+        id: body.id,
+        result: { content: [{ type: 'text', text }] },
+      }),
+    }
+  }
+  return Promise.resolve()
+    .then(run)
+    .finally(() => {
+      globalThis.fetch = original
+    })
+    .then(() => calls)
+}
+
+function goalEvent(operation, { id = 'goal-1', revision = 3, phase = 'complete', objective = '搭好桥' } = {}) {
+  return {
+    agent: { id: 'session-1' },
+    change: {
+      operation,
+      ref: { id, revision },
+      goal: { phase, objective },
+    },
+  }
+}
+
+const CLOSE_REPLY = '{"outcome":"3 个提交 + 一次部署","next":"接 L2b 之后的里程碑","note":"完成并发修复并部署。"}'
+
+test('goal complete distills a close entry from the tower timeline', async () => {
+  const llmCalls = []
+  const ctx = fakeCtx({ llm: stubLlm(CLOSE_REPLY, llmCalls), agentDefaultModel: stubModel() })
+  apply(ctx, { url: 'http://tower.test', tailN: 20, maxDaily: 20 })
+  const calls = await withRoutedFetch({ 'mem/query': '[09-12 22:00] {"note":"一条流水"} <kind=turn>' }, async () => {
+    ctx.emit('session/event', session, assistantEvent(1, 'z'.repeat(200)))
+    ctx.emit('session/event', session, turnEndEvent(1))
+    ctx.emit('goal/changed', goalEvent('complete'))
+    await settled()
+    await settled()
+    await settled()
+  })
+
+  const query = calls.find((c) => c.tool === 'mem/query')
+  assert.ok(query, 'distillation must read the tower timeline')
+  assert.equal(query.body.params.arguments.tag, 'session=session-1')
+  assert.equal(query.body.params.arguments.limit, 20)
+
+  assert.equal(llmCalls.length, 1, 'exactly one model call')
+  assert.equal(llmCalls[0].provider, 'stub-provider', 'falls back to the host default route')
+  assert.equal(llmCalls[0].model, 'stub-model')
+  assert.match(llmCalls[0].messages[0].content[0].text, /搭好桥/)
+
+  const close = calls.find((c) => c.tool === 'mem/append' && c.body.params.arguments.tags.kind === 'close')
+  assert.ok(close, 'a close entry must be appended')
+  assert.equal(close.body.params.arguments.tags.distilled, 'true')
+  assert.equal(close.body.params.arguments.tags.goal, 'goal-1')
+  assert.equal(close.body.params.arguments.payload.outcome, '3 个提交 + 一次部署')
+  assert.equal(close.body.params.arguments.payload.next, '接 L2b 之后的里程碑')
+  assert.equal(close.body.params.arguments.payload.title, '搭好桥')
+})
+
+test('a second goal completion in the same session degrades to a skeleton', async () => {
+  const llmCalls = []
+  const ctx = fakeCtx({ llm: stubLlm(CLOSE_REPLY, llmCalls), agentDefaultModel: stubModel() })
+  apply(ctx, { url: 'http://tower.test' })
+  const calls = await withRoutedFetch({ 'mem/query': 'timeline' }, async () => {
+    ctx.emit('goal/changed', goalEvent('complete', { id: 'goal-1' }))
+    await settled()
+    await settled()
+    ctx.emit('goal/changed', goalEvent('complete', { id: 'goal-2' }))
+    await settled()
+    await settled()
+  })
+  assert.equal(llmCalls.length, 1, 'one distillation per session')
+  const closes = calls.filter((c) => c.tool === 'mem/append' && c.body.params.arguments.tags.kind === 'close')
+  assert.equal(closes.length, 2, 'the second completion still records a fact')
+  assert.equal(closes[0].body.params.arguments.tags.distilled, 'true')
+  assert.equal(closes[1].body.params.arguments.tags.distilled, 'false')
+  assert.match(closes[1].body.params.arguments.payload.note, /骨架收口/)
+})
+
+test('without a usable model route the close entry is a skeleton and nothing is queried', async () => {
+  const ctx = fakeCtx() // 无 llm / 无 agentDefaultModel
+  apply(ctx, { url: 'http://tower.test' })
+  const calls = await withRoutedFetch({}, async () => {
+    ctx.emit('goal/changed', goalEvent('complete'))
+    await settled()
+    await settled()
+  })
+  assert.equal(calls.filter((c) => c.tool === 'mem/query').length, 0, 'no model route => no tower read')
+  const close = calls.find((c) => c.tool === 'mem/append' && c.body.params.arguments.tags.kind === 'close')
+  assert.ok(close)
+  assert.equal(close.body.params.arguments.tags.distilled, 'false')
+})
+
+test('distill=false turns the aggregate account off entirely', async () => {
+  const llmCalls = []
+  const ctx = fakeCtx({ llm: stubLlm(CLOSE_REPLY, llmCalls), agentDefaultModel: stubModel() })
+  apply(ctx, { url: 'http://tower.test', distill: false })
+  const calls = await withRoutedFetch({ 'mem/query': 'timeline' }, async () => {
+    ctx.emit('goal/changed', goalEvent('complete'))
+    await settled()
+    await settled()
+  })
+  assert.equal(llmCalls.length, 0)
+  assert.equal(calls.filter((c) => c.tool === 'mem/query').length, 0)
+  const close = calls.find((c) => c.tool === 'mem/append' && c.body.params.arguments.tags.kind === 'close')
+  assert.equal(close.body.params.arguments.tags.distilled, 'false')
+})
+
+test('the daily budget caps model calls', async () => {
+  const llmCalls = []
+  const ctx = fakeCtx({ llm: stubLlm(CLOSE_REPLY, llmCalls), agentDefaultModel: stubModel() })
+  apply(ctx, { url: 'http://tower.test', maxDaily: 1 })
+  const calls = await withRoutedFetch({ 'mem/query': 'timeline' }, async () => {
+    ctx.emit('goal/changed', goalEvent('complete', { id: 'g-a' }))
+    await settled()
+    await settled()
+    ctx.emit('goal/changed', goalEvent('complete', { id: 'g-b' }))
+    await settled()
+    await settled()
+  })
+  assert.equal(llmCalls.length, 1, 'only one call fits the daily budget')
+  const closes = calls.filter((c) => c.tool === 'mem/append' && c.body.params.arguments.tags.kind === 'close')
+  assert.equal(closes[1].body.params.arguments.tags.distilled, 'false')
+})
+
+test('workflow/end records a fact milestone tagged role=workflow', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test' })
+  const calls = await withRoutedFetch({}, async () => {
+    ctx.emit('workflow/end',
+      { id: 'wf-1', meta: { name: 'audit-fanout', description: '并行审计' } },
+      { stopReason: 'completed', agentsStarted: 7 })
+    await settled()
+  })
+  const entry = calls.find((c) => c.tool === 'mem/append')
+  assert.ok(entry, 'workflow end must be recorded')
+  const args = entry.body.params.arguments
+  assert.equal(args.tags.kind, 'milestone')
+  assert.equal(args.tags.role, 'workflow')
+  assert.equal(args.tags.run, 'wf-1')
+  assert.match(args.payload.title, /audit-fanout/)
+  assert.match(args.payload.note, /stopReason=completed/)
+  assert.match(args.payload.note, /agentsStarted=7/)
+  assert.equal(args.payload.outcome, 'completed')
 })

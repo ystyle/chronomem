@@ -2,10 +2,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  DISTILL_SYSTEM,
   KIND,
   TYPE_ACTIVITY,
   appendRequest,
   blockKinds,
+  buildDistillPrompt,
   callRequest,
   clipText,
   closeEntry,
@@ -20,6 +22,7 @@ import {
   mcpHeaders,
   mcpUrl,
   milestoneEntry,
+  parseDistillReply,
   parseMcpBody,
   projFromCwd,
   resolveConfig,
@@ -28,6 +31,7 @@ import {
   textOfBlocks,
   titleEntry,
   turnEntry,
+  workflowEntry,
 } from '../lib/pure.js'
 
 const subject = { session: 'session-1', agent: 'session-1', proj: 'Cangjie' }
@@ -198,11 +202,62 @@ test('errorEntry stores the code, never the body', () => {
 })
 
 test('closeEntry is the L2b aggregate account', () => {
-  const e = closeEntry(subject, { goalId: 'g-1', outcome: '3 个提交', next: '装包', note: '收口叙述' })
+  const e = closeEntry(subject, { goalId: 'g-1', objective: '搭好桥', outcome: '3 个提交', next: '装包', note: '收口叙述', distilled: true })
   assert.equal(e.tags.kind, KIND.close)
   assert.equal(e.tags.goal, 'g-1')
+  assert.equal(e.tags.distilled, 'true')
+  assert.equal(e.payload.title, '搭好桥')
   assert.equal(e.payload.outcome, '3 个提交')
   assert.equal(e.payload.next, '装包')
+  // 骨架退化的形态：无 objective / 未蒸馏
+  const skeleton = closeEntry(subject, { goalId: 'g-2', note: '骨架收口（未蒸馏）' })
+  assert.equal(skeleton.tags.distilled, 'false')
+  assert.equal(skeleton.payload.title, '目标收口')
+})
+
+test('workflowEntry records workflow facts, not a fabricated result', () => {
+  const e = workflowEntry({ session: null, agent: null, proj: null },
+    { runId: 'wf-1', name: 'audit-fanout', description: '并行审计', stopReason: 'completed', agentsStarted: 7 })
+  assert.equal(e.tags.kind, KIND.milestone)
+  assert.equal(e.tags.role, 'workflow')
+  assert.equal(e.tags.run, 'wf-1')
+  assert.equal(e.tags.session, undefined, 'workflow 没有 session，不应编造')
+  assert.equal(e.payload.title, '工作流结束（audit-fanout）')
+  assert.match(e.payload.note, /stopReason=completed/)
+  assert.match(e.payload.note, /agentsStarted=7/)
+  assert.match(e.payload.note, /并行审计/)
+  assert.equal(e.payload.outcome, 'completed')
+  // 失败路径带 error 事实
+  const failed = workflowEntry({}, { runId: 'wf-2', stopReason: 'error', agentsStarted: 0, error: 'boom' })
+  assert.match(failed.payload.note, /error=boom/)
+})
+
+test('buildDistillPrompt carries the goal plus the tower timeline', () => {
+  const prompt = buildDistillPrompt({ goalId: 'g-1', objective: '搭好桥', timeline: '[t] {"note":"x"} <kind=turn>' })
+  assert.match(prompt, /goalId: g-1/)
+  assert.match(prompt, /objective: 搭好桥/)
+  assert.match(prompt, /kind=turn/)
+  assert.match(prompt, /只输出约定的 JSON/)
+  // 空时间线不应崩，且明确标注无条目
+  assert.match(buildDistillPrompt({ goalId: '', objective: '', timeline: '   ' }), /\(无条目\)/)
+  assert.match(DISTILL_SYSTEM, /JSON/)
+})
+
+test('parseDistillReply accepts JSON, prose-wrapped JSON, and degrades to plain text', () => {
+  assert.deepEqual(parseDistillReply('{"outcome":"o","next":"n","note":"x"}'), { outcome: 'o', next: 'n', note: 'x' })
+  // 小模型常把 JSON 包在说明文字或代码块里 —— 取首个 { 到末个 }
+  assert.deepEqual(
+    parseDistillReply('好的：\n```json\n{"outcome":"o","next":"","note":"x"}\n```\n以上。'),
+    { outcome: 'o', next: '', note: 'x' },
+  )
+  // 只有部分字段也可用
+  assert.deepEqual(parseDistillReply('{"note":"只有叙述"}'), { outcome: '', next: '', note: '只有叙述' })
+  // 完全无法解析 → 整段作为 note，而不是丢弃（这是花过 LLM 钱的产出）
+  assert.deepEqual(parseDistillReply('就是一段中文总结'), { outcome: '', next: '', note: '就是一段中文总结' })
+  // 全空字段视为解析失败 → 同样退化为纯文本
+  assert.deepEqual(parseDistillReply('{"outcome":"","next":"","note":""}'), { outcome: '', next: '', note: '{"outcome":"","next":"","note":""}' })
+  assert.deepEqual(parseDistillReply(''), { outcome: '', next: '', note: '' })
+  assert.deepEqual(parseDistillReply(undefined), { outcome: '', next: '', note: '' })
 })
 
 test('entry tags never carry an empty proj/session', () => {
@@ -221,6 +276,11 @@ test('resolveConfig applies defaults', () => {
   assert.equal(c.queueMax, 500)
   assert.equal(c.retryMax, 5)
   assert.equal(c.retryBackoffMs, 250)
+  assert.equal(c.distill, true)
+  assert.equal(c.distillProvider, '')
+  assert.equal(c.distillModel, '')
+  assert.equal(c.tailN, 20)
+  assert.equal(c.maxDaily, 20)
   assert.equal(c.turnNoteMax, 6000)
   assert.equal(c.compactNoteMax, 16000)
   assert.equal(c.turnMinTools, 1)

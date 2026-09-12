@@ -13,9 +13,11 @@
 | `turn` | 完成轮（`turn/end` reason=completed）的**末条** assistant 回复 | 零 |
 | `compact` | `compaction/summary`（dsh 已付 LLM 账的压缩摘要） | 零 |
 | `goal` | `goal/changed` 快照 | 零 |
-| `milestone` | `subagent/end` 的子代理末条回复 | 零 |
+| `milestone` | `subagent/end` 的子代理末条回复；`workflow/end` 的工作流事实骨架（`role=workflow`） | 零 |
 | `error` | `agent/error` / 轮内工具错误（只记 code） | 零 |
-| `close` | goal 完成后的聚合账（✅ 计划中，尚未实现） | 有 |
+| `close` | goal 完成后的聚合账：读**塔内**该会话的 activity 条目（D11）→ 一次蒸馏 → outcome/next/note；无模型路由或超预算时退化为**骨架收口**（`distilled=false`） | 有（可关） |
+
+**L2b 护栏**：每会话最多 1 次 LLM 蒸馏；每日上限 `maxDaily`（默认 20）；`distill=false` 整体关闭（此时 close 仍写骨架条目）。蒸馏失败绝不阻塞、绝不重试。
 
 **永不入塔**：消息全量原文、工具入参/出参、错误堆栈。入塔的是「预蒸馏」产物（模型自己写的末条回复、dsh 自己生成的压缩摘要）加事件自带的结构事实。
 
@@ -56,6 +58,11 @@ profile 变更需要**重启该 profile 的 dsh 进程**才生效。
 | `queueMax` | `DSH_MEM_BRIDGE_QUEUE_MAX` | `500` | 内存写入队列上限，满则丢最旧 |
 | `retryMax` | `DSH_MEM_BRIDGE_RETRY_MAX` | `5` | 单条写入的最大尝试次数（含首次），用尽即丢并计数日志 |
 | `retryBackoffMs` | `DSH_MEM_BRIDGE_RETRY_BACKOFF_MS` | `250` | 退避基数（毫秒，指数递增）；`0` = 不等待 |
+| `distill` | `DSH_MEM_BRIDGE_DISTILL` | `true` | L2b 聚合蒸馏总开关；`false` 时 close 只写骨架 |
+| `distillProvider` | `DSH_MEM_BRIDGE_PROVIDER` | 空 | 蒸馏用的 provider 路由（缺省沿用宿主默认模型） |
+| `distillModel` | `DSH_MEM_BRIDGE_MODEL` | 空 | 蒸馏用的模型（缺省沿用宿主默认模型） |
+| `tailN` | `DSH_MEM_BRIDGE_TAIL_N` | `20` | L2b 聚合原料：取塔内该会话尾部 N 条 activity |
+| `maxDaily` | `DSH_MEM_BRIDGE_MAX_DAILY` | `20` | 每日 LLM 蒸馏次数上限 |
 
 ## 开发
 
