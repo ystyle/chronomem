@@ -91,6 +91,125 @@ func handlers_typeInfo() {
     s.close()
 }
 
+// ---------- 类型更新（mem/type_update） ----------
+
+// Option 读取辅助：@Expect 需要 Equatable，Option<ArrayList<String>> 不能直接与 None 比较。
+func tuOptList(o: Option<ArrayList<String>>): String {
+    match (o) {
+        case Some(l) => l.toString()
+        case None => "None"
+    }
+}
+
+func tuOptStr(o: Option<String>): String {
+    match (o) {
+        case Some(s) => s
+        case None => "None"
+    }
+}
+
+@Test
+func handlers_typeUpdateFields() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"worklog\",\"levels\":[\"day\",\"week\"],\"description\":\"旧描述\"}"))
+    // 更新可变字段；levels 传相同值按 no-op 接受（bridge 幂等自愈依赖这一点）
+    let r = handleTypeUpdate(s, argsFromJson(
+        "{\"name\":\"worklog\",\"levels\":[\"day\",\"week\"],\"description\":\"新描述\",\"auto_summarize\":true,\"summary_group_by\":[\"proj\"]}"))
+    @Expect(r.isError, false)
+    let m = s.registry.get("worklog").getOrThrow()
+    @Expect(m.description, "新描述")
+    @Expect(m.autoSummarize, true)
+    @Expect(tuOptList(m.summaryGroupBy), "[proj]")
+    @Expect(m.levels.toString(), "[day, week]")
+    // 再次更新：省略的字段保持不变，显式给出的覆盖
+    let r2 = handleTypeUpdate(s, argsFromJson("{\"name\":\"worklog\",\"summary_levels\":[\"week\"]}"))
+    @Expect(r2.isError, false)
+    let m2 = s.registry.get("worklog").getOrThrow()
+    @Expect(m2.description, "新描述")
+    @Expect(tuOptList(m2.summaryGroupBy), "[proj]")
+    @Expect(tuOptList(m2.summaryLevels), "[week]")
+    // 全字段与现值相同 → 成功且无变化
+    let r3 = handleTypeUpdate(s, argsFromJson("{\"name\":\"worklog\",\"description\":\"新描述\"}"))
+    @Expect(r3.isError, false)
+    @Expect(resultText(r3).indexOf("无变化") != None, true)
+    s.close()
+}
+
+@Test
+func handlers_typeUpdateClear() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson(
+        "{\"name\":\"t\",\"levels\":[\"day\"],\"description\":\"d\",\"schema\":\"docs\",\"retention\":\"30d\",\"summary_group_by\":[\"proj\"]}"))
+    // 空串 / 空数组 = 清空
+    let r = handleTypeUpdate(s, argsFromJson("{\"name\":\"t\",\"schema\":\"\",\"retention\":\"\",\"summary_group_by\":[]}"))
+    @Expect(r.isError, false)
+    let m = s.registry.get("t").getOrThrow()
+    @Expect(tuOptStr(m.schema), "None")
+    @Expect(tuOptStr(m.retention), "None")
+    @Expect(tuOptList(m.summaryGroupBy), "None")
+    // description 传空串是"清空"而非"不变"
+    let r2 = handleTypeUpdate(s, argsFromJson("{\"name\":\"t\",\"description\":\"\"}"))
+    @Expect(r2.isError, false)
+    @Expect(s.registry.get("t").getOrThrow().description, "")
+    s.close()
+}
+
+@Test
+func handlers_typeUpdateGuards() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"t\",\"levels\":[\"day\",\"week\"]}"))
+    // 类型不存在 → error，且不创建
+    @Expect(handleTypeUpdate(s, argsFromJson("{\"name\":\"nope\"}")).isError, true)
+    @Expect(s.registry.has("nope"), false)
+    // 缺 name → error
+    @Expect(handleTypeUpdate(s, HashMap<String, JsonValue>()).isError, true)
+    // levels 改值 → error
+    @Expect(handleTypeUpdate(s, argsFromJson("{\"name\":\"t\",\"levels\":[\"day\"]}")).isError, true)
+    // summary_levels 不在 levels 内 → error
+    @Expect(handleTypeUpdate(s, argsFromJson("{\"name\":\"t\",\"summary_levels\":[\"10min\"]}")).isError, true)
+    // summary_group_by 超 2 维 → error
+    @Expect(handleTypeUpdate(s, argsFromJson("{\"name\":\"t\",\"summary_group_by\":[\"a\",\"b\",\"c\"]}")).isError, true)
+    // 上面全部失败后 meta 未被改动
+    let m = s.registry.get("t").getOrThrow()
+    @Expect(m.levels.toString(), "[day, week]")
+    @Expect(tuOptList(m.summaryLevels), "None")
+    @Expect(tuOptList(m.summaryGroupBy), "None")
+    s.close()
+}
+
+@Test
+func handlers_typeUpdatePersists() {
+    let dir = freshTestDir()
+    let s = MemoryService.openFile(dir)
+    handleTypeCreate(s, argsFromJson("{\"name\":\"t\",\"levels\":[\"day\",\"week\"]}"))
+    handleTypeUpdate(s, argsFromJson(
+        "{\"name\":\"t\",\"description\":\"持久化\",\"auto_summarize\":true,\"summary_levels\":[\"week\"],\"summary_group_by\":[\"proj\"]}"))
+    s.close()
+    // 重开 → 新 meta 生效（meta series 同名后写覆盖先写）
+    let s2 = MemoryService.openFile(dir)
+    let m = s2.registry.get("t").getOrThrow()
+    @Expect(m.description, "持久化")
+    @Expect(m.autoSummarize, true)
+    @Expect(tuOptList(m.summaryLevels), "[week]")
+    @Expect(tuOptList(m.summaryGroupBy), "[proj]")
+    s2.close()
+}
+
+@Test
+func handlers_typeInfoShowsMutableConfig() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson(
+        "{\"name\":\"t\",\"levels\":[\"day\",\"week\"],\"auto_summarize\":true,\"summary_group_by\":[\"proj\"]}"))
+    let t = resultText(handleTypeInfo(s, argsFromJson("{\"name\":\"t\"}")))
+    @Expect(t.indexOf("自动总结: true") != None, true)
+    @Expect(t.indexOf("总结分组维度: [proj]") != None, true)
+    // 更新后 type_info 反映新值
+    handleTypeUpdate(s, argsFromJson("{\"name\":\"t\",\"auto_summarize\":false}"))
+    let t2 = resultText(handleTypeInfo(s, argsFromJson("{\"name\":\"t\"}")))
+    @Expect(t2.indexOf("自动总结: false") != None, true)
+    s.close()
+}
+
 // ---------- append / query ----------
 
 @Test

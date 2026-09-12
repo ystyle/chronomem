@@ -2,7 +2,12 @@ package chronomem.core
 
 import llm_api.message.*
 import llm_api.provider.*
+import jsonvalue.*
 import std.collection.*
+
+// 总结请求的默认口径（可被 CHRONOLOG_SUMMARY_NO_THINK / CHRONOLOG_SUMMARY_MAX_TOKENS 覆盖）
+public let DEFAULT_SUMMARY_NO_THINK = true
+public let DEFAULT_SUMMARY_MAX_TOKENS = Int64(4096)
 
 // LLM 配置（core 自包含，不依赖 mcp 层；mcp 层负责从 env 装配成 LlmSettings）
 public struct LlmSettings {
@@ -10,12 +15,22 @@ public struct LlmSettings {
     public let apiKey: String
     public let model: String
     public let provider: String   // openai / anthropic / ollama
+    // 总结请求的两个旋钮：
+    //  - noThink：关掉推理模型的"思考"（透传 chat_template_kwargs.enable_thinking=false）。
+    //    qwen3.5 这类模型默认会先把输出预算花在 reasoning_content 上——大窗口下正文可能为空，
+    //    或整体超过 llm_api 的 300s readTimeout（生产实测：day 窗口总结任务直接失败）。
+    //  - maxTokens：输出上限。总结用不到 3 万 token；原先的 32768 只是给"思考"留了放大器。
+    public let noThink: Bool
+    public let maxTokens: Int64
 
-    public init(baseUrl: String, apiKey: String, model: String, provider: String) {
+    public init(baseUrl: String, apiKey: String, model: String, provider: String,
+        noThink!: Bool = DEFAULT_SUMMARY_NO_THINK, maxTokens!: Int64 = DEFAULT_SUMMARY_MAX_TOKENS) {
         this.baseUrl = baseUrl
         this.apiKey = apiKey
         this.model = model
         this.provider = provider
+        this.noThink = noThink
+        this.maxTokens = maxTokens
     }
 
     // 语义总结可用性：未配置 baseURL/model 时不可用（其余工具不依赖 LLM）
@@ -38,10 +53,15 @@ public struct EntryText {
 public class Summarizer {
     private let provider: Provider
     private let model: String
+    private let noThink: Bool
+    private let maxTokens: Int64
 
-    public init(provider: Provider, model: String) {
+    public init(provider: Provider, model: String, noThink!: Bool = DEFAULT_SUMMARY_NO_THINK,
+        maxTokens!: Int64 = DEFAULT_SUMMARY_MAX_TOKENS) {
         this.provider = provider
         this.model = model
+        this.noThink = noThink
+        this.maxTokens = maxTokens
     }
 
     public func modelName(): String { this.model }
@@ -54,7 +74,7 @@ public class Summarizer {
             case "ollama" => OllamaProvider("chronomem", s.baseUrl)
             case _ => OpenAIProvider("chronomem", s.baseUrl, s.apiKey)
         }
-        Some(Summarizer(prov, s.model))
+        Some(Summarizer(prov, s.model, noThink: s.noThink, maxTokens: s.maxTokens))
     }
 
     // 总结窗口：entries（ts + 文本）→ 结构化摘要 → SummaryRecord（refs = 条目 ts）
@@ -69,8 +89,16 @@ public class Summarizer {
         let prompt = buildPrompt(windowFrom, windowTo, entries, instructions, groupKey: groupKey)
         let msgs = ArrayList<Message>()
         msgs.add(UserMessage(ContentList.ofText(prompt), nowMs()))
-        // maxTokens 32768：兼容推理模型（reasoning_content 思考过程 + 正文摘要都留足预算）
-        let req = ChatRequest(useModel, msgs, 0.2, 32768, None, ArrayList<OpenAITool>())
+        // 关思考：把 chat_template_kwargs.enable_thinking=false 透传给 OpenAI 兼容端点
+        // （llm_api 的 ChatRequest.extra 会并入请求体顶层）。实测同一问题：开思考 4.2s 且
+        // 预算可能被 reasoning 吃光导致正文为空；关思考 0.9s 且有正文。
+        let extra = HashMap<String, JsonValue>()
+        if (this.noThink) {
+            let kwargs = HashMap<String, JsonValue>()
+            kwargs["enable_thinking"] = JsonValue.Boolean(false)
+            extra["chat_template_kwargs"] = JsonValue.Map(kwargs)
+        }
+        let req = ChatRequest(useModel, msgs, 0.2, this.maxTokens, None, ArrayList<OpenAITool>(), extra)
         let resp = this.provider.chat(req)
         let refs = ArrayList<Int64>()
         for (e in entries) { refs.add(e.ts) }

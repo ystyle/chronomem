@@ -49,6 +49,8 @@ LLM_BASE_URL=... LLM_API_KEY=... LLM_MODEL=... \
 | `CHRONOLOG_SUMMARY_CRON` | `*/10 * * * *` | 自动语义总结 cron |
 | `CHRONOLOG_SUMMARY_MAX_PER_RUN` | `5` | 每轮自动总结次数上限 |
 | `CHRONOLOG_SUMMARY_SETTLE` | `600000` | 窗口闭合沉降期（毫秒） |
+| `CHRONOLOG_SUMMARY_NO_THINK` | `true` | 总结时透传 `chat_template_kwargs.enable_thinking=false` 关掉推理模型的思考。**仅对 vLLM/llama.cpp/SGLang 这类 OpenAI 兼容端点有效**；用云端严格 OpenAI API 时请置 `false` |
+| `CHRONOLOG_SUMMARY_MAX_TOKENS` | `4096` | 单次总结的输出上限。本地慢端点建议收紧；云端/强硬件可放宽 |
 | `CHRONOLOG_SEED_WORKLOG` | `true` | 启动自动创建默认 `worklog` 类型（可关） |
 | `LLM_BASE_URL` | 无 | OpenAI 兼容端点（仅 summarize 需要） |
 | `LLM_API_KEY` | 无 | API Key |

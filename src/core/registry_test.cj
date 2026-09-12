@@ -175,3 +175,41 @@ func registry_rejectsInvalidSummaryGroupBy() {
     @Expect(reg.has("t5"), true)
     store.close()
 }
+
+// updateMeta 的写前校验：与 create 对齐（此前只校验 summary 配置，非法 levels / 类型名会被静默落库）。
+@Test
+func registry_updateMetaValidatesBeforeWrite() {
+    let store = fileStore()
+    let reg = MemoryTypeRegistry(store)
+    reg.create(testMeta("worklog", dayWeekLevels()))
+
+    // 非法粒度（5min 不是合法档位）→ 拒绝
+    let badLevels = ArrayList<String>()
+    badLevels.add("5min")
+    var threw = false
+    try {
+        reg.updateMeta(testMeta("worklog", badLevels))
+    } catch (e: Exception) { threw = true }
+    @Expect(threw, true)
+
+    // 非法类型名（路径穿越）→ 拒绝
+    threw = false
+    try {
+        reg.updateMeta(testMeta("../evil", dayWeekLevels()))
+    } catch (e: Exception) { threw = true }
+    @Expect(threw, true)
+
+    // 合法变更（描述 + 总结配置）→ 通过，且 levels 保持不变
+    let upgraded = TypeMeta("worklog", "新描述", Some("docs"), dayWeekLevels(), None, true,
+        Some(dayWeekLevels()), TEST_BASE)
+    reg.updateMeta(upgraded)
+    let m = reg.get("worklog").getOrThrow()
+    @Expect(m.description, "新描述")
+    @Expect(m.autoSummarize, true)
+    @Expect(m.levels[0], "day")
+    match (m.summaryLevels) {
+        case Some(ls) => @Expect(ls.size, Int64(2))
+        case None => @Fail("summaryLevels 未写入")
+    }
+    store.close()
+}
