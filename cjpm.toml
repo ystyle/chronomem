@@ -17,7 +17,7 @@ cron = { path = "../cron-cj" }
 cjxt = { path = "../cjxt" }
 tang = "1.0.4"
 jsonvalue = "1.1.0"
-"ystyle::jsonrpc" = "0.7.4"
+"ystyle::jsonrpc" = "0.7.5"
 
 
 [package.package-configuration."chronomem.cli"]
