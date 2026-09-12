@@ -1,0 +1,18 @@
+# dsh-mem-bridge bundle patch
+#
+# This file is the `dsh.bundle.patch` layer of the package: once the package is
+# listed in a profile's `dsh.profile.bundles` (manually, or through
+# `dsh plugin --profile <name> add dsh-mem-bridge`), the profile boot merges the
+# `insert` below exactly like a manual mount line in the profile's own
+# cordis.patch.yml.
+#
+# The row sits at the profile top level on purpose: an untagged (root) listener
+# is admitted globally by @deepseek-ai/dsh-scope, so this single standing
+# instance observes every agent's events — see the design doc §9.1.
+#
+# Configure through the row config below and/or the Web settings page; the
+# DSH_MEM_BRIDGE_* environment variables are only fallbacks (see README).
+- insert:
+    - id: mem-bridge
+      name: 'dsh-mem-bridge'
+      config: {}
