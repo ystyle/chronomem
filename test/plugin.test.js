@@ -236,7 +236,7 @@ test('agent/session-start, goal/changed, subagent/end and agent/error each appen
   const ctx = fakeCtx()
   apply(ctx, { url: 'http://tower.test' })
   const calls = await withStubbedFetch(async () => {
-    ctx.emit('agent/session-start', { agent: { id: 'session-1' }, source: 'resume' })
+    ctx.emit('agent/session-start', { agent: { id: 'session-1' }, source: 'startup' })
     ctx.emit('goal/changed', {
       agent: { id: 'session-1' },
       change: { operation: 'block', ref: { id: 'goal-1', revision: 4 }, goal: { phase: 'blocked', objective: '搭好桥', blockedReason: { code: 'AUTH', message: 'AUTH missing' } } },
@@ -246,7 +246,7 @@ test('agent/session-start, goal/changed, subagent/end and agent/error each appen
     await settled()
   })
   const kinds = calls.map((c) => c.body.params.arguments.tags.kind)
-  assert.deepEqual(kinds, ['resume', 'goal', 'milestone', 'error'])
+  assert.deepEqual(kinds, ['open', 'goal', 'milestone', 'error'])
 
   const goal = calls[1].body.params.arguments
   assert.equal(goal.tags.goal, 'goal-1')
@@ -293,4 +293,113 @@ test('a failing tower never throws into the caller and the queue stays bounded',
   // bounded queue means the attempt count is far below "one per entry forever".
   assert.ok(attempts >= 1, 'the writer should have attempted at least one append')
   assert.ok(attempts <= 4, `queue bound should cap attempts, saw ${attempts}`)
+})
+
+// ---------------------------------------------------------------- D17 lifecycle
+
+test('a restart-restored session nobody touches writes no resume entry', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test' })
+  const calls = await withStubbedFetch(async () => {
+    // A restart announces every restored session; none of them is used here.
+    for (const id of ['session-a', 'session-b', 'session-c']) {
+      ctx.emit('agent/session-start', { agent: { id }, source: 'resume' })
+    }
+    await settled()
+  })
+  assert.equal(calls.length, 0, 'idle resumes must not reach the tower')
+})
+
+test('a restored session that is used writes exactly one resume entry', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test', turnMinTools: 1, turnMinLen: 120 })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('agent/session-start', { agent: { id: 'session-1' }, source: 'resume' })
+    ctx.emit('session/event', session, assistantEvent(1, 'z'.repeat(200)))
+    ctx.emit('session/event', session, turnEndEvent(1))
+    await settled()
+  })
+  const kinds = calls.map((c) => c.body.params.arguments.tags.kind)
+  assert.deepEqual(kinds, ['resume', 'turn'], 'resume is flushed before the turn entry')
+  assert.equal(calls[0].body.params.arguments.tags.session, 'session-1')
+  assert.equal(calls[0].body.params.arguments.tags.proj, 'chronomem', 'flushed with the proj learned from the session')
+})
+
+test('duplicate session-start announcements collapse to one entry', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test' })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('agent/session-start', { agent: { id: 'session-1' }, source: 'resume' })
+    ctx.emit('agent/session-start', { agent: { id: 'session-1' }, source: 'resume' })
+    ctx.emit('session/event', session, { type: 'step/start', seq: 1, time: 1704110400000, data: { turn: 1, step: 1 } })
+    await settled()
+  })
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].body.params.arguments.tags.kind, 'resume')
+})
+
+test('a startup session opens immediately and only once', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test' })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('agent/session-start', { agent: { id: 'session-1' }, source: 'startup' })
+    ctx.emit('agent/session-start', { agent: { id: 'session-1' }, source: 'startup' })
+    await settled()
+  })
+  assert.equal(calls.length, 1, 'open is immediate but deduplicated')
+  assert.equal(calls[0].body.params.arguments.tags.kind, 'open')
+})
+
+// ---------------------------------------------------------------- write semantics
+
+test('an ambiguous timeout is NOT retried — a duplicate is worse than a miss', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test', retryMax: 5, retryBackoffMs: 0 })
+  const original = globalThis.fetch
+  let attempts = 0
+  globalThis.fetch = async () => {
+    attempts += 1
+    const error = new Error('This operation was aborted')
+    error.name = 'AbortError'
+    throw error
+  }
+  try {
+    ctx.emit('session/event', session, {
+      type: 'session/title',
+      seq: 1,
+      time: 1704110400000,
+      data: { title: 't', source: { kind: 'provider' } },
+    })
+    await settled()
+    await settled()
+  } finally {
+    globalThis.fetch = original
+  }
+  assert.equal(attempts, 1, '忆时塔 may have applied the append; repeating it would duplicate the entry')
+})
+
+test('a connect failure IS retried up to retryMax', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test', retryMax: 3, retryBackoffMs: 0 })
+  const original = globalThis.fetch
+  let attempts = 0
+  globalThis.fetch = async () => {
+    attempts += 1
+    const error = new TypeError('fetch failed')
+    error.cause = { code: 'ECONNREFUSED' }
+    throw error
+  }
+  try {
+    ctx.emit('session/event', session, {
+      type: 'session/title',
+      seq: 1,
+      time: 1704110400000,
+      data: { title: 't', source: { kind: 'provider' } },
+    })
+    await settled()
+    await settled()
+  } finally {
+    globalThis.fetch = original
+  }
+  assert.equal(attempts, 3, 'the tower being down is safe to retry')
 })

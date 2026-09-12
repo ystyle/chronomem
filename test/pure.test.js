@@ -14,6 +14,7 @@ import {
   errorEntry,
   firstLine,
   goalEntry,
+  isRetryableWriteFailure,
   isSubstantiveTurn,
   lifecycleEntry,
   mcpHeaders,
@@ -334,4 +335,34 @@ test('rpcFailure reports JSON-RPC errors, tool errors and success', () => {
   assert.equal(rpcFailure(null), 'empty response body')
   assert.equal(rpcFailure(undefined), 'empty response body')
   assert.equal(rpcFailure('nope'), 'unexpected response shape')
+})
+
+test('isRetryableWriteFailure retries only provably-undelivered requests', () => {
+  // Connect-level failures: the request never reached the tower.
+  for (const code of ['ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH', 'ENOTFOUND', 'EAI_AGAIN']) {
+    const error = new TypeError('fetch failed')
+    error.cause = { code }
+    assert.equal(isRetryableWriteFailure(error), true, `${code} should retry`)
+    assert.equal(isRetryableWriteFailure(new Error(`connect ${code} 127.0.0.1:8900`)), true, `${code} in message should retry`)
+  }
+
+  // Ambiguous outcomes: the tower may have applied the append already.
+  const aborted = new Error('This operation was aborted')
+  aborted.name = 'AbortError'
+  assert.equal(isRetryableWriteFailure(aborted), false)
+
+  const timeout = new Error('timed out')
+  timeout.name = 'TimeoutError'
+  assert.equal(isRetryableWriteFailure(timeout), false)
+
+  // A mid-flight reset is ambiguous too — never repeat it.
+  const reset = new TypeError('fetch failed')
+  reset.cause = { code: 'ECONNRESET' }
+  assert.equal(isRetryableWriteFailure(reset), false)
+
+  // Application-level failures will not become successes by repeating them.
+  assert.equal(isRetryableWriteFailure(new Error('HTTP 500 Internal Server Error')), false)
+  assert.equal(isRetryableWriteFailure(new Error('tool error: 类型不存在: t')), false)
+  assert.equal(isRetryableWriteFailure(null), false)
+  assert.equal(isRetryableWriteFailure('boom'), false)
 })
