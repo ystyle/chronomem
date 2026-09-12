@@ -40,7 +40,8 @@ public class MemoryService {
             seedWorklog(registry)
         }
         let summarizer = Summarizer.fromSettings(
-            LlmSettings(cfg.llmBaseUrl, cfg.llmApiKey, cfg.llmModel, cfg.llmProvider))
+            LlmSettings(cfg.llmBaseUrl, cfg.llmApiKey, cfg.llmModel, cfg.llmProvider,
+                noThink: cfg.summaryNoThink, maxTokens: cfg.summaryMaxTokens))
         let svc = MemoryService(store, registry, summarizer)
         svc.initSummarizeRunner()
         svc
