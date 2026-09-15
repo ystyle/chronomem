@@ -202,6 +202,13 @@ public struct SummaryRecord <: JsonSerializable & JsonDeserializable<SummaryReco
      （超出则收紧单块预算，超长条目随之进入截断路径）；
   3. 单条即超预算 → **截断**（保头保尾 + 显式标记，按 Rune 走不切坏 UTF-8）；
   4. 端点仍报超限（估算失准）→ **运行时降级**：预算减半重试（最多 3 档），绝不把「估错」变成任务失败。
+  5. **单次调用预算**：上下文预算之外再叠一层 `CHRONOLOG_SUMMARY_CALL_TOKENS`（默认 40K token）——
+     上下文 131072 也能一次装下整天材料，但一次 68K token 的 prefill 会撞 llm_api 的 `readTimeout`
+     （实测：205K 字节的块 → 300s 读超时）。故取 min(上下文预算, 单次调用预算) 作为切块依据；
+     `readTimeout` 本身也可用 `CHRONOLOG_SUMMARY_READ_TIMEOUT` 调整。
+  6. 触发降级的错误文案按**大小写不敏感**匹配：llama.cpp 400
+     `exceeds the available context size`、llama-server 路由模式 500 `Context size has been exceeded.`、
+     以及 `read response timeout`（读超时同样意味着"该把这一次做小"）。鉴权/网络等错误不重试、原样上抛。
 - **生成口径落库**：`SummaryRecord` 的 `strategy` / `chunks` / `inputTokens` / `clippedEntries`
   让事后能判断一条摘要是否切过块、截断过（`mem/summaries` 头部会显示）。
 - **有限重试（§7.3 的补充闸门）**：调度器记同一窗口的失败次数，退避 20 分钟 → 60 分钟，
@@ -269,6 +276,8 @@ public struct SummaryRecord <: JsonSerializable & JsonDeserializable<SummaryReco
 | `CHRONOLOG_SUMMARY_BYTES_PER_TOKEN` | `2` | 字节→token 保守估值（实测 3.01） |
 | `CHRONOLOG_SUMMARY_MAX_CALLS` | `8` | 单任务 LLM 调用上限（切块数 + 聚合） |
 | `CHRONOLOG_SUMMARY_MAX_ATTEMPTS` | `3` | 同一窗口失败多少次后放弃自动重试 |
+| `CHRONOLOG_SUMMARY_CALL_TOKENS` | `40000` | 单次调用的输入上限（防 prefill 超过 llm_api 读超时） |
+| `CHRONOLOG_SUMMARY_READ_TIMEOUT` | `300` | llm_api 单次读超时（秒） |
 | `CHRONOLOG_SEED_WORKLOG` | `true` | 启动自动播种默认 `worklog` 类型（幂等，可关） |
 | `LLM_BASE_URL` | 无（必填以启用 summarize） | OpenAI 兼容端点基址 |
 | `LLM_API_KEY` | 无 | API Key |

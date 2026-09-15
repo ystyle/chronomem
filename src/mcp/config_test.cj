@@ -29,6 +29,8 @@ func chronomem_config_defaults() {
     removeVariable("CHRONOLOG_SUMMARY_BYTES_PER_TOKEN")
     removeVariable("CHRONOLOG_SUMMARY_MAX_CALLS")
     removeVariable("CHRONOLOG_SUMMARY_MAX_ATTEMPTS")
+    removeVariable("CHRONOLOG_SUMMARY_CALL_TOKENS")
+    removeVariable("CHRONOLOG_SUMMARY_READ_TIMEOUT")
 
     let cfg = ChronomemConfig.fromEnv()
     @Expect(cfg.port, UInt16(8900))
@@ -54,6 +56,9 @@ func chronomem_config_defaults() {
     @Expect(cfg.summaryBytesPerToken, Int64(2))
     @Expect(cfg.summaryMaxCalls, Int64(8))
     @Expect(cfg.summaryMaxAttempts, Int64(3))
+    // 单次调用上限 40K token（≈2 分钟 prefill）与 llm_api 默认读超时 300s
+    @Expect(cfg.summaryCallTokens, Int64(40000))
+    @Expect(cfg.summaryReadTimeoutSeconds, Int64(300))
     match (getVariable("HOME")) {
         case Some(h) => @Expect(cfg.dir, h + "/.chronolog")
         case None => @Expect(cfg.dir, ".chronolog")
@@ -83,6 +88,8 @@ func chronomem_config_override() {
     setVariable("CHRONOLOG_SUMMARY_BYTES_PER_TOKEN", "3")
     setVariable("CHRONOLOG_SUMMARY_MAX_CALLS", "12")
     setVariable("CHRONOLOG_SUMMARY_MAX_ATTEMPTS", "5")
+    setVariable("CHRONOLOG_SUMMARY_CALL_TOKENS", "20000")
+    setVariable("CHRONOLOG_SUMMARY_READ_TIMEOUT", "600")
 
     let cfg = ChronomemConfig.fromEnv()
     @Expect(cfg.dir, "/tmp/chronomem_cfg")
@@ -107,6 +114,8 @@ func chronomem_config_override() {
     @Expect(cfg.summaryBytesPerToken, Int64(3))
     @Expect(cfg.summaryMaxCalls, Int64(12))
     @Expect(cfg.summaryMaxAttempts, Int64(5))
+    @Expect(cfg.summaryCallTokens, Int64(20000))
+    @Expect(cfg.summaryReadTimeoutSeconds, Int64(600))
 
     removeVariable("CHRONOLOG_DIR")
     removeVariable("CHRONOLOG_ADDR")
@@ -129,6 +138,8 @@ func chronomem_config_override() {
     removeVariable("CHRONOLOG_SUMMARY_BYTES_PER_TOKEN")
     removeVariable("CHRONOLOG_SUMMARY_MAX_CALLS")
     removeVariable("CHRONOLOG_SUMMARY_MAX_ATTEMPTS")
+    removeVariable("CHRONOLOG_SUMMARY_CALL_TOKENS")
+    removeVariable("CHRONOLOG_SUMMARY_READ_TIMEOUT")
 }
 
 @Test

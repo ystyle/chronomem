@@ -4,6 +4,7 @@ import llm_api.message.*
 import llm_api.provider.*
 import jsonvalue.*
 import std.collection.*
+import std.core.Duration
 
 // 总结请求的默认口径（可被 CHRONOLOG_SUMMARY_NO_THINK / CHRONOLOG_SUMMARY_MAX_TOKENS 覆盖）
 public let DEFAULT_SUMMARY_NO_THINK = true
@@ -22,6 +23,12 @@ public let DEFAULT_SUMMARY_CONTEXT_TOKENS = Int64(32768)
 public let DEFAULT_SUMMARY_SAFETY_TOKENS = Int64(1024)
 public let DEFAULT_SUMMARY_BYTES_PER_TOKEN = Int64(2)
 public let DEFAULT_SUMMARY_MAX_CALLS = Int64(8)
+// 单次调用的输入上限（token）：上下文再大也不该把一次调用做到超过 llm_api 的读超时——
+// 实测 4b prefill ~317 tok/s，40K token ≈ 2 分钟，留足 300s 超时余量；
+// 生产实测：一个 205K 字节的块（≈68K token real）prefill 就撞了 300s 读超时。
+public let DEFAULT_SUMMARY_CALL_TOKENS = Int64(40000)
+// llm_api 单次读超时（秒）。调大只对"确实需要长 prefill"的端点有意义；默认保持 llm_api 口径。
+public let DEFAULT_SUMMARY_READ_TIMEOUT_SECONDS = Int64(300)
 
 // 中间段摘要的输出上限：比最终摘要（maxTokens）小，保证聚合阶段的输入自己也装得下预算
 let PART_SUMMARY_MAX_TOKENS = Int64(1024)
@@ -50,13 +57,17 @@ public struct LlmSettings {
     public let safetyTokens: Int64
     public let bytesPerToken: Int64
     public let maxCalls: Int64
+    public let callTokens: Int64
+    public let readTimeoutSeconds: Int64
 
     public init(baseUrl: String, apiKey: String, model: String, provider: String,
         noThink!: Bool = DEFAULT_SUMMARY_NO_THINK, maxTokens!: Int64 = DEFAULT_SUMMARY_MAX_TOKENS,
         contextTokens!: Int64 = DEFAULT_SUMMARY_CONTEXT_TOKENS,
         safetyTokens!: Int64 = DEFAULT_SUMMARY_SAFETY_TOKENS,
         bytesPerToken!: Int64 = DEFAULT_SUMMARY_BYTES_PER_TOKEN,
-        maxCalls!: Int64 = DEFAULT_SUMMARY_MAX_CALLS) {
+        maxCalls!: Int64 = DEFAULT_SUMMARY_MAX_CALLS,
+        callTokens!: Int64 = DEFAULT_SUMMARY_CALL_TOKENS,
+        readTimeoutSeconds!: Int64 = DEFAULT_SUMMARY_READ_TIMEOUT_SECONDS) {
         this.baseUrl = baseUrl
         this.apiKey = apiKey
         this.model = model
@@ -67,6 +78,8 @@ public struct LlmSettings {
         this.safetyTokens = safetyTokens
         this.bytesPerToken = bytesPerToken
         this.maxCalls = maxCalls
+        this.callTokens = callTokens
+        this.readTimeoutSeconds = readTimeoutSeconds
     }
 
     // 语义总结可用性：未配置 baseURL/model 时不可用（其余工具不依赖 LLM）
@@ -115,13 +128,15 @@ public class Summarizer {
     private let safetyTokens: Int64
     private let bytesPerToken: Int64
     private let maxCalls: Int64
+    private let callTokens: Int64
 
     public init(provider: Provider, model: String, noThink!: Bool = DEFAULT_SUMMARY_NO_THINK,
         maxTokens!: Int64 = DEFAULT_SUMMARY_MAX_TOKENS,
         contextTokens!: Int64 = DEFAULT_SUMMARY_CONTEXT_TOKENS,
         safetyTokens!: Int64 = DEFAULT_SUMMARY_SAFETY_TOKENS,
         bytesPerToken!: Int64 = DEFAULT_SUMMARY_BYTES_PER_TOKEN,
-        maxCalls!: Int64 = DEFAULT_SUMMARY_MAX_CALLS) {
+        maxCalls!: Int64 = DEFAULT_SUMMARY_MAX_CALLS,
+        callTokens!: Int64 = DEFAULT_SUMMARY_CALL_TOKENS) {
         this.provider = provider
         this.model = model
         this.noThink = noThink
@@ -130,6 +145,7 @@ public class Summarizer {
         this.safetyTokens = safetyTokens
         this.bytesPerToken = bytesPerToken
         this.maxCalls = maxCalls
+        this.callTokens = callTokens
     }
 
     public func modelName(): String { this.model }
@@ -137,14 +153,18 @@ public class Summarizer {
     // 从配置构造（未配置 baseUrl/model 时返回 None → 调用方报「未配置 LLM」）
     public static func fromSettings(s: LlmSettings): Option<Summarizer> {
         if (!s.valid()) { return None }
+        let timeout = Duration.second * s.readTimeoutSeconds
         let prov: Provider = match (s.provider) {
-            case "anthropic" => AnthropicProvider("chronomem", s.baseUrl, s.apiKey)
-            case "ollama" => OllamaProvider("chronomem", s.baseUrl)
-            case _ => OpenAIProvider("chronomem", s.baseUrl, s.apiKey)
+            case "anthropic" => AnthropicProvider("chronomem", s.baseUrl, s.apiKey,
+                ArrayList<String>(), readTimeout: timeout)
+            case "ollama" => OllamaProvider("chronomem", s.baseUrl, ArrayList<String>(),
+                readTimeout: timeout)
+            case _ => OpenAIProvider("chronomem", s.baseUrl, s.apiKey, ArrayList<String>(),
+                readTimeout: timeout)
         }
         Some(Summarizer(prov, s.model, noThink: s.noThink, maxTokens: s.maxTokens,
             contextTokens: s.contextTokens, safetyTokens: s.safetyTokens,
-            bytesPerToken: s.bytesPerToken, maxCalls: s.maxCalls))
+            bytesPerToken: s.bytesPerToken, maxCalls: s.maxCalls, callTokens: s.callTokens))
     }
 
     // 提示词可用的 token 预算（端点上下文 − 输出 − 余量，不小于下限）
@@ -155,6 +175,15 @@ public class Summarizer {
     // 提示词可用的字节预算（按保守的字节/token 换算）
     public func promptBudgetBytes(): Int64 {
         this.promptBudgetTokens() * this.bytesPerToken
+    }
+
+    // 单次调用的字节预算 = min(上下文预算, 单次调用上限)——上下文大但端点慢时，
+    // 真正卡住的是 llm_api 的读超时，故两者都要尊重。
+    public func callBudgetBytes(): Int64 {
+        let byContext = this.promptBudgetBytes()
+        let byCall = atLeast(this.callTokens, Int64(1024)) * this.bytesPerToken
+        if (byCall < byContext) { return byCall }
+        byContext
     }
 
     // token 估算（服务端不吐 tokenizer 时的客户端口径；实测值见 DEFAULT_SUMMARY_BYTES_PER_TOKEN）
@@ -173,7 +202,7 @@ public class Summarizer {
             case None => this.model
         }
         // 预算阶梯：先用配置预算；端点仍报超限（说明估算偏乐观）则预算减半重试
-        var budget = this.promptBudgetBytes() - PROMPT_OVERHEAD_BYTES
+        var budget = this.callBudgetBytes() - PROMPT_OVERHEAD_BYTES
         var level = 0
         var lastMsg = ""
         var lastShape = ""
@@ -182,19 +211,19 @@ public class Summarizer {
             let shape = plan.chunks.size.toString() + "/" + plan.clipped.toString()
             // 预算减半后切块方案没变（小输入、无截断）→ 再打一次是同一份 prompt，纯浪费
             if (level > 0 && shape == lastShape) {
-                throw Exception("总结输入超出端点上下文（收缩预算后切块方案未变，停止重试）：" + lastMsg)
+                throw Exception("总结输入过大（收缩预算后切块方案未变，停止重试）：" + lastMsg)
             }
             lastShape = shape
             try {
                 return this.runPlan(windowFrom, windowTo, entries, instructions, useModel, groupKey, plan)
             } catch (e: Exception) {
-                if (!isContextOverflow(e.message)) { throw e }
+                if (!isShrinkWorthyError(e.message)) { throw e }
                 lastMsg = e.message
                 budget = atLeast(budget / 2, MIN_PROMPT_TOKENS * this.bytesPerToken)
                 level += 1
             }
         }
-        throw Exception("总结输入超出端点上下文（预算已收缩 " + BUDGET_SHRINK_LEVELS.toString()
+        throw Exception("总结输入过大（预算已收缩 " + BUDGET_SHRINK_LEVELS.toString()
             + " 次仍失败）：" + lastMsg)
     }
 
@@ -250,14 +279,18 @@ public class Summarizer {
     }
 }
 
-// 端点超限报错识别（llama.cpp：`request (N tokens) exceeds the available context size (M tokens)`；
-// 各家网关文案不同，这里覆盖常见几种）
-func isContextOverflow(msg: String): Bool {
-    if (msg.indexOf("exceeds the available context size") != None) { return true }
-    if (msg.indexOf("exceeds context") != None) { return true }
-    if (msg.indexOf("context size") != None) { return true }
-    if (msg.indexOf("context length") != None) { return true }
-    if (msg.indexOf("context_length_exceeded") != None) { return true }
+// 「把这一次调用做小一点再试」类错误的识别（大小写不敏感）：
+//  - 上下文超限：llama.cpp 400 `request (N tokens) exceeds the available context size (M tokens)`（实测），
+//    llama-server 路由模式 500 `Context size has been exceeded.`（实测，大小写与 400 不同）；
+//  - 读超时：`Client1.1 read response timeout and the connection is closed.`（实测）——
+//    大 prompt 的 prefill 超过 llm_api 的 readTimeout 时，把输入切小是唯一有效解法。
+func isShrinkWorthyError(msg: String): Bool {
+    let m = msg.toAsciiLower()
+    if (m.indexOf("context size") != None) { return true }
+    if (m.indexOf("context length") != None) { return true }
+    if (m.indexOf("exceeds context") != None) { return true }
+    if (m.indexOf("timeout") != None) { return true }
+    if (m.indexOf("timed out") != None) { return true }
     false
 }
 
