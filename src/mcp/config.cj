@@ -38,6 +38,11 @@ public class ChronomemConfig {
     public let summarySafetyTokens: Int64
     public let summaryBytesPerToken: Int64
     public let summaryMaxCalls: Int64
+    // 单次调用的输入上限（token）：上下文大 ≠ 一次调用就能做那么大——
+    // 实测 4b prefill ~317 tok/s，205K 字节的块（≈68K token）会撞 llm_api 的 300s 读超时。
+    public let summaryCallTokens: Int64
+    // llm_api 单次读超时（秒）
+    public let summaryReadTimeoutSeconds: Int64
     // 调度器护栏：同一窗口连续失败多少次后停止自动重试（10 分钟一轮无限重试会白烧 LLM）
     public let summaryMaxAttempts: Int64
 
@@ -49,7 +54,8 @@ public class ChronomemConfig {
         memTableSizeMb!: Int64 = 4, summaryNoThink!: Bool = true,
         summaryMaxTokens!: Int64 = 4096, summaryContextTokens!: Int64 = 32768,
         summarySafetyTokens!: Int64 = 1024, summaryBytesPerToken!: Int64 = 2,
-        summaryMaxCalls!: Int64 = 8, summaryMaxAttempts!: Int64 = 3) {
+        summaryMaxCalls!: Int64 = 8, summaryMaxAttempts!: Int64 = 3,
+        summaryCallTokens!: Int64 = 40000, summaryReadTimeoutSeconds!: Int64 = 300) {
         this.dir = dir
         this.addr = addr
         this.port = port
@@ -74,6 +80,8 @@ public class ChronomemConfig {
         this.summaryBytesPerToken = summaryBytesPerToken
         this.summaryMaxCalls = summaryMaxCalls
         this.summaryMaxAttempts = summaryMaxAttempts
+        this.summaryCallTokens = summaryCallTokens
+        this.summaryReadTimeoutSeconds = summaryReadTimeoutSeconds
     }
 
     // 从进程环境变量构造（测试可通过 setVariable/removeVariable 控制）
@@ -108,7 +116,9 @@ public class ChronomemConfig {
             summarySafetyTokens: envIntOr("CHRONOLOG_SUMMARY_SAFETY_TOKENS", 1024),
             summaryBytesPerToken: envIntOr("CHRONOLOG_SUMMARY_BYTES_PER_TOKEN", 2),
             summaryMaxCalls: envIntOr("CHRONOLOG_SUMMARY_MAX_CALLS", 8),
-            summaryMaxAttempts: envIntOr("CHRONOLOG_SUMMARY_MAX_ATTEMPTS", 3))
+            summaryMaxAttempts: envIntOr("CHRONOLOG_SUMMARY_MAX_ATTEMPTS", 3),
+            summaryCallTokens: envIntOr("CHRONOLOG_SUMMARY_CALL_TOKENS", 40000),
+            summaryReadTimeoutSeconds: envIntOr("CHRONOLOG_SUMMARY_READ_TIMEOUT", 300))
     }
 
     // 语义总结可用性：未配置 baseURL/model 时 summarize 应报错（其余工具不依赖 LLM）

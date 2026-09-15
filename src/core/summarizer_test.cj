@@ -229,6 +229,34 @@ class BoomProvider <: Provider {
     }
 }
 
+// 前 N 次（按 prompt 大小判断）抛指定文案的错误、之后成功：验证不同文案都走"缩小重试"
+class CaseOverflowProvider <: Provider {
+    let msg: String
+    let maxPromptBytes: Int64
+    var calls = Int64(0)
+
+    public init(msg: String, maxPromptBytes!: Int64 = Int64(6000)) {
+        this.msg = msg
+        this.maxPromptBytes = maxPromptBytes
+    }
+
+    public func name(): String { "case-overflow" }
+    public func chat(req: ChatRequest): ChatResponse {
+        this.calls += 1
+        if (promptOf(req.messages).size > this.maxPromptBytes) {
+            throw Exception(this.msg)
+        }
+        ChatResponse(AssistantMessage(ContentList.ofText("中间摘要"), "fake-model", "fake",
+            StopReason.EndTurn, TokenUsage(0, 0), 0))
+    }
+    public func chatStreaming(req: ChatRequest): EventStream<ChatDelta, AssistantMessage> {
+        let s = EventStream<ChatDelta, AssistantMessage>()
+        s.setResult(AssistantMessage(ContentList.ofText("中间摘要"), "fake-model", "fake",
+            StopReason.EndTurn, TokenUsage(0, 0), 0))
+        s
+    }
+}
+
 func filler(bytes: Int64, tag: String): String {
     let sb = StringBuilder()
     sb.append(tag)
@@ -374,4 +402,72 @@ func summarizer_recordsGenerationStrategy() {
     @Expect(r.chunks, Int64(2))
     @Expect(r.inputTokens > Int64(0), true)
     @Expect(r.clippedEntries, Int64(0))
+}
+
+// ---------- 单次调用上限 + 真实错误文案（fix/summarize-timeout）----------
+// 实测：4b 的 ctx=131072，但 llm_api 读超时只有 300s；一个 205K 字节的块（≈68K token real）
+// prefill 就撞了超时。上下文预算必须再叠一层"单次调用预算"。
+@Test
+func summarizer_callBudgetCapsChunkSize() {
+    let rec = RecordingProvider("中间摘要")
+    // 上下文很大（131072）但单次调用只允许 4096 token → 2×4096 = 8192 字节/块（−2048 模板）
+    let sum = Summarizer(rec, "m", maxTokens: 1024, contextTokens: 131072, safetyTokens: 1024,
+        bytesPerToken: 2, callTokens: 4096)
+    let entries = ArrayList<EntryText>()
+    for (i in 0..4) {
+        entries.add(EntryText(Int64(i), filler(2000, "E" + i.toString() + "-")))
+    }
+    let r = sum.summarize(Int64(0), Int64(100), entries, "")
+    @Expect(r.strategy, "chunked")
+    @Expect(r.chunks > Int64(1), true)
+    @Expect(rec.requests.size, r.chunks + 1)
+}
+
+// 真实文案一：llama-server 路由模式的 500 `Context size has been exceeded.`（大写 S）
+@Test
+func summarizer_detectsCapitalizedContextError() {
+    let prov = CaseOverflowProvider("Context size has been exceeded.")
+    let sum = Summarizer(prov, "m", maxTokens: 1024, contextTokens: 8192, safetyTokens: 1024,
+        bytesPerToken: 2)
+    let entries = ArrayList<EntryText>()
+    for (i in 0..8) {
+        entries.add(EntryText(Int64(i), filler(2000, "E" + i.toString() + "-")))
+    }
+    let r = sum.summarize(Int64(0), Int64(100), entries, "")
+    @Expect(prov.calls > Int64(1), true)
+    @Expect(r.text, "中间摘要")
+}
+
+// 真实文案二：大 prompt 的 prefill 超过 llm_api 读超时（不是上下文超限，但同样"该切小"）
+@Test
+func summarizer_retriesOnReadTimeout() {
+    let prov = CaseOverflowProvider("Client1.1 read response timeout and the connection is closed.")
+    let sum = Summarizer(prov, "m", maxTokens: 1024, contextTokens: 8192, safetyTokens: 1024,
+        bytesPerToken: 2)
+    let entries = ArrayList<EntryText>()
+    for (i in 0..8) {
+        entries.add(EntryText(Int64(i), filler(2000, "E" + i.toString() + "-")))
+    }
+    let r = sum.summarize(Int64(0), Int64(100), entries, "")
+    @Expect(prov.calls > Int64(1), true)
+    @Expect(r.text, "中间摘要")
+}
+
+// 与上下文无关的错误（鉴权/网络）不触发收缩重试
+@Test
+func summarizer_authErrorIsNotRetried() {
+    // 阈值取小 → 任何 prompt 都触发该错误；与上下文无关，必须原样上抛且不重试
+    let prov = CaseOverflowProvider("OpenAI API error [401]: invalid api key", maxPromptBytes: Int64(64))
+    let sum = Summarizer(prov, "m", maxTokens: 1024, contextTokens: 8192, safetyTokens: 1024,
+        bytesPerToken: 2, callTokens: 4096)
+    let entries = ArrayList<EntryText>()
+    entries.add(EntryText(Int64(1), filler(2000, "E1-")))
+    var thrown = false
+    try {
+        let _ = sum.summarize(Int64(0), Int64(100), entries, "")
+    } catch (e: Exception) {
+        thrown = e.message.indexOf("401") != None
+    }
+    @Expect(thrown, true)
+    @Expect(prov.calls, Int64(1))
 }

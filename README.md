@@ -55,6 +55,8 @@ LLM_BASE_URL=... LLM_API_KEY=... LLM_MODEL=... \
 | `CHRONOLOG_SUMMARY_SAFETY_TOKENS` | `1024` | 输入预算余量（模板/行前缀/估算误差） |
 | `CHRONOLOG_SUMMARY_BYTES_PER_TOKEN` | `2` | UTF-8 字节/token 的**保守**估值（实测 3.01，取 2 = 低估容量、提前切块的安全方向） |
 | `CHRONOLOG_SUMMARY_MAX_CALLS` | `8` | 单个总结任务的 LLM 调用上限（切块数 + 1 次聚合） |
+| `CHRONOLOG_SUMMARY_CALL_TOKENS` | `40000` | **单次调用**的输入上限。上下文大 ≠ 一次调用就能做那么大：实测 4b prefill ~317 tok/s，205K 字节的块（≈68K token）会撞 `readTimeout`（300s）。默认 40K ≈ 2 分钟 prefill |
+| `CHRONOLOG_SUMMARY_READ_TIMEOUT` | `300` | llm_api 单次读超时（秒）。端点确实需要长 prefill 时可调大；更推荐把 `CALL_TOKENS` 调小（切块更细） |
 | `CHRONOLOG_SUMMARY_MAX_ATTEMPTS` | `3` | 同一窗口连续失败多少次后停止自动重试（默认退避 20 分钟 → 60 分钟 → 放弃；防"每 10 分钟白烧"） |
 | `CHRONOLOG_SEED_WORKLOG` | `true` | 启动自动创建默认 `worklog` 类型（可关） |
 | `LLM_BASE_URL` | 无 | OpenAI 兼容端点（仅 summarize 需要） |
