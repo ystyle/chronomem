@@ -32,6 +32,14 @@ public class ChronomemConfig {
     // noThink=关推理模型的思考（默认 true），summaryMaxTokens=输出上限（默认 4096）。
     public let summaryNoThink: Bool
     public let summaryMaxTokens: Int64
+    // 输入预算（见 core/summarizer.cj 的 DEFAULT_SUMMARY_*）：端点上下文是每模型 preset
+    // 决定的（qwen3.5-9b-mtp=32768、qwen3.5-4b=131072），客户端必须知道才能不撞 400。
+    public let summaryContextTokens: Int64
+    public let summarySafetyTokens: Int64
+    public let summaryBytesPerToken: Int64
+    public let summaryMaxCalls: Int64
+    // 调度器护栏：同一窗口连续失败多少次后停止自动重试（10 分钟一轮无限重试会白烧 LLM）
+    public let summaryMaxAttempts: Int64
 
     public init(dir: String, addr: String, port: UInt16, llmBaseUrl: String,
         llmApiKey: String, llmModel: String, llmProvider: String,
@@ -39,7 +47,9 @@ public class ChronomemConfig {
         summaryMaxPerRun: Int64, summarySettleMs: Int64, seedWorklog: Bool,
         uiPort!: UInt16 = 8901, uiEnabled!: Bool = true, gcThresholdMb!: Int64 = 64,
         memTableSizeMb!: Int64 = 4, summaryNoThink!: Bool = true,
-        summaryMaxTokens!: Int64 = 4096) {
+        summaryMaxTokens!: Int64 = 4096, summaryContextTokens!: Int64 = 32768,
+        summarySafetyTokens!: Int64 = 1024, summaryBytesPerToken!: Int64 = 2,
+        summaryMaxCalls!: Int64 = 8, summaryMaxAttempts!: Int64 = 3) {
         this.dir = dir
         this.addr = addr
         this.port = port
@@ -59,6 +69,11 @@ public class ChronomemConfig {
         this.memTableSizeMb = memTableSizeMb
         this.summaryNoThink = summaryNoThink
         this.summaryMaxTokens = summaryMaxTokens
+        this.summaryContextTokens = summaryContextTokens
+        this.summarySafetyTokens = summarySafetyTokens
+        this.summaryBytesPerToken = summaryBytesPerToken
+        this.summaryMaxCalls = summaryMaxCalls
+        this.summaryMaxAttempts = summaryMaxAttempts
     }
 
     // 从进程环境变量构造（测试可通过 setVariable/removeVariable 控制）
@@ -88,7 +103,12 @@ public class ChronomemConfig {
             gcThresholdMb: envIntOr("CHRONOLOG_GC_THRESHOLD_MB", 64),
             memTableSizeMb: envIntOr("CHRONOLOG_MEMTABLE_SIZE_MB", 4),
             summaryNoThink: envBoolOr("CHRONOLOG_SUMMARY_NO_THINK", true),
-            summaryMaxTokens: envIntOr("CHRONOLOG_SUMMARY_MAX_TOKENS", 4096))
+            summaryMaxTokens: envIntOr("CHRONOLOG_SUMMARY_MAX_TOKENS", 4096),
+            summaryContextTokens: envIntOr("CHRONOLOG_SUMMARY_CONTEXT_TOKENS", 32768),
+            summarySafetyTokens: envIntOr("CHRONOLOG_SUMMARY_SAFETY_TOKENS", 1024),
+            summaryBytesPerToken: envIntOr("CHRONOLOG_SUMMARY_BYTES_PER_TOKEN", 2),
+            summaryMaxCalls: envIntOr("CHRONOLOG_SUMMARY_MAX_CALLS", 8),
+            summaryMaxAttempts: envIntOr("CHRONOLOG_SUMMARY_MAX_ATTEMPTS", 3))
     }
 
     // 语义总结可用性：未配置 baseURL/model 时 summarize 应报错（其余工具不依赖 LLM）

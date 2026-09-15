@@ -44,6 +44,9 @@ public class SummarizeJobRunner {
     // 进行中的窗口（type|winFrom → id）：任务提交加入、进入终态移除。
     // 供调度器判断「该窗口是否已有后台任务在跑」（避免同窗口重复提交；任务完成后自动解除，允许补总结）。
     private let activeWindows = HashMap<String, Int64>()
+    // 最近一次进入终态的该窗口任务结果（"done" / "failed"）：调度器据此区分
+    // 「失败要退避」与「上次已成功、只是又出现了新分组需要补总结」。
+    private let lastOutcomes = HashMap<String, String>()
     private var nextId = Int64(0)
     private var running = false
     private var spawned = false
@@ -70,6 +73,11 @@ public class SummarizeJobRunner {
     // 该窗口是否已有提交后尚未完成的后台任务（pending/running 均算）
     public func isWindowActive(typeName: String, winFrom: Int64): Bool {
         synchronized(this.lock) { this.activeWindows.contains(this.windowKey(typeName, winFrom)) }
+    }
+
+    // 最近一次该窗口任务的终态（None = 还没有过终态任务）
+    public func lastOutcome(typeName: String, winFrom: Int64): Option<String> {
+        synchronized(this.lock) { this.lastOutcomes.get(this.windowKey(typeName, winFrom)) }
     }
 
     private func windowKey(typeName: String, winFrom: Int64): String {
@@ -186,6 +194,7 @@ public class SummarizeJobRunner {
             this.states[j.id] = finalStatus
             // 任务进入终态 → 解除窗口占用（允许调度器对该窗口重新评估/补总结）
             this.activeWindows.remove(this.windowKey(j.typeName, j.winFrom))
+            this.lastOutcomes[this.windowKey(j.typeName, j.winFrom)] = finalStatus
             // failed 时总是暂存错误文本（便于 mem/summarize_status 定位）；成功且 store=false 才暂存结果
             if (finalStatus == "failed") {
                 this.results[j.id] = "ERROR: " + finalText

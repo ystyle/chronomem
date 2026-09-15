@@ -155,6 +155,12 @@ public struct SummaryRecord <: JsonSerializable & JsonDeserializable<SummaryReco
     public let instructions: String
     public let text: String                 // 结构化摘要（决策/结论/待办/状态变更）
     public let groupKey: Option<String>     // 分组值（按 summary_group_by 分桶时；None = 整窗/未分组维度）
+    // 生成口径（§7.4）：direct / direct+clip / chunked；chunks = 块数；inputTokens = 估算输入；
+    // clippedEntries = 被截断条目数。旧记录缺这些字段时反序列化为默认值。
+    public let strategy: String
+    public let chunks: Int64
+    public let inputTokens: Int64
+    public let clippedEntries: Int64
 }
 ```
 
@@ -175,6 +181,35 @@ public struct SummaryRecord <: JsonSerializable & JsonDeserializable<SummaryReco
   - **每轮上限**：`CHRONOLOG_SUMMARY_MAX_PER_RUN`（默认 5）次 LLM 调用/轮。
 - **语义回顾的懒计算**：`mem/recall mode=summary` 遇目标时段无摘要时，`summarize_on_miss=true` 会现算并落库（等同一次 `mem/summarize`，有 LLM 成本与写副作用）；`false`（默认）则提示「该时段尚无语义摘要，请先 summarize」。
 - **结构物化 ≠ 语义总结**：结构物化（引用链/数值聚合）由 `MaterializeScheduler`（cron-cj，默认 `@every 1m`）自动跑，**零 LLM 成本**、幂等、空窗口零成本。
+
+### 7.4 输入预算与自适应切块（防「超上下文 → 永久失败」）
+
+> 背景（2026-09-16 生产实测）：`dsh/activity` 的 09-15 窗口整天材料 82264 字符 ≈ 37563 token，
+> 而端点给 `qwen3.5-9b-mtp` 分配的 `--ctx-size` 只有 32768 → LLM 返回
+> `request (35489 tokens) exceeds the available context size (32768 tokens)`；
+> 任务 failed → 该窗口永远没有总结 → 调度器每 10 分钟重试一次、永远失败
+> （09-13/14/15 三天语义回顾因此全空）。根因是**输入侧没有预算**：`buildPrompt` 把窗口内
+> 条目全文拼进 prompt，且客户端根本不知道端点上下文是多少。
+
+- **端点上下文是配置**：`CHRONOLOG_SUMMARY_CONTEXT_TOKENS`（默认 32768）。它由端点 preset 决定
+  （实测 llama-swap：`qwen3.5-9b-mtp` / `9b` = 32768，`qwen3.5-4b` / `2b` = 131072），
+  **换模型必须同步改这里**。预算 = 上下文 − 输出上限 − 余量；字节→token 用**保守**估值
+  `CHRONOLOG_SUMMARY_BYTES_PER_TOKEN`（默认 2，实测 3.01——估值偏小 = 提前切块，安全方向）。
+- **自适应策略（能一次就一次）**：
+  1. 估算输入 ≤ 预算 → **一次直连**（与历史行为一致，零额外调用）；
+  2. 超预算 → 按**条目边界**顺序切块（绝不切断一条记录），每块先出「中间摘要」（输出上限单独收紧），
+     最后一次聚合调用合并成最终摘要（map-reduce）；块数上限由 `CHRONOLOG_SUMMARY_MAX_CALLS` 约束
+     （超出则收紧单块预算，超长条目随之进入截断路径）；
+  3. 单条即超预算 → **截断**（保头保尾 + 显式标记，按 Rune 走不切坏 UTF-8）；
+  4. 端点仍报超限（估算失准）→ **运行时降级**：预算减半重试（最多 3 档），绝不把「估错」变成任务失败。
+- **生成口径落库**：`SummaryRecord` 的 `strategy` / `chunks` / `inputTokens` / `clippedEntries`
+  让事后能判断一条摘要是否切过块、截断过（`mem/summaries` 头部会显示）。
+- **有限重试（§7.3 的补充闸门）**：调度器记同一窗口的失败次数，退避 20 分钟 → 60 分钟，
+  连续 `CHRONOLOG_SUMMARY_MAX_ATTEMPTS`（默认 3）次后**停止自动重试**并写入 `abandonedReport()`；
+  窗口被手动 `recompute` 成功后计数自动清零。没有这道闸，「重试也不会成功」的失败会以 10 分钟
+  为周期无限烧 token。
+- **与 §7.2 递归总结的关系**：这里是**同一任务内**的按需切块聚合（不改类型、不落中间层）；
+  §7.2 的跨层递归（1h → day 落库）是另一条增强路径，可由 `levels` 加档演进。
 
 ## 8. 分层物化（三种模式）
 
@@ -227,6 +262,13 @@ public struct SummaryRecord <: JsonSerializable & JsonDeserializable<SummaryReco
 | `CHRONOLOG_SUMMARY_CRON` | `*/10 * * * *` | 自动语义总结 cron |
 | `CHRONOLOG_SUMMARY_MAX_PER_RUN` | `5` | 每轮自动总结次数上限 |
 | `CHRONOLOG_SUMMARY_SETTLE` | `600000`(10min) | 窗口闭合沉降期（毫秒） |
+| `CHRONOLOG_SUMMARY_NO_THINK` | `true` | 总结请求透传 `chat_template_kwargs.enable_thinking=false`（推理模型关思考） |
+| `CHRONOLOG_SUMMARY_MAX_TOKENS` | `4096` | 单次总结输出上限 |
+| `CHRONOLOG_SUMMARY_CONTEXT_TOKENS` | `32768` | 端点给该模型分配的上下文（§7.4；换模型必须同步） |
+| `CHRONOLOG_SUMMARY_SAFETY_TOKENS` | `1024` | 输入预算余量 |
+| `CHRONOLOG_SUMMARY_BYTES_PER_TOKEN` | `2` | 字节→token 保守估值（实测 3.01） |
+| `CHRONOLOG_SUMMARY_MAX_CALLS` | `8` | 单任务 LLM 调用上限（切块数 + 聚合） |
+| `CHRONOLOG_SUMMARY_MAX_ATTEMPTS` | `3` | 同一窗口失败多少次后放弃自动重试 |
 | `CHRONOLOG_SEED_WORKLOG` | `true` | 启动自动播种默认 `worklog` 类型（幂等，可关） |
 | `LLM_BASE_URL` | 无（必填以启用 summarize） | OpenAI 兼容端点基址 |
 | `LLM_API_KEY` | 无 | API Key |

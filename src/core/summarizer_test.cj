@@ -159,3 +159,219 @@ func summarizer_settingsCarryTuningKnobs() {
     @Expect(def.noThink, true)
     @Expect(def.maxTokens, Int64(4096))
 }
+
+// ---------- 输入预算（fix/summarize-budget）----------
+// 背景（生产实测）：dsh/activity 09-15 窗口整天材料 82264 字符 ≈ 37563 token，
+// 而端点给 qwen3.5-9b-mtp 的 ctx 只有 32768 → LLM 返回
+// `request (35489 tokens) exceeds the available context size (32768 tokens)`
+// → 总结任务 failed → 调度器每 10 分钟重试一次、永远失败（09-13 起）。
+
+// 记录全部请求的 Provider：切块/聚合路径的断言依据
+class RecordingProvider <: Provider {
+    let reply: String
+    let requests: ArrayList<ChatRequest>
+
+    public init(reply: String) {
+        this.reply = reply
+        this.requests = ArrayList<ChatRequest>()
+    }
+
+    public func name(): String { "recording" }
+    public func chat(req: ChatRequest): ChatResponse {
+        this.requests.add(req)
+        ChatResponse(AssistantMessage(ContentList.ofText(this.reply), "fake-model", "fake",
+            StopReason.EndTurn, TokenUsage(0, 0), 0))
+    }
+    public func chatStreaming(req: ChatRequest): EventStream<ChatDelta, AssistantMessage> {
+        let s = EventStream<ChatDelta, AssistantMessage>()
+        s.setResult(AssistantMessage(ContentList.ofText(this.reply), "fake-model", "fake",
+            StopReason.EndTurn, TokenUsage(0, 0), 0))
+        s
+    }
+    public func promptAt(i: Int64): String { promptOf(this.requests[i].messages) }
+}
+
+// prompt 超过阈值就抛端点超限错误（复刻 llama.cpp 的 400 文案）：验证运行时降级
+class OverflowProvider <: Provider {
+    let maxPromptBytes: Int64
+    var calls = Int64(0)
+
+    public init(maxPromptBytes: Int64) { this.maxPromptBytes = maxPromptBytes }
+
+    public func name(): String { "overflow" }
+    public func chat(req: ChatRequest): ChatResponse {
+        this.calls += 1
+        if (promptOf(req.messages).size > this.maxPromptBytes) {
+            throw Exception("request (99999 tokens) exceeds the available context size (32768 tokens)")
+        }
+        ChatResponse(AssistantMessage(ContentList.ofText("中间摘要"), "fake-model", "fake",
+            StopReason.EndTurn, TokenUsage(0, 0), 0))
+    }
+    public func chatStreaming(req: ChatRequest): EventStream<ChatDelta, AssistantMessage> {
+        let s = EventStream<ChatDelta, AssistantMessage>()
+        s.setResult(AssistantMessage(ContentList.ofText("中间摘要"), "fake-model", "fake",
+            StopReason.EndTurn, TokenUsage(0, 0), 0))
+        s
+    }
+}
+
+// 非超限错误（网络/鉴权等）：必须原样上抛，不能被预算逻辑吞掉
+class BoomProvider <: Provider {
+    public func name(): String { "boom" }
+    public func chat(req: ChatRequest): ChatResponse {
+        throw Exception("connection refused")
+    }
+    public func chatStreaming(req: ChatRequest): EventStream<ChatDelta, AssistantMessage> {
+        let s = EventStream<ChatDelta, AssistantMessage>()
+        s.setResult(AssistantMessage(ContentList.ofText("x"), "fake-model", "fake",
+            StopReason.EndTurn, TokenUsage(0, 0), 0))
+        s
+    }
+}
+
+func filler(bytes: Int64, tag: String): String {
+    let sb = StringBuilder()
+    sb.append(tag)
+    var i = Int64(0)
+    while (i < bytes) {
+        sb.append("x")
+        i += 1
+    }
+    sb.toString()
+}
+
+func occurrences(hay: String, needle: String): Int64 {
+    hay.split(needle).size - 1
+}
+
+// 估算单位 = UTF-8 字节（String.size），byte/token 常量按此口径标定（实测 3.01，取 2 保守）
+@Test
+func summarizer_sizeUnitIsUtf8Bytes() {
+    @Expect("仓颉".size, Int64(6))
+    @Expect("abc".size, Int64(3))
+}
+
+@Test
+func summarizer_budgetMath() {
+    let fake = CapturingProvider()
+    let sum = Summarizer(fake, "m", maxTokens: 4096, contextTokens: 32768, safetyTokens: 1024,
+        bytesPerToken: 2)
+    @Expect(sum.promptBudgetTokens(), Int64(27648))
+    @Expect(sum.promptBudgetBytes(), Int64(55296))
+    @Expect(sum.estimateTokens(Int64(0)), Int64(0))
+    @Expect(sum.estimateTokens(Int64(2000)), Int64(1001))
+    // 上下文很小也不会算出 0/负预算（有下限）
+    let tiny = Summarizer(fake, "m", maxTokens: 4096, contextTokens: 4096, safetyTokens: 1024,
+        bytesPerToken: 2)
+    @Expect(tiny.promptBudgetTokens(), Int64(1024))
+}
+
+// 装得下 → 一次直连（保持原行为：调用数不因引入预算而增加）
+@Test
+func summarizer_directWhenWithinBudget() {
+    let rec = RecordingProvider("决策：A\n结论：B")
+    let sum = Summarizer(rec, "m")
+    let entries = ArrayList<EntryText>()
+    entries.add(EntryText(Int64(1), "do X"))
+    entries.add(EntryText(Int64(2), "fix Y"))
+    let r = sum.summarize(Int64(0), Int64(100), entries, "")
+    @Expect(rec.requests.size, Int64(1))
+    @Expect(r.strategy, "direct")
+    @Expect(r.chunks, Int64(1))
+    @Expect(r.clippedEntries, Int64(0))
+    @Expect(r.text, "决策：A\n结论：B")
+}
+
+// 装不下 → 按条目边界切块（每块先出中间摘要）+ 末尾一次聚合；
+// 每条材料恰好进一个块（不能重复计入，也不能丢）
+@Test
+func summarizer_chunksWhenOverBudget() {
+    let rec = RecordingProvider("中间摘要")
+    // 预算：ctx 8192 − 输出 1024 − 余量 1024 = 6144 token → ×2 = 12288 字节 − 模板 2048 = 10240
+    let sum = Summarizer(rec, "m", maxTokens: 1024, contextTokens: 8192, safetyTokens: 1024,
+        bytesPerToken: 2)
+    let entries = ArrayList<EntryText>()
+    for (i in 0..6) {
+        entries.add(EntryText(Int64(i), filler(3000, "E" + i.toString() + "-")))
+    }
+    let r = sum.summarize(Int64(0), Int64(100), entries, "")
+    // 每条 3000 字节 → 每块 3 条（9000 ≤ 10240）→ 2 块 + 1 次聚合 = 3 次调用
+    @Expect(rec.requests.size, Int64(3))
+    @Expect(r.strategy, "chunked")
+    @Expect(r.chunks, Int64(2))
+    @Expect(r.clippedEntries, Int64(0))
+    // 块内共出现 6 条材料，各一次
+    let chunkText = rec.promptAt(0) + rec.promptAt(1)
+    for (i in 0..6) {
+        @Expect(occurrences(chunkText, "E" + i.toString() + "-"), Int64(1))
+    }
+    // 最后一次是聚合（输入是各段中间摘要）
+    @Expect(rec.promptAt(2).indexOf("分段中间摘要") != None, true)
+}
+
+// 单条就超块预算 → 截断（保头保尾 + 显式标记），且块数被调用上限约束
+@Test
+func summarizer_clipsOversizedEntryAndRespectsMaxCalls() {
+    let rec = RecordingProvider("中间摘要")
+    let sum = Summarizer(rec, "m", maxTokens: 1024, contextTokens: 8192, safetyTokens: 1024,
+        bytesPerToken: 2, maxCalls: 4)
+    let entries = ArrayList<EntryText>()
+    for (i in 0..20) {
+        entries.add(EntryText(Int64(i), filler(4000, "E" + i.toString() + "-")))
+    }
+    let r = sum.summarize(Int64(0), Int64(100), entries, "")
+    // 调用上限 4 = 最多 3 块 + 1 次聚合
+    @Expect(rec.requests.size <= Int64(4), true)
+    @Expect(r.chunks <= Int64(3), true)
+    // 20 条 × 4000 字节装进 3 块必须截断
+    @Expect(r.clippedEntries > Int64(0), true)
+    @Expect(r.text, "中间摘要")
+}
+
+// 估算失准的运行时兜底：端点真报超限 → 预算减半重试，任务不失败
+@Test
+func summarizer_fallsBackWhenEndpointRejectsPrompt() {
+    // 阈值取得比首轮预算更小：首轮必然被拒，收缩预算后切块才成功
+    let prov = OverflowProvider(Int64(6000))
+    let sum = Summarizer(prov, "m", maxTokens: 1024, contextTokens: 8192, safetyTokens: 1024,
+        bytesPerToken: 2)
+    let entries = ArrayList<EntryText>()
+    for (i in 0..8) {
+        entries.add(EntryText(Int64(i), filler(2000, "E" + i.toString() + "-")))
+    }
+    let r = sum.summarize(Int64(0), Int64(100), entries, "")
+    @Expect(prov.calls > Int64(1), true)   // 至少发生过一次"被拒 → 收缩重试"
+    @Expect(r.text, "中间摘要")
+}
+
+// 非超限错误原样上抛（预算逻辑不得吞掉网络/鉴权错误）
+@Test
+func summarizer_propagatesNonContextErrors() {
+    let sum = Summarizer(BoomProvider(), "m")
+    let entries = ArrayList<EntryText>()
+    entries.add(EntryText(Int64(1), "do X"))
+    var thrown = false
+    try {
+        let _ = sum.summarize(Int64(0), Int64(100), entries, "")
+    } catch (e: Exception) {
+        thrown = e.message.indexOf("connection refused") != None
+    }
+    @Expect(thrown, true)
+}
+
+// 生成口径落库：direct / chunked 与预算参数都写进 SummaryRecord（事后可判断摘要怎么来的）
+@Test
+func summarizer_recordsGenerationStrategy() {
+    let rec = RecordingProvider("中间摘要")
+    let sum = Summarizer(rec, "m", maxTokens: 1024, contextTokens: 8192, safetyTokens: 1024,
+        bytesPerToken: 2)
+    let entries = ArrayList<EntryText>()
+    for (i in 0..6) {
+        entries.add(EntryText(Int64(i), filler(3000, "E" + i.toString() + "-")))
+    }
+    let r = sum.summarize(Int64(0), Int64(100), entries, "")
+    @Expect(r.strategy, "chunked")
+    @Expect(r.chunks, Int64(2))
+    @Expect(r.inputTokens > Int64(0), true)
+    @Expect(r.clippedEntries, Int64(0))
+}

@@ -17,10 +17,18 @@ public struct SummaryRecord <: JsonSerializable & JsonDeserializable<SummaryReco
     public let instructions: String
     public let text: String
     public let groupKey: Option<String>
+    // 生成口径（fix/summarize-budget）：direct = 一次直连；direct+clip = 直连但有单条被截断；
+    // chunked = 超预算按条目边界切块后聚合。chunks = 实际块数（直连=1）。
+    // inputTokens = 客户端估算的输入 token（估算口径见 Summarizer.estimateTokens）。
+    public let strategy: String
+    public let chunks: Int64
+    public let inputTokens: Int64
+    public let clippedEntries: Int64
 
     public init(ts: Int64, windowFrom: Int64, windowTo: Int64,
         model: String, refs: ArrayList<Int64>, instructions: String, text: String,
-        groupKey!: Option<String> = None) {
+        groupKey!: Option<String> = None, strategy!: String = "direct", chunks!: Int64 = 1,
+        inputTokens!: Int64 = 0, clippedEntries!: Int64 = 0) {
         this.ts = ts
         this.windowFrom = windowFrom
         this.windowTo = windowTo
@@ -29,6 +37,10 @@ public struct SummaryRecord <: JsonSerializable & JsonDeserializable<SummaryReco
         this.instructions = instructions
         this.text = text
         this.groupKey = groupKey
+        this.strategy = strategy
+        this.chunks = chunks
+        this.inputTokens = inputTokens
+        this.clippedEntries = clippedEntries
     }
 
     public func toJson(w: JsonWriter): Unit {
@@ -41,6 +53,10 @@ public struct SummaryRecord <: JsonSerializable & JsonDeserializable<SummaryReco
         w.writeName("instructions").writeValue(this.instructions)
         w.writeName("text").writeValue(this.text)
         w.writeName("groupKey").writeValue(this.groupKey)
+        w.writeName("strategy").writeValue(this.strategy)
+        w.writeName("chunks").writeValue(this.chunks)
+        w.writeName("inputTokens").writeValue(this.inputTokens)
+        w.writeName("clippedEntries").writeValue(this.clippedEntries)
         w.endObject()
     }
 
@@ -53,6 +69,10 @@ public struct SummaryRecord <: JsonSerializable & JsonDeserializable<SummaryReco
         var instructions = ""
         var text = ""
         var groupKey: Option<String> = None
+        var strategy = "direct"
+        var chunks = Int64(1)
+        var inputTokens = Int64(0)
+        var clippedEntries = Int64(0)
         r.startObject()
         while (r.peek() != EndObject) {
             match (r.readName()) {
@@ -64,10 +84,15 @@ public struct SummaryRecord <: JsonSerializable & JsonDeserializable<SummaryReco
                 case "instructions" => instructions = r.readValue<String>()
                 case "text" => text = r.readValue<String>()
                 case "groupKey" => groupKey = r.readValue<Option<String>>()
+                case "strategy" => strategy = r.readValue<String>()
+                case "chunks" => chunks = r.readValue<Int64>()
+                case "inputTokens" => inputTokens = r.readValue<Int64>()
+                case "clippedEntries" => clippedEntries = r.readValue<Int64>()
                 case _ => r.skip()
             }
         }
         r.endObject()
-        SummaryRecord(ts, windowFrom, windowTo, model, refs, instructions, text, groupKey: groupKey)
+        SummaryRecord(ts, windowFrom, windowTo, model, refs, instructions, text, groupKey: groupKey,
+            strategy: strategy, chunks: chunks, inputTokens: inputTokens, clippedEntries: clippedEntries)
     }
 }

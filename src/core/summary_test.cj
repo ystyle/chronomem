@@ -97,3 +97,35 @@ func summaryRecord_jsonRoundtrip_groupKey() {
         case None => @Fail("groupKey 丢失")
     }
 }
+
+// 生成口径字段（fix/summarize-budget）：新字段必须能序列化往返；
+// 旧记录（没有这些字段）反序列化要退到默认值，不能把历史总结读崩
+@Test
+func summary_generationStrategyRoundTrip() {
+    let refs = ArrayList<Int64>()
+    refs.add(Int64(11))
+    let rec = SummaryRecord(Int64(1), Int64(0), Int64(9), "m", refs, "", "正文",
+        groupKey: Some("Cangjie"), strategy: "chunked", chunks: Int64(4),
+        inputTokens: Int64(37563), clippedEntries: Int64(2))
+    let back = fromJsonString<SummaryRecord>(toJsonString(rec))
+    @Expect(back.strategy, "chunked")
+    @Expect(back.chunks, Int64(4))
+    @Expect(back.inputTokens, Int64(37563))
+    @Expect(back.clippedEntries, Int64(2))
+    match (back.groupKey) {
+        case Some(g) => @Expect(g, "Cangjie")
+        case None => @Fail("groupKey 丢失")
+    }
+}
+
+@Test
+func summary_legacyRecordDefaultsStrategy() {
+    let legacy = "{\"ts\":1,\"windowFrom\":0,\"windowTo\":9,\"model\":\"m\",\"refs\":[],"
+        + "\"instructions\":\"\",\"text\":\"旧记录\",\"groupKey\":null}"
+    let back = fromJsonString<SummaryRecord>(legacy)
+    @Expect(back.text, "旧记录")
+    @Expect(back.strategy, "direct")
+    @Expect(back.chunks, Int64(1))
+    @Expect(back.inputTokens, Int64(0))
+    @Expect(back.clippedEntries, Int64(0))
+}

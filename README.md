@@ -51,6 +51,11 @@ LLM_BASE_URL=... LLM_API_KEY=... LLM_MODEL=... \
 | `CHRONOLOG_SUMMARY_SETTLE` | `600000` | 窗口闭合沉降期（毫秒） |
 | `CHRONOLOG_SUMMARY_NO_THINK` | `true` | 总结时透传 `chat_template_kwargs.enable_thinking=false` 关掉推理模型的思考。**仅对 vLLM/llama.cpp/SGLang 这类 OpenAI 兼容端点有效**；用云端严格 OpenAI API 时请置 `false` |
 | `CHRONOLOG_SUMMARY_MAX_TOKENS` | `4096` | 单次总结的输出上限。本地慢端点建议收紧；云端/强硬件可放宽 |
+| `CHRONOLOG_SUMMARY_CONTEXT_TOKENS` | `32768` | **端点给该模型分配的上下文**（llama.cpp/llama-swap 的 `--ctx-size`）。客户端据此算输入预算：装得下一次直连，装不下按条目边界切块 + 聚合。实测 `qwen3.5-9b-mtp`=32768、`qwen3.5-4b`/`2b`=131072——**换模型必须同步改这里**，否则会撞 `exceeds the available context size` |
+| `CHRONOLOG_SUMMARY_SAFETY_TOKENS` | `1024` | 输入预算余量（模板/行前缀/估算误差） |
+| `CHRONOLOG_SUMMARY_BYTES_PER_TOKEN` | `2` | UTF-8 字节/token 的**保守**估值（实测 3.01，取 2 = 低估容量、提前切块的安全方向） |
+| `CHRONOLOG_SUMMARY_MAX_CALLS` | `8` | 单个总结任务的 LLM 调用上限（切块数 + 1 次聚合） |
+| `CHRONOLOG_SUMMARY_MAX_ATTEMPTS` | `3` | 同一窗口连续失败多少次后停止自动重试（默认退避 20 分钟 → 60 分钟 → 放弃；防"每 10 分钟白烧"） |
 | `CHRONOLOG_SEED_WORKLOG` | `true` | 启动自动创建默认 `worklog` 类型（可关） |
 | `LLM_BASE_URL` | 无 | OpenAI 兼容端点（仅 summarize 需要） |
 | `LLM_API_KEY` | 无 | API Key |
