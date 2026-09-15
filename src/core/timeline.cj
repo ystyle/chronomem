@@ -297,7 +297,10 @@ public class Timeline {
         let winTs = this.tsdb.query(this.series).range(fStart, fEnd).timestamps()
         // 日志瘦身：空窗口静默（原每窗口一行，30 窗口×4 series/轮 = 120+ 行刷屏，
         // 字符串分配累积 GC 堆压力）；仅在有数据/建桶时输出一行。
-        if (winTs.size > 0) {
+        // **幂等**：窗口内容与已落盘的桶一致时不重写——materialize 每 60s 对当窗重跑，
+        // 零新增也重写同一份桶 = 每分钟一次 memtable rotate/flush/compaction（生产事故
+        // 现场 LSM 文件编号 18 小时涨 ~940），是长跑堆压力的主要来源。
+        if (winTs.size > 0 && this.finestChanged(levels[0], fKey, winTs.size)) {
             println("materialize " + this.series + " finer=" + levels[0] + " fStart=" + fStart.toString() + " fEnd=" + fEnd.toString() + " pts=" + winTs.size.toString())
             let refs = ArrayList<Ref>()
             for (t in winTs) { refs.add(Ref.PointRef(this.series, t)) }
@@ -322,11 +325,35 @@ public class Timeline {
                 }
                 sub = this.nextWindowStartMs(subStart, finer)
             }
-            if (refs.size > 0) {
+            // 幂等（上层链）：子桶**集合**没变就不重写——链按 key 引用子桶，
+            // 子桶内容变化不影响本层，只有新增/消失子桶时本层才需要更新。
+            if (refs.size > 0 && this.chainChanged(level, key, refs.size)) {
                 this.tsdb.bucket(this.series, level, key,
                     level + " 窗口覆盖 " + refs.size.toString() + " 个 " + finer + " 子桶", refs,
                     ttl: None, windowStartMs: start, windowEndMs: end)
             }
+        }
+    }
+
+    // 幂等判据（最细层）：已落盘桶的引用数与本次扫描到的点数一致 → 窗口内容未变。
+    // 点集只增不减（tsdb 拒绝乱序写；本服务 series 无 retention），故引用数即内容指纹；
+    // 老格式桶（引用在 value 内、refsCount 缺省 -1）退回 refs.size 判定。
+    private func finestChanged(level: String, key: String, pointCount: Int64): Bool {
+        match (this.tsdb.bucketSummary(this.series, level, key)) {
+            case Some(rec) =>
+                let have = if (rec.refsCount >= 0) { rec.refsCount } else { Int64(rec.refs.size) }
+                have != pointCount
+            case None => true
+        }
+    }
+
+    // 幂等判据（上层链）：已落盘桶的引用数（子桶个数）不变 → 链不需要重写
+    private func chainChanged(level: String, key: String, subCount: Int64): Bool {
+        match (this.tsdb.bucketSummary(this.series, level, key)) {
+            case Some(rec) =>
+                let have = if (rec.refsCount >= 0) { rec.refsCount } else { Int64(rec.refs.size) }
+                have != subCount
+            case None => true
         }
     }
 
