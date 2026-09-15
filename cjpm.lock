@@ -1,17 +1,17 @@
 version = 0
 
 [requires]
-  sonyflake = {version = "1.0.9"}
-  jsonvalue = {version = "1.1.0"}
-  "ystyle::jsonrpc" = {version = "0.7.4"}
-  badgercj = {version = "1.6.18"}
-  tang = {version = "1.0.4"}
-  embed = {version = "1.0.7"}
-  "opencj::ulid" = {version = "0.1.2"}
-  markit = {version = "0.0.4"}
-  gjson = {version = "1.2.1"}
+  seajson = {version = "1.4.7", output-type = "static"}
   snappy = {version = "1.0.1"}
   "ystyle::crc" = {version = "1.0.0"}
   "opencj::multipart" = {version = "0.1.3"}
+  sonyflake = {version = "1.0.9"}
   cjpminfo = {version = "1.2.0"}
-  seajson = {version = "1.4.7", output-type = "static"}
+  jsonvalue = {version = "1.1.0"}
+  "ystyle::jsonrpc" = {version = "0.7.6"}
+  badgercj = {version = "1.6.20"}
+  embed = {version = "1.0.7"}
+  markit = {version = "0.0.4"}
+  tang = {version = "1.0.4"}
+  "opencj::ulid" = {version = "0.1.2"}
+  gjson = {version = "1.2.1"}
