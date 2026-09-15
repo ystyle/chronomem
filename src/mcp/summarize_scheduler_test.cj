@@ -2,6 +2,9 @@ package chronomem.mcp
 
 import chronomem.core.*
 import jsonvalue.*
+import llm_api.event.EventStream
+import llm_api.message.*
+import llm_api.provider.*
 import std.collection.*
 import std.time.*
 
@@ -177,4 +180,123 @@ func scheduler_groupedTypeIdempotentPerGroup() {
     // 全部已总结 → 幂等
     @Expect(sch.runOnce(now), Int64(0))
     s.close()
+}
+
+// ---------- 有限重试 / 退避 / 放弃（fix/summarize-budget）----------
+// 背景：输入超端点上下文的窗口 summary 永远失败、永远不落库 → 幂等判据始终为假
+// → 每 10 分钟重试一次直到永远（09-13 起持续到发现时）。这里钉住"止住白烧"的行为。
+
+// 总是失败的 Provider（复刻端点超限文案；真实故障下也是这一类"重试不会成功"的失败）
+class AlwaysFailSummarizerProvider <: Provider {
+    var calls = Int64(0)
+
+    public func name(): String { "failing" }
+    public func chat(req: ChatRequest): ChatResponse {
+        this.calls += 1
+        throw Exception("request (99999 tokens) exceeds the available context size (32768 tokens)")
+    }
+    public func chatStreaming(req: ChatRequest): EventStream<ChatDelta, AssistantMessage> {
+        let s = EventStream<ChatDelta, AssistantMessage>()
+        s.setResult(AssistantMessage(ContentList.ofText("x"), "fake", "fake",
+            StopReason.EndTurn, TokenUsage(0, 0), 0))
+        s
+    }
+}
+
+// 前 failTimes 次失败、之后成功：验证成功会清掉重试账
+class FlakySummarizerProvider <: Provider {
+    let failTimes: Int64
+    var calls = Int64(0)
+
+    public init(failTimes: Int64) { this.failTimes = failTimes }
+
+    public func name(): String { "flaky" }
+    public func chat(req: ChatRequest): ChatResponse {
+        this.calls += 1
+        if (this.calls <= this.failTimes) {
+            throw Exception("request (99999 tokens) exceeds the available context size (32768 tokens)")
+        }
+        ChatResponse(AssistantMessage(ContentList.ofText("决策：A\n结论：B"), "fake", "fake",
+            StopReason.EndTurn, TokenUsage(0, 0), 0))
+    }
+    public func chatStreaming(req: ChatRequest): EventStream<ChatDelta, AssistantMessage> {
+        let s = EventStream<ChatDelta, AssistantMessage>()
+        s.setResult(AssistantMessage(ContentList.ofText("决策：A\n结论：B"), "fake", "fake",
+            StopReason.EndTurn, TokenUsage(0, 0), 0))
+        s
+    }
+}
+
+func schedSvcWith(prov: Provider): MemoryService {
+    MemoryService.openFile(freshTestDir(), summarizer: Some(Summarizer(prov, "fake")),
+        timeZone: TimeZone.UTC)
+}
+
+@Test
+func scheduler_backsOffThenGivesUp() {
+    let prov = AlwaysFailSummarizerProvider()
+    let s = schedSvcWith(prov)
+    makeDayType(s, "log", true)
+    handleAppend(s, argsFromJson("{\"type\":\"log\",\"payload\":{},\"ts\":1704067200000}"))
+    let sch = SummarizeScheduler(s, 5, 60000, maxAttempts: 3)
+    let t0 = DAY_END + 60000 + 1000
+
+    // 第 1 次：立即提交（首轮不等待）
+    @Expect(sch.runOnce(t0), Int64(1))
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
+    @Expect(sch.attemptsOf("log", DAY_START), Int64(1))
+
+    // +10 分钟（下一个 cron 轮）：退避 20 分钟未到 → 不提交（这里就是"每 10 分钟白烧"被止住的地方）
+    @Expect(sch.runOnce(t0 + 10 * 60 * 1000), Int64(0))
+    // +21 分钟：允许第 2 次
+    @Expect(sch.runOnce(t0 + 21 * 60 * 1000), Int64(1))
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
+    @Expect(sch.attemptsOf("log", DAY_START), Int64(2))
+
+    // +21+61 分钟：第 3 次
+    let t2 = t0 + 21 * 60 * 1000 + 61 * 60 * 1000
+    @Expect(sch.runOnce(t2), Int64(1))
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
+
+    // 再往后：连续失败到上限 → 放弃自动重试，留下可见记录，不再发起调用
+    @Expect(sch.runOnce(t2 + 10 * 60 * 1000), Int64(0))
+    @Expect(sch.runOnce(t2 + 24 * 60 * 60 * 1000), Int64(0))
+    @Expect(sch.abandonedReport().size, Int64(1))
+    @Expect(prov.calls, Int64(3))
+    s.close()
+}
+
+@Test
+func scheduler_successClearsRetryState() {
+    // 第 1 次失败，第 2 次成功
+    let prov = FlakySummarizerProvider(1)
+    let s = schedSvcWith(prov)
+    makeDayType(s, "log", true)
+    handleAppend(s, argsFromJson("{\"type\":\"log\",\"payload\":{},\"ts\":1704067200000}"))
+    let sch = SummarizeScheduler(s, 5, 60000, maxAttempts: 3)
+    let t0 = DAY_END + 60000 + 1000
+
+    @Expect(sch.runOnce(t0), Int64(1))
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
+    @Expect(sch.attemptsOf("log", DAY_START), Int64(1))
+
+    // 退避后第 2 次提交并成功落库
+    @Expect(sch.runOnce(t0 + 21 * 60 * 1000), Int64(1))
+    @Expect(s.summarizeRunner.getOrThrow().waitIdle(), true)
+    let txt = resultText(handleSummaries(s, argsFromJson("{\"type\":\"log\"}")))
+    @Expect(txt.indexOf("决策：A") != None, true)
+
+    // 窗口已总结 → 幂等跳过，并把该窗口的重试账清零（不再算作"失败窗口"）
+    @Expect(sch.runOnce(t0 + 42 * 60 * 1000), Int64(0))
+    @Expect(sch.attemptsOf("log", DAY_START), Int64(0))
+    @Expect(sch.abandonedReport().size, Int64(0))
+    s.close()
+}
+
+@Test
+func scheduler_backoffLadder() {
+    @Expect(backoffMs(0), Int64(0))
+    @Expect(backoffMs(1), Int64(20 * 60 * 1000))
+    @Expect(backoffMs(2), Int64(60 * 60 * 1000))
+    @Expect(backoffMs(9), Int64(60 * 60 * 1000))
 }

@@ -41,7 +41,9 @@ public class MemoryService {
         }
         let summarizer = Summarizer.fromSettings(
             LlmSettings(cfg.llmBaseUrl, cfg.llmApiKey, cfg.llmModel, cfg.llmProvider,
-                noThink: cfg.summaryNoThink, maxTokens: cfg.summaryMaxTokens))
+                noThink: cfg.summaryNoThink, maxTokens: cfg.summaryMaxTokens,
+                contextTokens: cfg.summaryContextTokens, safetyTokens: cfg.summarySafetyTokens,
+                bytesPerToken: cfg.summaryBytesPerToken, maxCalls: cfg.summaryMaxCalls))
         let svc = MemoryService(store, registry, summarizer)
         svc.initSummarizeRunner()
         svc

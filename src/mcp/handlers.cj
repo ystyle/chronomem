@@ -778,7 +778,13 @@ public func handleSummaries(svc: MemoryService, args: HashMap<String, JsonValue>
             case Some(g) => "【" + groupLabel(Some(g)) + "】"
             case None => ""
         }
-        sb.append("[" + fmtTs(rec.ts, svc.store.timeZoneOf()) + " 窗口 " + rec.windowFrom.toString() + "~" + rec.windowTo.toString() + " " + rec.model + "]" + groupTag + "\n")
+        // 生成口径可见：切过块/截断过的摘要一眼能看出来（否则只能猜为什么质量不同）
+        let genTag = if (rec.strategy == "" || rec.strategy == "direct") {
+            ""
+        } else {
+            " " + rec.strategy + "(" + rec.chunks.toString() + "段/截断" + rec.clippedEntries.toString() + ")"
+        }
+        sb.append("[" + fmtTs(rec.ts, svc.store.timeZoneOf()) + " 窗口 " + rec.windowFrom.toString() + "~" + rec.windowTo.toString() + " " + rec.model + genTag + "]" + groupTag + "\n")
         sb.append(rec.text + "\n\n")
     }
     CallToolResult.text(sb.toString())

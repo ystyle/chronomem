@@ -24,6 +24,11 @@ func chronomem_config_defaults() {
     removeVariable("CHRONOLOG_MEMTABLE_SIZE_MB")
     removeVariable("CHRONOLOG_SUMMARY_NO_THINK")
     removeVariable("CHRONOLOG_SUMMARY_MAX_TOKENS")
+    removeVariable("CHRONOLOG_SUMMARY_CONTEXT_TOKENS")
+    removeVariable("CHRONOLOG_SUMMARY_SAFETY_TOKENS")
+    removeVariable("CHRONOLOG_SUMMARY_BYTES_PER_TOKEN")
+    removeVariable("CHRONOLOG_SUMMARY_MAX_CALLS")
+    removeVariable("CHRONOLOG_SUMMARY_MAX_ATTEMPTS")
 
     let cfg = ChronomemConfig.fromEnv()
     @Expect(cfg.port, UInt16(8900))
@@ -43,6 +48,12 @@ func chronomem_config_defaults() {
     // 总结口径默认：关思考 + 4096 输出上限（本地推理端点：开思考时大窗口会撞 300s 读超时）
     @Expect(cfg.summaryNoThink, true)
     @Expect(cfg.summaryMaxTokens, Int64(4096))
+    // 输入预算默认：按 9b-mtp 的 ctx=32768 保守取值（4b 的 131072 由部署侧 env 覆盖）
+    @Expect(cfg.summaryContextTokens, Int64(32768))
+    @Expect(cfg.summarySafetyTokens, Int64(1024))
+    @Expect(cfg.summaryBytesPerToken, Int64(2))
+    @Expect(cfg.summaryMaxCalls, Int64(8))
+    @Expect(cfg.summaryMaxAttempts, Int64(3))
     match (getVariable("HOME")) {
         case Some(h) => @Expect(cfg.dir, h + "/.chronolog")
         case None => @Expect(cfg.dir, ".chronolog")
@@ -67,6 +78,11 @@ func chronomem_config_override() {
     setVariable("CHRONOLOG_MEMTABLE_SIZE_MB", "8")
     setVariable("CHRONOLOG_SUMMARY_NO_THINK", "false")
     setVariable("CHRONOLOG_SUMMARY_MAX_TOKENS", "8192")
+    setVariable("CHRONOLOG_SUMMARY_CONTEXT_TOKENS", "131072")
+    setVariable("CHRONOLOG_SUMMARY_SAFETY_TOKENS", "2048")
+    setVariable("CHRONOLOG_SUMMARY_BYTES_PER_TOKEN", "3")
+    setVariable("CHRONOLOG_SUMMARY_MAX_CALLS", "12")
+    setVariable("CHRONOLOG_SUMMARY_MAX_ATTEMPTS", "5")
 
     let cfg = ChronomemConfig.fromEnv()
     @Expect(cfg.dir, "/tmp/chronomem_cfg")
@@ -86,6 +102,11 @@ func chronomem_config_override() {
     @Expect(cfg.memTableSizeMb, Int64(8))
     @Expect(cfg.summaryNoThink, false)
     @Expect(cfg.summaryMaxTokens, Int64(8192))
+    @Expect(cfg.summaryContextTokens, Int64(131072))
+    @Expect(cfg.summarySafetyTokens, Int64(2048))
+    @Expect(cfg.summaryBytesPerToken, Int64(3))
+    @Expect(cfg.summaryMaxCalls, Int64(12))
+    @Expect(cfg.summaryMaxAttempts, Int64(5))
 
     removeVariable("CHRONOLOG_DIR")
     removeVariable("CHRONOLOG_ADDR")
@@ -103,6 +124,11 @@ func chronomem_config_override() {
     removeVariable("CHRONOLOG_MEMTABLE_SIZE_MB")
     removeVariable("CHRONOLOG_SUMMARY_NO_THINK")
     removeVariable("CHRONOLOG_SUMMARY_MAX_TOKENS")
+    removeVariable("CHRONOLOG_SUMMARY_CONTEXT_TOKENS")
+    removeVariable("CHRONOLOG_SUMMARY_SAFETY_TOKENS")
+    removeVariable("CHRONOLOG_SUMMARY_BYTES_PER_TOKEN")
+    removeVariable("CHRONOLOG_SUMMARY_MAX_CALLS")
+    removeVariable("CHRONOLOG_SUMMARY_MAX_ATTEMPTS")
 }
 
 @Test
