@@ -38,7 +38,7 @@ Agent 在长时间尺度上工作，遇到的根本限制是：上下文窗口�
 
 **LLM 记忆系统。** 为 LLM Agent 提供长期记忆的研究正在快速增长：MemGPT（Packer 等）引入分层上下文管理与记忆层级；Generative Agents（Park 等）把「记忆流」与检索、反思结合；A-MEM〔arXiv:2502.12110〕与 Mem0〔arXiv:2504.19413〕发展出 agentic / 组织化的记忆；**HiMem**（arXiv:2601.06377）为长周期 Agent 提出分层长期记忆；**RaMem**（arXiv:2606.22844）研究情境重激活；**AriadneMem**（arXiv:2603.03290）处理 Agent 的终生记忆。我们的差异点在于：(i) 把「精确回想」（零 token、走引用链）与「语义回想」（LLM、压缩）作为**显式的成本模型**分开；(ii) 摘要是**一等公民的时序条目**，可被递归再总结；(iii) 把整个底座标准化在 MCP 接口后面。
 
-**主题记忆 vs 时间记忆。** 「LLM wiki」一类系统（如 LLM WIKI；*Beyond RAG: LLM Wikis as Living Semantic Memory*，Zenodo 20078453）按主题/语义词条组织知识——主题记忆，类比维基百科。忆时塔按时间组织——时间记忆，类比账本。二者互补：时间日志可沉淀出主题词条，词条可回溯到时间证据。我们把这个对比讲清楚，是因为我们相信很多「记忆」系统混淆了两条轴，而轴的选择应跟随用途：论文是「过程」（时间），参考手册是「知识体」（主题）。
+**主题记忆 vs 时间记忆。** 「LLM wiki」一类系统按主题/语义词条组织知识——主题记忆，类比维基百科。这个范式——把来源**编译**成一个由 LLM 持续维护的持久 wiki，而不是在查询时检索原始片段——由 Karpathy 提出〔Karpathy，《LLM Wiki》，2026〕，此后引来设计与生产层面的分析（*Beyond RAG: LLM Wikis as Living Semantic Memory*〔Zenodo 20078453〕；*Compiled Memory vs Governed State: Karpathy's LLM Wiki and the Reflexive Laboratory*〔Zenodo 19507593〕；*Managed Memory Is Still Not Governed State: Production Lessons from LLM Wiki v2*〔Zenodo 19545947〕）。忆时塔按时间组织——时间记忆，类比账本。二者互补：时间日志可沉淀出主题词条，词条可回溯到时间证据。我们把这个对比讲清楚，是因为我们相信很多「记忆」系统混淆了两条轴，而轴的选择应跟随用途：论文是「过程」（时间），参考手册是「知识体」（主题）。
 
 **Model Context Protocol。** MCP（modelcontextprotocol.io）标准化了客户端与服务器之间的工具、资源与提示。忆时塔在此的贡献是：通过 `mem/*` 工具集把**记忆**做成一等 MCP 能力，让任何 MCP 客户端无需集成私有 SDK 即可采用共享、演化的记忆。（目前只以工具形式暴露记忆；资源与提示是同一底座上自然的后续扩展。）
 
@@ -100,12 +100,15 @@ Agent 在长时间尺度上工作，遇到的根本限制是：上下文窗口�
 4. *RaMem: Contextual Reinstatement for Long-term Agentic Memory.* arXiv:2606.22844.
 5. *AriadneMem: Threading the Maze of Lifelong Memory for LLM Agents.* arXiv:2603.03290.
 6. *Beyond RAG: LLM Wikis as Living Semantic Memory: Patterns, Empirical Findings, and Open Problems.* Zenodo: 20078453.
-7. *Memory as Metabolism: A Design for Companion Knowledge Systems.* Zenodo: 19501652.
+7. Miteski, S. *Memory as Metabolism: A Design for Companion Knowledge Systems.* arXiv:2604.12034（另有 Zenodo: 19501652）。
 8. Model Context Protocol specification. https://modelcontextprotocol.io
 9. Xu, W., et al. *A-MEM: Agentic Memory for LLM Agents.* arXiv:2502.12110.
 10. Chhikara, P., et al. *Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory.* arXiv:2504.19413.
 11. Letta（原 MemGPT）：stateful agents with long-term memory. https://github.com/letta-ai/letta
-12. （待补充）LLM WIKI 知识图谱论文；§6 中引用的其余基线。
+12. Karpathy, A. *LLM Wiki: A pattern for building personal knowledge bases using LLMs.* GitHub Gist, April 2026. https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f
+13. *Compiled Memory vs Governed State: Karpathy's LLM Wiki and the Reflexive Laboratory.* Zenodo: 19507593.
+14. *Managed Memory Is Still Not Governed State: Production Lessons from LLM Wiki v2.* Zenodo: 19545947.
+15. （待补充）§6 中引用的其余基线。
 
 ## AI 使用披露
 

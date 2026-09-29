@@ -33,7 +33,7 @@ This paper is a **position and design** paper. We motivate the design from a cog
 
 **LLM memory systems.** A rapidly growing line of work addresses long-term memory for LLM agents: MemGPT [Packer et al.] introduces hierarchical context management and a memory hierarchy; Generative Agents [Park et al.] couple a memory stream with retrieval and reflection; A-MEM [arXiv:2502.12110] and Mem0 [arXiv:2504.19413] develop agentic/organized memory; **HiMem** [arXiv:2601.06377] proposes hierarchical long-term memory for long-horizon agents; **RaMem** [arXiv:2606.22844] studies contextual reinstatement; **AriadneMem** [arXiv:2603.03290] threads lifelong memory for agents. Our work differs in emphasis: (i) we separate *exact* (zero-token, reference-chain) recall from *semantic* (LLM, compressed) recall as an explicit cost model; (ii) summaries are first-class append-only temporal entries enabling recursive summarization; and (iii) we standardize the whole substrate behind an MCP interface.
 
-**Thematic vs. temporal memory.** "LLM wiki" systems (e.g., LLM WIKI; *Beyond RAG: LLM Wikis as Living Semantic Memory* [Zenodo 20078453]) organize knowledge by topic/semantic entry—thematic memory, analogous to a Wikipedia. Chronomem organizes by time—temporal memory, analogous to a ledger. They are complementary: a time log can precipitate thematic entries, and a thematic entry can trace back to time evidence. We make this contrast explicit because we believe many "memory" systems conflate the two axes, and the choice of axis should follow the use case (a thesis is a process—temporal; a reference manual is a body of knowledge—thematic).
+**Thematic vs. temporal memory.** "LLM wiki" systems organize knowledge by topic/semantic entry—thematic memory, analogous to a Wikipedia. The pattern—compiling sources into a persistent, LLM-maintained wiki instead of retrieving raw chunks at query time—was proposed by Karpathy [Karpathy, *LLM Wiki*, 2026] and has since drawn design and production analyses (*Beyond RAG: LLM Wikis as Living Semantic Memory* [Zenodo 20078453]; *Compiled Memory vs Governed State: Karpathy's LLM Wiki and the Reflexive Laboratory* [Zenodo 19507593]; *Managed Memory Is Still Not Governed State: Production Lessons from LLM Wiki v2* [Zenodo 19545947]). Chronomem organizes by time—temporal memory, analogous to a ledger. They are complementary: a time log can precipitate thematic entries, and a thematic entry can trace back to time evidence. We make this contrast explicit because we believe many "memory" systems conflate the two axes, and the choice of axis should follow the use case (a thesis is a process—temporal; a reference manual is a body of knowledge—thematic).
 
 **Model Context Protocol.** MCP (modelcontextprotocol.io) standardizes tools, resources, and prompts between clients and servers. Chronomem's contribution here is to treat *memory* as a first-class MCP capability through a `mem/*` toolset, so any MCP client can adopt a shared, evolving memory without integrating a proprietary SDK. (Memory is currently exposed as tools only; resources and prompts are natural later extensions of the same substrate.)
 
@@ -94,12 +94,15 @@ We presented Chronomem, a time-layered external memory service over MCP, whose c
 4. *RaMem: Contextual Reinstatement for Long-term Agentic Memory.* arXiv:2606.22844.
 5. *AriadneMem: Threading the Maze of Lifelong Memory for LLM Agents.* arXiv:2603.03290.
 6. *Beyond RAG: LLM Wikis as Living Semantic Memory: Patterns, Empirical Findings, and Open Problems.* Zenodo: 20078453.
-7. *Memory as Metabolism: A Design for Companion Knowledge Systems.* Zenodo: 19501652.
+7. Miteski, S. *Memory as Metabolism: A Design for Companion Knowledge Systems.* arXiv:2604.12034 (also Zenodo: 19501652).
 8. Model Context Protocol specification. https://modelcontextprotocol.io
 9. Xu, W., et al. *A-MEM: Agentic Memory for LLM Agents.* arXiv:2502.12110.
 10. Chhikara, P., et al. *Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory.* arXiv:2504.19413.
 11. Letta (formerly MemGPT): stateful agents with long-term memory. https://github.com/letta-ai/letta
-12. (to add) LLM WIKI knowledge-graph paper; any additional baselines cited in §6.
+12. Karpathy, A. *LLM Wiki: A pattern for building personal knowledge bases using LLMs.* GitHub Gist, April 2026. https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f
+13. *Compiled Memory vs Governed State: Karpathy's LLM Wiki and the Reflexive Laboratory.* Zenodo: 19507593.
+14. *Managed Memory Is Still Not Governed State: Production Lessons from LLM Wiki v2.* Zenodo: 19545947.
+15. (to add) Any additional baselines cited in §6.
 
 ## AI-Use Disclosure
 
