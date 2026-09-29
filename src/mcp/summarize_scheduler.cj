@@ -168,7 +168,7 @@ public class SummarizeScheduler {
     // 分组维度为空（整窗总结）时：只要有任一覆盖总结即视为已总结。
     private static func allGroupsSummarized(svc: MemoryService, m: TypeMeta, winFrom: Int64, winTo: Int64): Bool {
         match (m.summaryGroupBy) {
-            case None => latestOverlappingSummary(svc, m.name, winFrom, winTo, None).isSome()
+            case None => latestSummaryForWindow(svc, m.name, winFrom, winTo, None).isSome()
             case Some(dims) =>
                 // 分批遍历收集窗口内实际存在的分组（含未分组）——只取 groupKey，
                 // 点对象每批即弃，避免整窗驻留
@@ -182,7 +182,7 @@ public class SummarizeScheduler {
                 if (!any) { return true }   // 空窗口视为已处理
                 // 每个存在的分组都须有覆盖总结
                 for (k in seen.all()) {
-                    if (latestOverlappingSummary(svc, m.name, winFrom, winTo, k).isNone()) {
+                    if (latestSummaryForWindow(svc, m.name, winFrom, winTo, k).isNone()) {
                         return false
                     }
                 }

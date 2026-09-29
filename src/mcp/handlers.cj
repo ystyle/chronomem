@@ -307,7 +307,7 @@ func doSummarize(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64,
     for ((groupKey, entries) in acc.buckets) {
         // 幂等：已有覆盖该窗口的同分组总结则跳过（除非 recompute）
         if (!recompute) {
-            if (latestOverlappingSummary(svc, name, winFrom, winTo, groupKey).isSome()) {
+            if (latestSummaryForWindow(svc, name, winFrom, winTo, groupKey).isSome()) {
                 sb.append("【" + groupLabel(groupKey) + "】已有总结，跳过（recompute=true 可强制重算）\n")
                 continue
             }
@@ -331,35 +331,61 @@ func doSummarize(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64,
 
 // 找覆盖 [winFrom, winTo] 的最新一条 SummaryRecord；
 // groupKey 可选过滤（None = 整窗/无分组总结；Some(UNGROUPED_GROUP) = 未分组）
-func latestOverlappingSummary(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64,
+// 该窗口的最新一条摘要，无则 None
+func latestSummaryForWindow(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64,
     groupKey: Option<String>): Option<SummaryRecord> {
-    let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
-    let points = stl.queryPoints(0, 0, 50, None)
-    for (p in points) {
-        let rec = fromJsonString<SummaryRecord>(p.payload)
-        if (rec.windowFrom <= winTo && rec.windowTo >= winFrom && rec.groupKey == groupKey) {
-            return Some(rec)
-        }
+    for (rec in summariesForWindow(svc, name, winFrom, winTo)) {
+        if (rec.groupKey == groupKey) { return Some(rec) }
     }
     None
 }
 
-// 收集覆盖 [winFrom, winTo] 的总结（最新在前）。groupFilter 可选：
-// 空 = 全部；否则仅匹配该分组值（"未分组" → UNGROUPED_GROUP）
+// 分页遍历某类型的全部摘要（每页 200，边读边判，不整表驻留）。
+// 摘要的 ts 是**生成时刻**而非窗口时间，无法用时间范围预筛「窗口匹配」，故只能全量遍历；
+// 摘要量随运营线性增长（每日 × 分组数 + 每周一条），不能按「一年只有 52 条」写死条数上限
+// ——上限一旦触顶，更早窗口的摘要就对「语义回顾」与自动调度的幂等判据同时静默不可见
+// （表现为：库里明明有，recall summary 却说「无摘要」，且老窗口被判未总结而重复总结烧 token）。
+// cb 返回 false 表示提前结束遍历。
+func forEachSummary(svc: MemoryService, name: String, cb: (SummaryRecord) -> Bool): Unit {
+    let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
+    let pageSize = Int64(200)
+    var page = Int64(1)
+    while (true) {
+        let (points, total) = stl.queryPointsPage(0, 0, page, pageSize, None)
+        if (points.size == 0) { break }
+        for (p in points) {
+            if (!cb(fromJsonString<SummaryRecord>(p.payload))) { return }
+        }
+        if (page * pageSize >= total) { break }
+        page += 1
+    }
+}
+
+// 窗口**精确匹配**（windowFrom/windowTo 全等）的全部摘要，最新在前。
+//
+// 必须精确匹配而非「区间重叠」：日窗口落在周窗口**内部**，重叠判据会让周窗口被其内部的
+// 日摘要判为「已总结」（周层永不产出），也会让查某一天时把整周摘要一并返回（时段归属错误）。
+// 同一粒度的自然窗口互不重叠，故「全等」才等于「就是这个窗口」；显式 from/to 的不规则
+// 任务阶段窗口同理（同一对 from/to 即同一窗口）。
+func summariesForWindow(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64): ArrayList<SummaryRecord> {
+    let out = ArrayList<SummaryRecord>()
+    forEachSummary(svc, name, { rec =>
+        if (rec.windowFrom == winFrom && rec.windowTo == winTo) { out.add(rec) }
+        true
+    })
+    out
+}
+
+// 收集该窗口的总结（最新在前）。groupFilter 为字符串口径：
+// 空 = 全部分组；"未分组" → UNGROUPED_GROUP；否则按该分组值精确匹配
 func overlappingSummaries(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64,
     groupFilter: String): ArrayList<SummaryRecord> {
+    let all = summariesForWindow(svc, name, winFrom, winTo)
+    if (groupFilter == "") { return all }
+    let want = if (groupFilter == "未分组") { Some(UNGROUPED_GROUP) } else { Some(groupFilter) }
     let out = ArrayList<SummaryRecord>()
-    let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
-    let points = stl.queryPoints(0, 0, 50, None)
-    for (p in points) {
-        let rec = fromJsonString<SummaryRecord>(p.payload)
-        if (rec.windowFrom <= winTo && rec.windowTo >= winFrom) {
-            if (groupFilter != "") {
-                let want = if (groupFilter == "未分组") { Some(UNGROUPED_GROUP) } else { Some(groupFilter) }
-                if (rec.groupKey != want) { continue }
-            }
-            out.add(rec)
-        }
+    for (rec in all) {
+        if (rec.groupKey == want) { out.add(rec) }
     }
     out
 }
