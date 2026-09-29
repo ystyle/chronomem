@@ -289,6 +289,31 @@ func handlers_appendSizeLimit() {
 
 // ---------- recall（exact 下钻 / summary 语义回顾） ----------
 
+// 空窗口的精确下钻不得静默回退到更早窗口：那会把**别的时段**的记录当作本时段证据返回，
+// 且调用方无从辨别（既不像报错、也不像空结果）。
+@Test
+func handlers_recallExactDoesNotFallBackToEarlierWindow() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"probe\",\"levels\":[\"day\",\"week\"]}"))
+    let day = TEST_BASE
+    handleAppend(s, argsFromJson("{\"type\":\"probe\",\"payload\":{\"k\":\"v1\"},\"ts\":" + day.toString() + "}"))
+    handleAppend(s, argsFromJson("{\"type\":\"probe\",\"payload\":{\"k\":\"v2\"},\"ts\":" + (day + 1000).toString() + "}"))
+    s.store.materializeAll(day)
+    // 同窗口：正常下钻到本窗口的条目
+    let same = resultText(handleRecall(s,
+        argsFromJson("{\"type\":\"probe\",\"granularity\":\"day\",\"mode\":\"exact\",\"windowStartMs\":" + day.toString() + "}")))
+    @Expect(same.indexOf("v1") != None, true)
+    // 次日窗口无记录 → 必须报「无记录」，绝不能把昨天的条目当成本时段证据
+    let tl = s.registry.timelineOf("probe").getOrThrow()
+    let nextDay = tl.nextWindowStartMs(tl.windowStartOf(day, "day"), "day")
+    let r = resultText(handleRecall(s,
+        argsFromJson("{\"type\":\"probe\",\"granularity\":\"day\",\"mode\":\"exact\",\"windowStartMs\":" + nextDay.toString() + "}")))
+    @Expect(r.indexOf("v1") != None, false)
+    @Expect(r.indexOf("v2") != None, false)
+    @Expect(r.indexOf("无记录") != None, true)
+    s.close()
+}
+
 @Test
 func handlers_recallExactDrillDown() {
     let s = svc()

@@ -65,9 +65,9 @@ func timeline_bucketAtFallsBackToEarlierBucket() {
     let tl = store.timeline("t3", "测试", Timeline.defaultLevels())
     tl.append(TEST_BASE, "x", tagsOf([]))
     tl.materialize(TEST_BASE, "测试")
-    // 锚点在下一个 10min 窗口（未物化）→ 回退到 TEST_BASE 的桶
+    // 锚点在下一个 10min 窗口（未物化）→ 显式开启回退才回到 TEST_BASE 的桶
     let anchor = TEST_BASE + Timeline.windowMs("10min") + 1000
-    match (tl.bucketAt("10min", anchor)) {
+    match (tl.bucketAt("10min", anchor, allowFallback: true)) {
         case Some(key) => @Expect(key, tl.windowKeyOf(TEST_BASE, "10min"))
         case None => @Fail("bucketAt 应回退到更早桶")
     }

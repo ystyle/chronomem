@@ -674,13 +674,21 @@ public func handleRecall(svc: MemoryService, args: HashMap<String, JsonValue>): 
         }
         return CallToolResult.text("该时段尚无语义摘要，请先 mem/summarize（或设 summarize_on_miss=true 现算）")
     }
-    // 精确下钻（零 LLM）
+    // 精确下钻（零 LLM）。严格匹配目标窗口：窗口没有桶时不得回退到更早窗口，
+    // 否则会把**别的时段**的记录当作本时段证据返回（调用方无从辨别）。
     match (tl.bucketAt(granularity, anchorFinal)) {
         case Some(key) =>
             let points = tl.drillDown(granularity, key)
             if (points.size == 0) { return CallToolResult.text("该时间窗无记录") }
             CallToolResult.text(formatPoints(points, svc.store.timeZoneOf()))
-        case None => CallToolResult.text("该粒度没有可用的物化桶（历史可能太短或未物化）")
+        case None =>
+            // 「本来就没记录」与「有记录但尚未物化」对调用方含义完全不同，须分开告知。
+            let alive = tl.countIn(winFrom, winTo)
+            if (alive > 0) {
+                return CallToolResult.text("该时间窗有 " + alive.toString()
+                    + " 条记录但尚未物化（物化每分钟推进）；期间可用 mem/query 直读原始条目")
+            }
+            CallToolResult.text("该时间窗无记录")
     }
 }
 

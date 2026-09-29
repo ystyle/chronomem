@@ -286,15 +286,23 @@ public class Timeline {
     // 最细层（当前窗口内全部点 → PointRef）→ 逐层向上（当前窗口内已存在的下一层子桶 → BucketRef）。
     // 空窗口不建桶；label 用于桶摘要文案（如「对话」「工具调用」）。
     public func materialize(ts: Int64, label: String): Unit {
+        let fStart = this.windowStartOf(ts, this.levels[0])
+        let fEnd = this.nextWindowStartMs(fStart, this.levels[0]) - 1
+        // ts-only 扫描：物化只需窗口内点的 ts 建 PointRef，payload 零读取
+        // （此前 range().find() 把整窗 payload 全量 decode——分钟级 cron 全量读
+        // 是长跑内存峰值主源；timestamps() 只解析 key 的 ts）
+        let winTs = this.tsdb.query(this.series).range(fStart, fEnd).timestamps()
+        this.materializeWith(ts, label, winTs)
+    }
+
+    // 物化主流程。winTs 由调用方提供：补齐流程已为「陈旧判定」扫过同一窗口，
+    // 复用它可避免每窗口两次全量 ts 扫描。
+    private func materializeWith(ts: Int64, label: String, winTs: ArrayList<Int64>): Unit {
         let levels = this.levels
         // 最细层
         let fStart = this.windowStartOf(ts, levels[0])
         let fEnd = this.nextWindowStartMs(fStart, levels[0]) - 1
         let fKey = this.windowKeyOf(ts, levels[0])
-        // ts-only 扫描：物化只需窗口内点的 ts 建 PointRef，payload 零读取
-        // （此前 range().find() 把整窗 payload 全量 decode——分钟级 cron 全量读
-        // 是长跑内存峰值主源；timestamps() 只解析 key 的 ts）
-        let winTs = this.tsdb.query(this.series).range(fStart, fEnd).timestamps()
         // 日志瘦身：空窗口静默（原每窗口一行，30 窗口×4 series/轮 = 120+ 行刷屏，
         // 字符串分配累积 GC 堆压力）；仅在有数据/建桶时输出一行。
         // **幂等**：窗口内容与已落盘的桶一致时不重写——materialize 每 60s 对当窗重跑，
@@ -376,15 +384,23 @@ public class Timeline {
         while (idx >= 0) {
             let ts = anchors[Int64(idx)]
             idx -= 1
-            let key = this.windowKeyOf(ts, finest)
-            if (this.tsdb.bucketSummary(this.series, finest, key).isSome()) {
-                continue
-            }
             let end = this.nextWindowStartMs(ts, finest) - 1
             if (end >= now) {
                 continue   // 未闭合窗口不补（当窗由下方 materialize(now) 处理）
             }
-            this.materialize(ts, label)
+            // 不能只看「桶是否存在」：当窗期内服务中断（挂死 / OOM / 崩溃）会让桶停在
+            // 中断前的点数，中断后的写入再也不会被物化——精确下钻里那些条目永久不可见，
+            // 且桶摘要与下钻结果自洽，调用方无从察觉。故按内容指纹判定：
+            // 点集只增不减（tsdb 拒绝乱序写），「桶引用数 != 当前点数」即陈旧，重算。
+            let key = this.windowKeyOf(ts, finest)
+            let winTs = this.tsdb.query(this.series).range(ts, end).timestamps()
+            if (winTs.size == 0) {
+                continue   // 空窗口不建桶
+            }
+            if (!this.finestChanged(finest, key, Int64(winTs.size))) {
+                continue   // 已是最新，不重写（幂等）
+            }
+            this.materializeWith(ts, label, winTs)
         }
         // 当窗物化（原调度语义）
         this.materialize(now, label)
@@ -445,11 +461,19 @@ public class Timeline {
         this.tsdb.listBucketMetas(this.series, granularity, from, to)
     }
 
-    // 某粒度下「覆盖 anchor」的物化桶键；anchor 所在桶未物化时回退到最近的更早桶
-    public func bucketAt(granularity: String, anchor: Int64): Option<String> {
+    // 某粒度下「覆盖 anchor」的物化桶键。
+    //
+    // allowFallback=false（默认，严格）：anchor 所在窗口没有桶就返回 None。
+    //   「按窗口取证据」必须严格——静默回退到更早窗口，会让调用方把**别的时段**的数据
+    //   当成所请求时段的记录；错误时段的归属比空结果危害大得多，且调用方无从辨别。
+    // allowFallback=true：回退到最近的更早桶。适合浏览型用例（从最近有数据处开始看）。
+    public func bucketAt(granularity: String, anchor: Int64, allowFallback!: Bool = false): Option<String> {
         let key = this.windowKeyOf(anchor, granularity)
         if (this.tsdb.bucketSummary(this.series, granularity, key).isSome()) {
             return Some(key)
+        }
+        if (!allowFallback) {
+            return None
         }
         let buckets = this.tsdb.listBuckets(this.series, granularity, None, Some(key))
         var latest: Option<String> = None
