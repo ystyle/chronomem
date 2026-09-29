@@ -31,11 +31,11 @@ This paper is a **position and design** paper. We motivate the design from a cog
 
 **Time-series databases and rollups.** Layered time windows with materialized aggregates are standard in time-series databases (rollups / continuous aggregation / downsampling, e.g., TimescaleDB continuous aggregates, Prometheus downsampling). Chronomem reuses this machinery (built on the `tsdb` library) but extends it in a direction databases do not: the coarse layers are not only numeric aggregates but **LLM-generated semantic summaries** of arbitrary JSON events.
 
-**LLM memory systems.** A rapidly growing line of work addresses long-term memory for LLM agents: MemGPT [Packer et al.] introduces hierarchical context management and a memory hierarchy; Generative Agents [Park et al.] couple a memory stream with retrieval and reflection; A-MEM and Mem0 develop agentic/organized memory; **HiMem** [arXiv:2601.06377] proposes hierarchical long-term memory for long-horizon agents; **RaMem** [arXiv:2606.22844] studies contextual reinstatement; **AriadneMem** [arXiv:2603.03290] threads lifelong memory for agents. Our work differs in emphasis: (i) we separate *exact* (zero-token, reference-chain) recall from *semantic* (LLM, compressed) recall as an explicit cost model; (ii) summaries are first-class append-only temporal entries enabling recursive summarization; and (iii) we standardize the whole substrate behind an MCP interface.
+**LLM memory systems.** A rapidly growing line of work addresses long-term memory for LLM agents: MemGPT [Packer et al.] introduces hierarchical context management and a memory hierarchy; Generative Agents [Park et al.] couple a memory stream with retrieval and reflection; A-MEM [arXiv:2502.12110] and Mem0 [arXiv:2504.19413] develop agentic/organized memory; **HiMem** [arXiv:2601.06377] proposes hierarchical long-term memory for long-horizon agents; **RaMem** [arXiv:2606.22844] studies contextual reinstatement; **AriadneMem** [arXiv:2603.03290] threads lifelong memory for agents. Our work differs in emphasis: (i) we separate *exact* (zero-token, reference-chain) recall from *semantic* (LLM, compressed) recall as an explicit cost model; (ii) summaries are first-class append-only temporal entries enabling recursive summarization; and (iii) we standardize the whole substrate behind an MCP interface.
 
 **Thematic vs. temporal memory.** "LLM wiki" systems (e.g., LLM WIKI; *Beyond RAG: LLM Wikis as Living Semantic Memory* [Zenodo 20078453]) organize knowledge by topic/semantic entry—thematic memory, analogous to a Wikipedia. Chronomem organizes by time—temporal memory, analogous to a ledger. They are complementary: a time log can precipitate thematic entries, and a thematic entry can trace back to time evidence. We make this contrast explicit because we believe many "memory" systems conflate the two axes, and the choice of axis should follow the use case (a thesis is a process—temporal; a reference manual is a body of knowledge—thematic).
 
-**Model Context Protocol.** MCP (modelcontextprotocol.io) standardizes tools, resources, and prompts between clients and servers. Chronomem's contribution here is to treat *memory* as a first-class MCP capability (a `mem/*` toolset plus `mem://` resources), so any MCP client can adopt a shared, evolving memory without integrating a proprietary SDK.
+**Model Context Protocol.** MCP (modelcontextprotocol.io) standardizes tools, resources, and prompts between clients and servers. Chronomem's contribution here is to treat *memory* as a first-class MCP capability through a `mem/*` toolset, so any MCP client can adopt a shared, evolving memory without integrating a proprietary SDK. (Memory is currently exposed as tools only; resources and prompts are natural later extensions of the same substrate.)
 
 ## 3. Design Overview
 
@@ -45,13 +45,13 @@ Chronomem is a standalone daemon serving a single streamable-HTTP MCP endpoint. 
 
 **P2 — Per-type granularity chains.** Each type declares its own materialization levels, drawn from {10min, 30min, 1h, 3h, day, week, month}, defaulting to 10min→30min→1h→day→week. High-frequency channels keep minute-level levels for *same-day exact recall*; sparse channels (e.g., a work log with one entry a day) use day→week and avoid building mostly-empty fine buckets. Week is the default semantic-summary ceiling: a full year of weekly summaries is only ~52 records, cheap to load, and whole-year recall is rarely needed.
 
-**P3 — Three materialization modes.** A tower layer can be materialized in three ways, with different costs:
+**P3 — Materialization modes.** A tower layer can in principle be materialized in three ways, with different costs. The current implementation covers the first two; the third is a planned extension for which the underlying store already provides the aggregation primitives.
 
-| Mode | Content of a layer | Supports | LLM cost |
-|---|---|---|---|
-| Reference chain (default, events) | `PointRef`/`BucketRef` to finer layers | exact drill-down | none |
-| Numeric aggregation (optional, metrics) | count/avg/min/max JSON | overview + drill-down | none |
-| Semantic summary (optional) | LLM `SummaryRecord` | semantic recall | yes |
+| Mode | Content of a layer | Supports | LLM cost | Status |
+|---|---|---|---|---|
+| Reference chain (default, events) | `PointRef`/`BucketRef` to finer layers | exact drill-down | none | implemented |
+| Semantic summary (optional) | LLM `SummaryRecord` | semantic recall | yes | implemented |
+| Numeric aggregation (metrics) | count/avg/min/max JSON | overview + drill-down | none | planned |
 
 **P4 — Dual-track recall.** Two read operations with an explicit cost difference:
 - `mem/recall mode=exact`: navigate the reference chain to the *raw entries*—lossless, zero LLM tokens, but returns raw volume (reference chains *navigate*, they do not *compress*).
@@ -67,7 +67,7 @@ Our central conceptual claim is that *recall* must not be treated as a single op
 - **Semantic recall** = reading a summary. It is the only form that truly satisfies "the coarser the window, the smaller the answer." But it has a strict *precondition*: the summary must exist (generated earlier, or generated now at LLM cost). Hence "recall is zero-LLM" holds **only for exact recall**; coarse-grained overview recall is inherently summary-dependent.
 
 This distinction, trivial in retrospect, has concrete consequences that we argue prior systems blur:
-1. **Trigger strategy.** A scheduler that materializes *structure* (reference chains, aggregates) runs every minute at zero token cost; a scheduler that materializes *semantic summaries* automatically would silently burn tokens on empty or low-value windows. Chronomem therefore never auto-summarizes by default; `mem/summarize` is invoked manually or by task-phase boundaries, and the semantic-summary "miss" path is explicit (`summarize_on_miss`).
+1. **Trigger strategy.** Structural materialization (reference chains, aggregates) is a minute-level job that costs no tokens. Semantic summarization is the opposite: an unguarded scheduler would silently burn tokens on empty or low-value windows, and would keep retrying a window that cannot succeed. Chronomem therefore makes it **per-type opt-in** (new types default to off) and, once enabled, bounds it with five mechanisms: (a) only the most recent *closed* window is summarized, after a settle delay, so a window is never summarized while still being written; (b) summarization is idempotent per window and per group, and a successful run clears prior retry state; (c) empty windows cost nothing and are skipped; (d) repeated failures back off and, after a bounded number of attempts, are recorded as abandoned instead of being retried forever every ten minutes; and (e) each scheduler run is capped, so a backlog cannot become an unbounded burst. The built-in `worklog` type ships with this enabled—one summary per closed day per project—while arbitrary new types default to off, and the semantic-summary "miss" path on recall remains explicit (`summarize_on_miss`).
 2. **Semantic drift.** Recursive summarization of summaries is cheap but drifts; re-deriving from raw is faithful but expensive. Exposing both, with an explicit `recompute`, turns a silent quality problem into a caller-controlled trade-off.
 3. **Context-hygiene.** The service only stores and retrieves; it never pushes content back into a client's context. Clients decide whether and how much recall to inject, preserving a constant-context discipline.
 
@@ -76,11 +76,11 @@ This distinction, trivial in retrospect, has concrete consequences that we argue
 - **Semantic drift quantification.** How quickly does a chain of summaries diverge from the underlying events, and when is `recompute` worth its tokens? We plan to measure information retention along the chain with a fixed set of probe questions.
 - **Token-budgeted triggering.** Given a token budget, when should summaries be computed proactively (e.g., end-of-hour/end-of-week) versus lazily on recall? This is an optimization problem over {window, value, cost}.
 - **Retention and privacy.** MVP stores payloads in full with no privacy tiers; type-level privacy/encryption is future work, motivated by the observation that memory becomes *more* sensitive as it grows.
-- **Evaluation methodology.** Agent-memory evaluation is immature. We propose: fixed long-horizon task suites, query sets with ground-truth answers, and metrics {recall precision/recall, token cost, latency} against baselines {flat recency memory, one-shot compaction, a MemGPT-style memory hierarchy}.
+- **Evaluation methodology.** Agent-memory evaluation is immature. We propose: fixed long-horizon task suites, query sets with ground-truth answers, and metrics {recall precision/recall, token cost, latency} against baselines {flat recency memory, one-shot compaction, a MemGPT-style memory hierarchy}. One lesson from operating our own deployment is that **materialized-view consistency deserves to be a metric rather than an assumption**: a layered store can return a stale window (entries written after that window's last materialization are simply missing) or a neighboring window's records altogether, while the returned evidence looks entirely self-consistent and carries no error signal. Evaluations of hierarchical memory should therefore include an explicit consistency check between each coarse view and the raw records it claims to cover.
 
 ## 6. Evaluation Plan (Forthcoming)
 
-Empirical results are out of scope for this position paper and will appear in a follow-up. Planned studies: (i) a controlled long-horizon agent task (e.g., incremental project maintenance across simulated weeks) comparing Chronomem against flat memory and one-shot compaction on recall accuracy and token cost; (ii) a semantic-drift study along the summary chain; (iii) a qualitative study of the work-log use case (day/week granularity with task-phase summaries) by the authors.
+Empirical results are out of scope for this position paper and will appear in a follow-up. Planned studies: (i) a controlled long-horizon agent task (e.g., incremental project maintenance across simulated weeks) comparing Chronomem against flat memory and one-shot compaction on recall accuracy and token cost; (ii) a semantic-drift study along the summary chain; (iii) a qualitative study of the work-log use case (day/week granularity with task-phase summaries) by the authors. The authors have been running a single-user deployment continuously since August 2026, accumulating a few hundred structured work-log records, several hundred agent-activity records, and dozens of recursively generated day- and week-level summaries; this corpus will serve as the material for (iii) and will supply realistic window-size and compression-ratio distributions for calibrating (i) and (ii).
 
 ## 7. Conclusion
 
@@ -96,7 +96,10 @@ We presented Chronomem, a time-layered external memory service over MCP, whose c
 6. *Beyond RAG: LLM Wikis as Living Semantic Memory: Patterns, Empirical Findings, and Open Problems.* Zenodo: 20078453.
 7. *Memory as Metabolism: A Design for Companion Knowledge Systems.* Zenodo: 19501652.
 8. Model Context Protocol specification. https://modelcontextprotocol.io
-9. (to add) A-MEM, Mem0, Letta, LLM WIKI knowledge-graph paper; any additional baselines cited in §6.
+9. Xu, W., et al. *A-MEM: Agentic Memory for LLM Agents.* arXiv:2502.12110.
+10. Chhikara, P., et al. *Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory.* arXiv:2504.19413.
+11. Letta (formerly MemGPT): stateful agents with long-term memory. https://github.com/letta-ai/letta
+12. (to add) LLM WIKI knowledge-graph paper; any additional baselines cited in §6.
 
 ## AI-Use Disclosure
 
