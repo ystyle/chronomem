@@ -131,7 +131,7 @@ public class SummarizeScheduler {
                     case None => ()
                 }
                 // 提交后台任务（LLM 由 SummarizeJobRunner 串行执行，不阻塞任何线程）
-                _ = this.svc.summarizeRunner.getOrThrow().submit(m.name, prevStart, prevEnd, "", true)
+                _ = this.svc.summarizeRunner.getOrThrow().submit(m.name, prevStart, prevEnd, "", true, level: level)
                 this.attempts[key] = failed + 1
                 this.lastTryAt[key] = now
                 true

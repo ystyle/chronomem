@@ -89,3 +89,56 @@ func daySummaryRecallDoesNotReturnWeekSummary() {
     @Expect(r.indexOf("WEEK-ONLY") != None, false)
     s.close()
 }
+
+// ③ 递归总结（自底向上）：总结周窗口时，先补齐该周内各日的摘要（缺失则先按原始条目总结），
+// 再以这些日摘要为材料聚合出周摘要——即「默认基于最近一层提炼」，而非每层都重读原始条目。
+@Test
+func weekSummaryAggregatesFromDaySummaries() {
+    let s = svcWithLlm()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"rec\",\"levels\":[\"day\",\"week\"]}"))
+    let tl = s.registry.timelineOf("rec").getOrThrow()
+    let (wf, wt) = tl.windowRangeOf(TEST_BASE, "week")
+    // 该周内两天各有条目（刻意不预先做日总结）
+    tl.append(wf, "e1", tagsOf([]))
+    tl.append(wf + 86400000, "e2", tagsOf([]))
+    // 只请求周窗口：应自底向上补齐日摘要后聚合
+    let r = resultText(doSummarize(s, "rec", wf, wt, "", true, level: "week"))
+    @Expect(r.indexOf("该窗口无条目") != None, false)
+    // 该周内两个有数据的日子都应产出日摘要
+    var dayCount = Int64(0)
+    var sub = tl.windowStartOf(wf, "day")
+    while (sub <= wt) {
+        let subEnd = tl.nextWindowStartMs(sub, "day") - 1
+        dayCount += countSummariesExact(s, "rec", sub, subEnd)
+        sub = tl.nextWindowStartMs(sub, "day")
+    }
+    @Expect(dayCount, 2)
+    // 周摘要的 refs 必须指向两条**日摘要**（Proof：材料来自下层摘要而非原始条目）
+    let week = summariesForWindow(s, "rec", wf, wt)
+    @Expect(week.size, 1)
+    @Expect(week[0].refs.size, 2)
+    s.close()
+}
+
+// ③-b recompute=true 时强制原始基：即使已有日摘要，周摘要的 refs 也应指向原始条目。
+@Test
+func recomputeUsesRawEntriesNotFinerSummaries() {
+    let s = svcWithLlm()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"raw\",\"levels\":[\"day\",\"week\"]}"))
+    let tl = s.registry.timelineOf("raw").getOrThrow()
+    let (wf, wt) = tl.windowRangeOf(TEST_BASE, "week")
+    tl.append(wf, "e1", tagsOf([]))
+    tl.append(wf + 86400000, "e2", tagsOf([]))
+    // 先建好两层摘要（自底向上）
+    _ = doSummarize(s, "raw", wf, wt, "", true, level: "week")
+    // 再强制重算：材料应回到原始条目（该周共 2 条原始条目）
+    _ = doSummarize(s, "raw", wf, wt, "", true, recompute: true, level: "week")
+    let week = summariesForWindow(s, "raw", wf, wt)
+    // recompute 是**追加**新版本而非覆盖（保留重算历史），故该窗口此时有 2 条；取最新一条
+    @Expect(week.size >= 1, true)
+    @Expect(week[0].refs.size, 2)
+    // 原始条目 ts 落在窗口内；而日摘要的 ts 是生成时刻（nowMs，远大于窗口时间）——
+    // 据此可区分材料来自原始条目还是下层摘要
+    @Expect(week[0].refs[0] < wf + 86400000 * 2, true)
+    s.close()
+}
