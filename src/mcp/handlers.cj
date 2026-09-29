@@ -282,45 +282,126 @@ class SummaryBucketAccumulator {
     }
 }
 
+// 一次窗口总结的结果：records = 该窗口各分组的摘要（本次生成或命中已有）；
+// fresh 与 records 同序，true = 本次真正调用 LLM 生成（false = 命中已有而跳过）。
+struct WindowSummaryOutcome {
+    let records: ArrayList<SummaryRecord>
+    let fresh: ArrayList<Bool>
+
+    init(records: ArrayList<SummaryRecord>, fresh: ArrayList<Bool>) {
+        this.records = records
+        this.fresh = fresh
+    }
+}
+
+// levels 中 level 的下一细档；level 为最细档、空串或不在链内时 None（→ 以原始条目为材料）
+func finerLevelOf(levels: ArrayList<String>, level: String): Option<String> {
+    if (level == "") { return None }
+    for (i in 0..levels.size) {
+        if (levels[i] == level) {
+            if (i == 0) { return None }
+            return Some(levels[i - 1])
+        }
+    }
+    None
+}
+
+// 生成（并在 store=true 时落库）该窗口的语义摘要，返回各分组结果。
+//
+// 材料来源（design.md §7.2）：
+// - **默认自底向上**：level 已知且不是最细档时，先确保窗口内每个**下一细档**子窗口都有摘要
+//   （缺失的当场按更细层总结，逐层递归到原始条目为止），再以这些子摘要为材料聚合。
+//   便宜在于「高层不必重读原始条目」，而子摘要一旦落库即可长期复用（幂等命中即零成本）。
+// - **原始基**：recompute=true，或 level 未知（显式 from/to 的不规则任务阶段窗口——
+//   不存在「下一细档」的自然定义）时，直接读原始条目，无链式传话漂移。
+//
+// 注意材料一律取自**递归返回值**而非回查库：store=false 时下层摘要不落库，
+// 回查会拿到空材料，递归就断了。
+func summarizeWindowCore(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64,
+    instructions: String, store: Bool, recompute: Bool, level: String): WindowSummaryOutcome {
+    let tl = svc.registry.timelineOf(name).getOrThrow()
+    let meta = svc.registry.get(name).getOrThrow()
+    // 材料：groupKey → entries
+    let byGroup = HashMap<Option<String>, ArrayList<EntryText>>()
+    match (finerLevelOf(meta.levels, if (recompute) { "" } else { level })) {
+        case Some(finer) =>
+            var sub = tl.windowStartOf(winFrom, finer)
+            while (sub <= winTo) {
+                let subEnd = tl.nextWindowStartMs(sub, finer) - 1
+                if (subEnd > winTo) { break }
+                // 先补齐该子窗口（其内部对已有分组幂等跳过，不会重复烧 token）
+                let subOutcome = summarizeWindowCore(svc, name, sub, subEnd, instructions, store, false, finer)
+                for (rec in subOutcome.records) {
+                    let list = match (byGroup.get(rec.groupKey)) {
+                        case Some(l) => l
+                        case None =>
+                            let l = ArrayList<EntryText>()
+                            byGroup[rec.groupKey] = l
+                            l
+                    }
+                    list.add(EntryText(rec.ts, rec.text))
+                }
+                sub = tl.nextWindowStartMs(sub, finer)
+            }
+        case None =>
+            // 分批流式读窗口（keyset 翻页，每批 ≤200）：边读边按组累积 EntryText，
+            // 点对象每批即弃——避免整窗 ArrayList<Point> 驻留（大窗口+大 payload
+            // 时内存峰值从 O(窗口字节) 降到 O(单批字节+最终文本)）。
+            let acc = SummaryBucketAccumulator(meta)
+            tl.forEachWindowPoint(winFrom, winTo, 200, { points => acc.absorb(points) })
+            for ((k, v) in acc.buckets) { byGroup[k] = v }
+    }
+    let records = ArrayList<SummaryRecord>()
+    let fresh = ArrayList<Bool>()
+    for ((groupKey, entries) in byGroup) {
+        if (entries.size == 0) { continue }
+        // 幂等：该窗口该分组已有总结则直接复用（除非 recompute）
+        if (!recompute) {
+            match (latestSummaryForWindow(svc, name, winFrom, winTo, groupKey)) {
+                case Some(hit) =>
+                    records.add(hit)
+                    fresh.add(false)
+                    continue
+                case None => ()
+            }
+        }
+        let rec = svc.summarizer.getOrThrow().summarize(winFrom, winTo, entries, instructions, groupKey: groupKey)
+        if (store) {
+            svc.registry.summaryTimelineOf(name).getOrThrow().append(rec.ts, toJsonString(rec), HashMap<String, String>())
+        }
+        records.add(rec)
+        fresh.add(true)
+    }
+    WindowSummaryOutcome(records, fresh)
+}
+
 // 对 [winFrom, winTo] 窗口做语义总结；store=true 时落 <type>.summary，返回结果文本。
 // 类型配置了 summaryGroupBy 时按维度分桶，每桶独立总结（各自落一条 SummaryRecord）。
-// recompute=true 时忽略已有总结强制重算（否则已有同窗口同分组总结时跳过该分组）。
+// level 为该窗口所属粒度（自动调度与 granularity 模式已知；显式 from/to 传空串）；
+// 默认走自底向上（下层摘要聚合），recompute=true 强制原始基——见 summarizeWindowCore。
 func doSummarize(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64,
-    instructions: String, store: Bool, recompute!: Bool = false): CallToolResult {
+    instructions: String, store: Bool, recompute!: Bool = false, level!: String = ""): CallToolResult {
     match (svc.summarizer) {
         case None => return toolError("未配置 LLM（LLM_BASE_URL / LLM_API_KEY / LLM_MODEL）")
         case Some(_) => ()
     }
-    let tl = svc.registry.timelineOf(name).getOrThrow()
-    let meta = svc.registry.get(name).getOrThrow()
-    // 分批流式读窗口（keyset 翻页，每批 ≤200）：边读边按组累积 EntryText，
-    // 点对象每批即弃——避免整窗 ArrayList<Point> 驻留（大窗口+大 payload
-    // 时内存峰值从 O(窗口字节) 降到 O(单批字节+最终文本)）。
-    let acc = SummaryBucketAccumulator(meta)
-    tl.forEachWindowPoint(winFrom, winTo, 200, { points => acc.absorb(points) })
-    if (acc.total == 0) {
+    let outcome = summarizeWindowCore(svc, name, winFrom, winTo, instructions, store, recompute, level)
+    if (outcome.records.size == 0) {
         return CallToolResult.text("该窗口无条目，无需总结")
     }
     let sb = StringBuilder()
     var anyStored = false
     var anyGenerated = false
-    for ((groupKey, entries) in acc.buckets) {
-        // 幂等：已有覆盖该窗口的同分组总结则跳过（除非 recompute）
-        if (!recompute) {
-            if (latestOverlappingSummary(svc, name, winFrom, winTo, groupKey).isSome()) {
-                sb.append("【" + groupLabel(groupKey) + "】已有总结，跳过（recompute=true 可强制重算）\n")
-                continue
-            }
+    for (i in 0..outcome.records.size) {
+        let rec = outcome.records[i]
+        let head = "【" + groupLabel(rec.groupKey) + "】"
+        if (outcome.fresh[i]) {
+            anyGenerated = true
+            if (store) { anyStored = true }
+            sb.append(head + "@" + fmtTs(rec.ts, svc.store.timeZoneOf()) + "\n" + rec.text + "\n\n")
+        } else {
+            sb.append(head + "已有总结，跳过（recompute=true 可强制重算）\n")
         }
-        let rec = svc.summarizer.getOrThrow().summarize(winFrom, winTo, entries, instructions, groupKey: groupKey)
-        if (store) {
-            let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
-            stl.append(rec.ts, toJsonString(rec), HashMap<String, String>())
-            anyStored = true
-        }
-        anyGenerated = true
-        let head = "【" + groupLabel(groupKey) + "】@" + fmtTs(rec.ts, svc.store.timeZoneOf()) + "\n"
-        sb.append(head + rec.text + "\n\n")
     }
     if (!anyGenerated) {
         return CallToolResult.text("该窗口各分组均已有总结，无需重复（recompute=true 可强制重算）")
@@ -331,35 +412,61 @@ func doSummarize(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64,
 
 // 找覆盖 [winFrom, winTo] 的最新一条 SummaryRecord；
 // groupKey 可选过滤（None = 整窗/无分组总结；Some(UNGROUPED_GROUP) = 未分组）
-func latestOverlappingSummary(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64,
+// 该窗口的最新一条摘要，无则 None
+func latestSummaryForWindow(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64,
     groupKey: Option<String>): Option<SummaryRecord> {
-    let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
-    let points = stl.queryPoints(0, 0, 50, None)
-    for (p in points) {
-        let rec = fromJsonString<SummaryRecord>(p.payload)
-        if (rec.windowFrom <= winTo && rec.windowTo >= winFrom && rec.groupKey == groupKey) {
-            return Some(rec)
-        }
+    for (rec in summariesForWindow(svc, name, winFrom, winTo)) {
+        if (rec.groupKey == groupKey) { return Some(rec) }
     }
     None
 }
 
-// 收集覆盖 [winFrom, winTo] 的总结（最新在前）。groupFilter 可选：
-// 空 = 全部；否则仅匹配该分组值（"未分组" → UNGROUPED_GROUP）
+// 分页遍历某类型的全部摘要（每页 200，边读边判，不整表驻留）。
+// 摘要的 ts 是**生成时刻**而非窗口时间，无法用时间范围预筛「窗口匹配」，故只能全量遍历；
+// 摘要量随运营线性增长（每日 × 分组数 + 每周一条），不能按「一年只有 52 条」写死条数上限
+// ——上限一旦触顶，更早窗口的摘要就对「语义回顾」与自动调度的幂等判据同时静默不可见
+// （表现为：库里明明有，recall summary 却说「无摘要」，且老窗口被判未总结而重复总结烧 token）。
+// cb 返回 false 表示提前结束遍历。
+func forEachSummary(svc: MemoryService, name: String, cb: (SummaryRecord) -> Bool): Unit {
+    let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
+    let pageSize = Int64(200)
+    var page = Int64(1)
+    while (true) {
+        let (points, total) = stl.queryPointsPage(0, 0, page, pageSize, None)
+        if (points.size == 0) { break }
+        for (p in points) {
+            if (!cb(fromJsonString<SummaryRecord>(p.payload))) { return }
+        }
+        if (page * pageSize >= total) { break }
+        page += 1
+    }
+}
+
+// 窗口**精确匹配**（windowFrom/windowTo 全等）的全部摘要，最新在前。
+//
+// 必须精确匹配而非「区间重叠」：日窗口落在周窗口**内部**，重叠判据会让周窗口被其内部的
+// 日摘要判为「已总结」（周层永不产出），也会让查某一天时把整周摘要一并返回（时段归属错误）。
+// 同一粒度的自然窗口互不重叠，故「全等」才等于「就是这个窗口」；显式 from/to 的不规则
+// 任务阶段窗口同理（同一对 from/to 即同一窗口）。
+func summariesForWindow(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64): ArrayList<SummaryRecord> {
+    let out = ArrayList<SummaryRecord>()
+    forEachSummary(svc, name, { rec =>
+        if (rec.windowFrom == winFrom && rec.windowTo == winTo) { out.add(rec) }
+        true
+    })
+    out
+}
+
+// 收集该窗口的总结（最新在前）。groupFilter 为字符串口径：
+// 空 = 全部分组；"未分组" → UNGROUPED_GROUP；否则按该分组值精确匹配
 func overlappingSummaries(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64,
     groupFilter: String): ArrayList<SummaryRecord> {
+    let all = summariesForWindow(svc, name, winFrom, winTo)
+    if (groupFilter == "") { return all }
+    let want = if (groupFilter == "未分组") { Some(UNGROUPED_GROUP) } else { Some(groupFilter) }
     let out = ArrayList<SummaryRecord>()
-    let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
-    let points = stl.queryPoints(0, 0, 50, None)
-    for (p in points) {
-        let rec = fromJsonString<SummaryRecord>(p.payload)
-        if (rec.windowFrom <= winTo && rec.windowTo >= winFrom) {
-            if (groupFilter != "") {
-                let want = if (groupFilter == "未分组") { Some(UNGROUPED_GROUP) } else { Some(groupFilter) }
-                if (rec.groupKey != want) { continue }
-            }
-            out.add(rec)
-        }
+    for (rec in all) {
+        if (rec.groupKey == want) { out.add(rec) }
     }
     out
 }
@@ -668,7 +775,7 @@ public func handleRecall(svc: MemoryService, args: HashMap<String, JsonValue>): 
             if (svc.summarizer.isNone()) {
                 return toolError("未配置 LLM（LLM_BASE_URL / LLM_API_KEY / LLM_MODEL）")
             }
-            let id = svc.summarizeRunner.getOrThrow().submit(name, winFrom, winTo, "", true)
+            let id = svc.summarizeRunner.getOrThrow().submit(name, winFrom, winTo, "", true, level: granularity)
             return CallToolResult.text("该时段无摘要，已提交后台总结任务 #" + id.toString() +
                 "，完成后重试本调用即可获取（或 mem/summarize_status #" + id.toString() + " 查询状态）")
         }
@@ -716,6 +823,8 @@ public func handleSummarize(svc: MemoryService, args: HashMap<String, JsonValue>
     let to = argInt(args, "to")
     var winFrom = Int64(0)
     var winTo = Int64(0)
+    // 窗口所属粒度：granularity 模式已知；显式 from/to 的不规则窗口留空 → 总结核心走原始基
+    var level = ""
     if (from > 0 && to > 0) {
         winFrom = from
         winTo = to
@@ -731,6 +840,7 @@ public func handleSummarize(svc: MemoryService, args: HashMap<String, JsonValue>
         let (wf, wt) = tl.windowRangeOf(anchorFinal, granularity)
         winFrom = wf
         winTo = wt
+        level = granularity
     }
     // 未配置 LLM：提交也会失败，直接明确报错（其余功能不受影响）
     if (svc.summarizer.isNone()) {
@@ -738,7 +848,8 @@ public func handleSummarize(svc: MemoryService, args: HashMap<String, JsonValue>
     }
     let recompute = argBool(args, "recompute", false)
     // 提交后台任务，立即返回（LLM 在后台线程跑，不阻塞本请求与任何其他请求）
-    let id = svc.summarizeRunner.getOrThrow().submit(name, winFrom, winTo, instructions, store, recompute: recompute)
+    let id = svc.summarizeRunner.getOrThrow().submit(name, winFrom, winTo, instructions, store,
+        recompute: recompute, level: level)
     let modelOverride = argStr(args, "model")
     let modelNote = if (modelOverride != "" && svc.summarizer.getOrThrow().modelName() != modelOverride) {
         "（注：model=" + modelOverride + " 覆盖暂未生效，使用配置模型 " + svc.summarizer.getOrThrow().modelName() + "）"

@@ -19,9 +19,12 @@ public class SummarizeJob {
     public let instructions: String
     public let store: Bool
     public let recompute: Bool
+    // 该窗口所属粒度（自动调度与 granularity 模式已知；显式 from/to 的不规则窗口为空串）。
+    // 总结核心据此决定材料来源：已知且非最细档 → 自底向上取下一细档摘要聚合。
+    public let level: String
 
     public init(id: Int64, typeName: String, winFrom: Int64, winTo: Int64, instructions: String, store: Bool,
-        recompute!: Bool = false) {
+        recompute!: Bool = false, level!: String = "") {
         this.id = id
         this.typeName = typeName
         this.winFrom = winFrom
@@ -29,6 +32,7 @@ public class SummarizeJob {
         this.instructions = instructions
         this.store = store
         this.recompute = recompute
+        this.level = level
     }
 }
 
@@ -58,11 +62,12 @@ public class SummarizeJobRunner {
 
     // 提交后台总结任务，立即返回 jobId（不执行 LLM 调用）
     public func submit(typeName: String, winFrom: Int64, winTo: Int64, instructions: String, store: Bool,
-        recompute!: Bool = false): Int64 {
+        recompute!: Bool = false, level!: String = ""): Int64 {
         synchronized(this.lock) {
             this.nextId += 1
             let id = this.nextId
-            this.queue.add(SummarizeJob(id, typeName, winFrom, winTo, instructions, store, recompute: recompute))
+            this.queue.add(SummarizeJob(id, typeName, winFrom, winTo, instructions, store,
+                recompute: recompute, level: level))
             this.states[id] = "pending"
             this.activeWindows[this.windowKey(typeName, winFrom)] = id
             this.cond.notifyAll()
@@ -179,7 +184,7 @@ public class SummarizeJobRunner {
         var finalText = ""
         try {
             let r = doSummarize(this.svc, j.typeName, j.winFrom, j.winTo, j.instructions, j.store,
-                recompute: j.recompute)
+                recompute: j.recompute, level: j.level)
             if (r.isError) {
                 finalStatus = "failed"
                 finalText = resultText(r)
