@@ -7,7 +7,7 @@ compile-option = "-Woff unused"
 link-option = "-lstdx.crypto.digest"
 license = ["MIT"]
 authors = ["ystyle"]
-repository = "https://git.mini.ystyle.top:2024/ystyle/chronomem.git"
+repository = "https://atomgit.com/ystyle/chronomem"
 
 [dependencies]
 mcp = { path = "../mcp-cj" }

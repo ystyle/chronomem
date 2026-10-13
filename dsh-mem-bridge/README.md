@@ -1,6 +1,6 @@
 # dsh-mem-bridge
 
-把 dsh 会话活动**自动**落库到 [忆时塔 (chronomem)](https://git.mini.ystyle.top:2024/ystyle/chronomem) —— 无需 agent 自觉记录。
+把 dsh 会话活动**自动**落库到 [忆时塔 (chronomem)](https://atomgit.com/ystyle/chronomem) —— 无需 agent 自觉记录。
 
 设计文档：`../docs/plans/2026-09-05-dsh-session-memory.md`（v4）。
 
@@ -21,7 +21,46 @@
 
 **永不入塔**：消息全量原文、工具入参/出参、错误堆栈。入塔的是「预蒸馏」产物（模型自己写的末条回复、dsh 自己生成的压缩摘要）加事件自带的结构事实。
 
-## 安装（尚未接入 profile）
+## 怎么回忆（读回写进去的东西）
+
+桥只负责**写**；读一律走忆时塔的 `mem/*` 只读工具（零副作用，不改变任何状态）。写入的价值全在这里——会话跨天、跨上下文压缩之后，靠这些查询把"之前做过什么"捞回来。
+
+**① 续接会话（最常用）**——按 session 拿整条时间线，是恢复上下文的首选：
+
+```
+mem/query { type: "dsh/activity", tag: "session=<dsh SessionId>" }
+```
+
+**② 看某天某项目发生了什么**——语义回顾，返回三节（轮次流水 / 生命周期与压缩 / 目标状态）。**依赖该窗口已总结**（`auto_summarize: true` 已开，日/周窗口闭合后自动产出；也可手动 `mem/summarize` 补）：
+
+```
+mem/recall { type: "dsh/activity", granularity: "day", mode: "summary", group: "<项目名>" }
+```
+
+**③ 精确下钻原始条目**——零 LLM，拿回未压缩的原文（核对细节时用）：
+
+```
+mem/recall { type: "dsh/activity", granularity: "day", mode: "exact" }
+```
+
+**④ 按 kind 取特定流水**：
+
+```
+mem/query { type: "dsh/activity", tag: "kind=turn" }    # 轮次流水
+mem/query { type: "dsh/activity", tag: "kind=goal" }    # 目标状态机（含 phase/rev）
+mem/query { type: "dsh/activity", tag: "kind=close" }   # 目标收口账（含蒸馏结论）
+mem/query { type: "dsh/activity", tag: "kind=error" }   # 出错记录
+```
+
+**⑤ 与人工工作日志互链**——`worklog` 是项目任务账（人工写），两者都用 `session`/`goal` tag，可交叉取回同一个会话的"自动活动"与"人工任务日志"：
+
+```
+mem/query { type: "worklog", tag: "session=<dsh SessionId>" }
+```
+
+> 时区/窗口按忆时塔的自然日历对齐（day = 本地零点、week = 周一起点）。`mem/query` 分页返回，响应头给出总页数，翻页取完即可。
+
+## 安装
 
 本包是标准 dsh 插件包：`package.json` 的 `dsh.bundle.patch` 指向 `cordis.patch.yml`，后者只有一行 `insert`。
 
@@ -30,6 +69,8 @@
 dsh plugin --profile web add dsh-mem-bridge
 
 # 方式二：手动 —— 在 profile 的 package.json 加依赖，并把它加进 dsh.profile.bundles
+# 本仓开发期从视图内联安装（路径指向本目录）：
+#   "dsh-mem-bridge": "link:<path-to>/chronomem/dsh-mem-bridge"
 ```
 
 profile 变更需要**重启该 profile 的 dsh 进程**才生效。
