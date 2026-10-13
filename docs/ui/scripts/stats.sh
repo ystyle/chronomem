@@ -6,7 +6,7 @@ agent-browser close --all >/dev/null 2>&1
 sleep 1
 PASS_MENU=0; PASS_BUCKET=0
 for i in 1 2 3 4 5; do
-  agent-browser open http://192.168.3.6:8901 >/dev/null 2>&1
+  agent-browser open http://127.0.0.1:8900 >/dev/null 2>&1
   sleep 3
   # 点击菜单（塔视图）
   CX=$(agent-browser eval "(() => { const n=document.querySelectorAll('.ui-nav')[1]; const r=n.getBoundingClientRect(); return Math.round(r.left+r.width/2); })()" 2>&1 | tail -1)

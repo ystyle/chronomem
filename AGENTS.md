@@ -63,6 +63,21 @@ LLM_BASE_URL=... LLM_API_KEY=... LLM_MODEL=... \
 - **`--static` 仅对可执行文件生效**：库包会出现无害 warning（-Woff driver-arg 可压）。
 - **`-lstdx.crypto.digest`**：stdx.net.http 链接符号，chronomem [package] link-option 已带。
 
+## 目录构成
+
+```
+chronomem/
+├── src/                    # 塔本体（仓颉）
+├── docs/design.md          # 技术规格
+├── docs/paper/             # 定位论文（中英双版）
+├── docs/plans/             # 设计文档（含 dsh 会话记忆方案）
+└── dsh-mem-bridge/         # dsh 宿主插件（Node）：把会话活动自动写入 dsh/activity
+```
+
+- `dsh-mem-bridge/` 是 **Node 包**，与塔本体是两套构建（`npm test` vs `cjpm test`），互不影响；
+  它只是塔的一个客户端，**不参与 `cjpm build`**。
+- 它的行为契约见 `docs/plans/2026-09-05-dsh-session-memory.md`（README 的相对引用即指此）。
+
 ## 私有项目声明
 
 - **本项目为私有/内部项目，不发布到仓颉中心仓（禁止 `cjpm publish`）**。

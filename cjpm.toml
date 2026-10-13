@@ -7,7 +7,7 @@ compile-option = "-Woff unused"
 link-option = "-lstdx.crypto.digest"
 license = ["MIT"]
 authors = ["ystyle"]
-repository = "https://git.mini.ystyle.top:2024/ystyle/chronomem.git"
+repository = "https://atomgit.com/ystyle/chronomem"
 
 [dependencies]
 mcp = { path = "../mcp-cj" }
@@ -16,8 +16,8 @@ llm_api = { path = "../llm_api" }
 cron = { path = "../cron-cj" }
 cjxt = { path = "../cjxt" }
 tang = "1.0.5"
-jsonvalue = "1.1.0"
-"ystyle::jsonrpc" = "0.7.7"
+jsonvalue = "1.1.1"
+"ystyle::jsonrpc" = "0.7.8"
 
 
 [package.package-configuration."chronomem.cli"]

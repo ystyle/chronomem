@@ -31,7 +31,7 @@ public let UI_NAV: Array<(String, String, String)> = [
 
 public func uiNoGuard(_: HashMap<String, String>): Option<String> { None }
 
-// 布局 = 页面内调用（cjreg 姿势）：页面 render() 顶层包 uiLayout(activePath, content)，
+// 布局 = 页面内调用：页面 render() 顶层包 uiLayout(activePath, content)，
 // 重渲染整树自带 header/侧栏（框架 @Page layout 参数会在发送时二次套层，替换根时丢菜单）
 public func uiLayout(activePath: String, page: IComponent): IComponent {
     let children = ArrayList<IComponent>()
