@@ -43,6 +43,40 @@ This paper is a **position and design** paper. We motivate the design from two e
 
 Chronomem is a standalone daemon serving a single streamable-HTTP MCP endpoint (the Web console, when enabled, shares that same port, with MCP mounted at `/mcp`). Storage is a single time-series database (`tsdb`); each memory type owns two series—one for raw entries and one for its summaries. The design has five pillars.
 
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 312" width="100%" role="img" aria-label="architecture">
+<defs>
+<marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#5b6b80"/></marker>
+<marker id="ard" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#b4823c"/></marker>
+</defs>
+<text x="8" y="16" font-family="sans-serif" font-size="10.5px" fill="#4a5766">MCP clients (any tool: IDE agent, chat client, custom agent)</text>
+<rect x="190" y="26" width="380" height="30" fill="#f7f9fc" stroke="#5b6b80" stroke-width="1.3" rx="5"/>
+<text x="380" y="45" text-anchor="middle" font-family="monospace" font-size="11.5px" fill="#16202c">streamable-HTTP  ·  POST /mcp  ·  tools: mem/*</text>
+<rect x="230" y="76" width="300" height="34" fill="#eef3fa" stroke="#3f5a7d" stroke-width="1.5" rx="5"/>
+<text x="380" y="98" text-anchor="middle" font-family="sans-serif" font-size="12.5px" fill="#16202c">Chronomem daemon (single process)</text>
+<path d="M380,56 L380,76" stroke="#5b6b80" stroke-width="1.3" fill="none" marker-end="url(#ar)"/>
+<path d="M300,110 L300,140" stroke="#5b6b80" stroke-width="1.3" fill="none" marker-end="url(#ar)"/>
+<path d="M460,110 L460,140" stroke="#5b6b80" stroke-width="1.3" fill="none" marker-end="url(#ar)"/>
+<rect x="150" y="140" width="300" height="46" fill="#f7f9fc" stroke="#5b6b80" stroke-width="1.3" rx="5"/>
+<text x="300" y="159" text-anchor="middle" font-family="sans-serif" font-size="12.5px" fill="#16202c">MaterializeScheduler (@1m)</text>
+<text x="300" y="175" text-anchor="middle" font-family="sans-serif" font-size="10.5px" fill="#4a5766">reference chains — zero LLM</text>
+<rect x="470" y="140" width="280" height="46" fill="#fdf6ec" stroke="#b4823c" stroke-width="1.3" rx="5"/>
+<text x="610" y="159" text-anchor="middle" font-family="sans-serif" font-size="12.5px" fill="#16202c">SummarizeScheduler (*/10m)</text>
+<text x="610" y="175" text-anchor="middle" font-family="sans-serif" font-size="10.5px" fill="#4a5766">semantic summaries — LLM, per-type opt-in</text>
+<path d="M300,186 L300,214" stroke="#5b6b80" stroke-width="1.3" fill="none" marker-end="url(#ar)"/>
+<path d="M610,186 L610,214" stroke="#b4823c" stroke-width="1.3" fill="none" stroke-dasharray="4 3" marker-end="url(#ard)"/>
+<rect x="120" y="214" width="620" height="72" fill="#f7f9fc" stroke="#5b6b80" stroke-width="1.3" rx="5"/>
+<text x="140" y="234" font-family="monospace" font-size="11.5px" fill="#16202c">&lt;type&gt;</text>
+<text x="140" y="250" font-family="sans-serif" font-size="10.5px" fill="#4a5766">raw entries (immutable, append-only)</text>
+<text x="140" y="272" font-family="monospace" font-size="11.5px" fill="#16202c">tsdb · one series per type</text>
+<text x="430" y="234" font-family="monospace" font-size="11.5px" fill="#16202c">&lt;type&gt;.summary</text>
+<text x="430" y="250" font-family="sans-serif" font-size="10.5px" fill="#4a5766">SummaryRecord (append-only, re-summarizable)</text>
+<text x="430" y="272" font-family="sans-serif" font-size="10.5px" fill="#4a5766">refs → finer layer, down to raw entries</text>
+<text x="120" y="302" font-family="sans-serif" font-size="10.5px" fill="#4a5766">summaries are themselves temporal entries, so they can be re-summarized</text>
+</svg>
+<figcaption><b>Figure 1.</b> Architecture. A client reaches one daemon over MCP; two independent schedulers materialize a type's two series — reference chains (free, minute-level) and semantic summaries (LLM-costly, per-type opt-in). Summaries live in their own append-only series and reference finer layers, which is what makes recursive summarization possible (§3 P5).</figcaption>
+</figure>
+
 **P1 — Memory types are user-defined.** A *type* is a named series with an optional description and schema (for documentation and LLM prompting; not enforced), a declared retention field (currently metadata only — the MVP does not evict), and a *granularity chain* (below). Clients create types such as `work/chat`, `paper/decisions`, `tool/errors`. Type names are whitelisted (`[A-Za-z0-9_/-]`) to prevent path traversal.
 
 **P2 — Per-type granularity chains.** Each type declares its own materialization levels, drawn from {10min, 30min, 1h, 3h, day, week, month}, defaulting to 10min→30min→1h→day→week. High-frequency channels keep minute-level levels for *same-day exact recall*; sparse channels (e.g., a work log with one entry a day) use day→week and avoid building mostly-empty fine buckets. Week is the default semantic-summary ceiling: a full year of weekly summaries is only ~52 records, cheap to load, and whole-year recall is rarely needed.
@@ -60,6 +94,47 @@ Chronomem is a standalone daemon serving a single streamable-HTTP MCP endpoint (
 - `mem/recall mode=summary`: return the *semantic summary* of a window—this is the form that genuinely compresses coarse windows, and it is *dependent on a summary having been generated* (previously via `mem/summarize`, or computed on demand when `summarize_on_miss=true`).
 
 **P5 — Summaries are first-class temporal records.** `mem/summarize` reads a window (by granularity+anchor, or by explicit `from`/`to` for irregular "task-phase" windows), asks an LLM to produce a structured summary (anchors: decisions / conclusions / todos / state changes / keywords), and appends a `SummaryRecord` to the type's `.summary` series: the core fields are `{ts, windowFrom, windowTo, model, refs, instructions, text, groupKey}`, plus generation-provenance fields `{strategy, chunks, inputTokens, clippedEntries}` that record whether the summary was produced in one call or by chunked map-reduce, and how many entries were clipped for budget. Because summaries are themselves temporal entries, they can be re-summarized: raw → 10min summary → 1h summary → day summary is the semantic analogue of the structural tower, giving **recursive, non-destructive compression**. A `recompute` flag forces re-derivation from raw entries. Concretely, summarization proceeds *bottom-up by default*: before summarizing a coarse window the service makes sure every finer sub-window inside it has a summary—generating the missing ones from raw entries first—and then aggregates those summaries, so a coarse summary costs one call per group instead of a re-read of the whole window, while `refs` records which layer the material actually came from. A caller who wants to avoid chained paraphrase altogether can bypass the recursion with `recompute`.
+
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 258" width="100%" role="img" aria-label="summary recursion">
+<defs>
+<marker id="c1" markerWidth="8" markerHeight="8" refX="6" refY="2.6" orient="auto"><path d="M0,0 L6,2.6 L0,5.2 z" fill="#b4823c"/></marker>
+<marker id="c2" markerWidth="8" markerHeight="8" refX="6" refY="2.6" orient="auto"><path d="M0,0 L6,2.6 L0,5.2 z" fill="#c0392b"/></marker>
+</defs>
+<text x="8" y="16" font-family="sans-serif" font-size="10.5px" fill="#4a5766">raw entries (a day of one type)</text>
+<rect x="8" y="24" width="150" height="26" fill="#eef3fa" stroke="#3f5a7d" stroke-width="1.3" rx="4"/>
+<text x="83" y="41" text-anchor="middle" font-family="monospace" font-size="11px" fill="#16202c">e1 e2 ... en</text>
+<text x="8" y="76" font-family="sans-serif" font-size="10.5px" fill="#4a5766">layer 1 — 10min windows</text>
+<rect x="8" y="84" width="86" height="26" fill="#fdf6ec" stroke="#b4823c" stroke-width="1.3" rx="4"/>
+<text x="51" y="101" text-anchor="middle" font-family="monospace" font-size="11px" fill="#16202c">S(10m)</text>
+<rect x="106" y="84" width="86" height="26" fill="#fdf6ec" stroke="#b4823c" stroke-width="1.3" rx="4"/>
+<text x="149" y="101" text-anchor="middle" font-family="monospace" font-size="11px" fill="#16202c">S(10m)</text>
+<rect x="204" y="84" width="86" height="26" fill="#fdf6ec" stroke="#b4823c" stroke-width="1.3" rx="4"/>
+<text x="247" y="101" text-anchor="middle" font-family="monospace" font-size="11px" fill="#16202c">...</text>
+<text x="330" y="76" font-family="sans-serif" font-size="10.5px" fill="#4a5766">layer 2 — 1h</text>
+<rect x="330" y="84" width="120" height="26" fill="#fdf6ec" stroke="#b4823c" stroke-width="1.3" rx="4"/>
+<text x="390" y="101" text-anchor="middle" font-family="monospace" font-size="11px" fill="#16202c">S(1h)</text>
+<text x="520" y="76" font-family="sans-serif" font-size="10.5px" fill="#4a5766">layer 3 — day</text>
+<rect x="520" y="84" width="150" height="26" fill="#fdf6ec" stroke="#b4823c" stroke-width="1.3" rx="4"/>
+<text x="595" y="101" text-anchor="middle" font-family="monospace" font-size="11px" fill="#16202c">S(day)</text>
+<path d="M51,50 L51,84" stroke="#b4823c" stroke-width="1.2" fill="none" marker-end="url(#c1)"/>
+<path d="M149,50 L149,84" stroke="#b4823c" stroke-width="1.2" fill="none" marker-end="url(#c1)"/>
+<path d="M247,50 L247,84" stroke="#b4823c" stroke-width="1.2" fill="none" marker-end="url(#c1)"/>
+<text x="262" y="46" font-family="sans-serif" font-size="10.5px" fill="#4a5766">each 10min window summarized from its own raw entries</text>
+<path d="M94,97 L330,97" stroke="#b4823c" stroke-width="1.2" fill="none" marker-end="url(#c1)"/>
+<text x="212" y="92" text-anchor="middle" font-family="sans-serif" font-size="10.5px" fill="#4a5766">aggregate 6 x S(10m)</text>
+<path d="M450,97 L520,97" stroke="#b4823c" stroke-width="1.2" fill="none" marker-end="url(#c1)"/>
+<text x="485" y="92" text-anchor="middle" font-family="sans-serif" font-size="10.5px" fill="#4a5766">aggregate 24 x S(1h)</text>
+<path d="M8,140 L700,140" stroke="#c0392b" stroke-width="1.3" fill="none" stroke-dasharray="5 3" marker-end="url(#c2)"/>
+<path d="M95,140 L95,152" stroke="#c0392b" stroke-width="1.3" fill="none" stroke-dasharray="5 3" marker-end="url(#c2)"/>
+<text x="95" y="168" font-family="sans-serif" font-size="10.5px" fill="#4a5766">recompute = true</text>
+<text x="95" y="182" font-family="sans-serif" font-size="10.5px" fill="#4a5766">re-derives this window from raw entries, skipping the chain</text>
+<text x="8" y="212" font-family="sans-serif" font-size="10.5px" fill="#4a5766">Cost: one LLM call per group per layer — a coarse layer never re-reads raw entries.</text>
+<text x="8" y="230" font-family="sans-serif" font-size="10.5px" fill="#4a5766">Provenance: refs records which layer the material actually came from.</text>
+<text x="8" y="248" font-family="sans-serif" font-size="10.5px" fill="#4a5766">Drift: chained paraphrase is cheap but drifts; recompute is faithful but costs tokens — the caller chooses.</text>
+</svg>
+<figcaption><b>Figure 2.</b> Bottom-up summary recursion (§3 P5). Each layer is summarized from the layer beneath it, and a missing finer layer is generated on demand; <code>recompute</code> bypasses the chain and rebuilds a window from raw entries. Every summary is itself append-only, so nothing in the chain is destroyed.</figcaption>
+</figure>
 
 ## 4. The Dual-Track Cost Model
 
@@ -88,7 +163,7 @@ Empirical results are out of scope for this position paper and will appear in a 
 
 We presented Chronomem, a time-layered external memory service over MCP, whose contributions are: (1) a dual-track recall model that separates zero-token exact recall from summary-dependent semantic recall; (2) summaries as first-class append-only temporal records enabling recursive, non-destructive compression; (3) per-type granularity chains adapting to the frequency distribution of each memory channel; and (4) memory as a standardized MCP capability shared across tools. The idea is neither a claim of biological fidelity nor of algorithmic novelty in any single component—each is borrowed from databases, everyday reporting practice, or LLM-memory systems—but the *combination*, and the honest cost accounting between navigation and compression, is the contribution we put forward for discussion and future empirical validation.
 
-## References (to be verified by the author before submission)
+## References
 
 1. Packer, C., Wooders, S., Lin, K., Fang, V., Patil, S. G., Stoica, I., Gonzalez, J. E. *MemGPT: Towards LLMs as Operating Systems.* arXiv:2310.08560, 2023.
 2. Park, J. S., O'Brien, J. C., Cai, C. J., Morris, M. R., Liang, P., Bernstein, M. S. *Generative Agents: Interactive Simulacra of Human Behavior.* UIST 2023 / arXiv:2304.03442, 2023.

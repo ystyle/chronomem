@@ -47,6 +47,40 @@ Agent 在长时间尺度上工作，遇到的根本限制是：上下文窗口�
 
 忆时塔是一个独立的守护进程，只提供一个 streamable-HTTP MCP 端点（启用 Web 控制台时与 MCP 共用同一端口，MCP 挂在 `/mcp`）。存储是单一时序数据库（`tsdb`），每个记忆类型占两个 series——原始条目一个、其摘要一个。设计有五大支柱：
 
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 312" width="100%" role="img" aria-label="architecture">
+<defs>
+<marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#5b6b80"/></marker>
+<marker id="ard" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#b4823c"/></marker>
+</defs>
+<text x="8" y="16" font-family="sans-serif" font-size="10.5px" fill="#4a5766">MCP 客户端（任意工具：IDE agent、聊天客户端、自研 agent）</text>
+<rect x="190" y="26" width="380" height="30" fill="#f7f9fc" stroke="#5b6b80" stroke-width="1.3" rx="5"/>
+<text x="380" y="45" text-anchor="middle" font-family="monospace" font-size="11.5px" fill="#16202c">streamable-HTTP  ·  POST /mcp  ·  tools: mem/*</text>
+<rect x="230" y="76" width="300" height="34" fill="#eef3fa" stroke="#3f5a7d" stroke-width="1.5" rx="5"/>
+<text x="380" y="98" text-anchor="middle" font-family="sans-serif" font-size="12.5px" fill="#16202c">忆时塔守护进程（单进程）</text>
+<path d="M380,56 L380,76" stroke="#5b6b80" stroke-width="1.3" fill="none" marker-end="url(#ar)"/>
+<path d="M300,110 L300,140" stroke="#5b6b80" stroke-width="1.3" fill="none" marker-end="url(#ar)"/>
+<path d="M460,110 L460,140" stroke="#5b6b80" stroke-width="1.3" fill="none" marker-end="url(#ar)"/>
+<rect x="150" y="140" width="300" height="46" fill="#f7f9fc" stroke="#5b6b80" stroke-width="1.3" rx="5"/>
+<text x="300" y="159" text-anchor="middle" font-family="sans-serif" font-size="12.5px" fill="#16202c">MaterializeScheduler (@1m)</text>
+<text x="300" y="175" text-anchor="middle" font-family="sans-serif" font-size="10.5px" fill="#4a5766">引用链 —— 零 LLM</text>
+<rect x="470" y="140" width="280" height="46" fill="#fdf6ec" stroke="#b4823c" stroke-width="1.3" rx="5"/>
+<text x="610" y="159" text-anchor="middle" font-family="sans-serif" font-size="12.5px" fill="#16202c">SummarizeScheduler (*/10m)</text>
+<text x="610" y="175" text-anchor="middle" font-family="sans-serif" font-size="10.5px" fill="#4a5766">语义摘要 —— 有 LLM 成本，按类型 opt-in</text>
+<path d="M300,186 L300,214" stroke="#5b6b80" stroke-width="1.3" fill="none" marker-end="url(#ar)"/>
+<path d="M610,186 L610,214" stroke="#b4823c" stroke-width="1.3" fill="none" stroke-dasharray="4 3" marker-end="url(#ard)"/>
+<rect x="120" y="214" width="620" height="72" fill="#f7f9fc" stroke="#5b6b80" stroke-width="1.3" rx="5"/>
+<text x="140" y="234" font-family="monospace" font-size="11.5px" fill="#16202c">&lt;type&gt;</text>
+<text x="140" y="250" font-family="sans-serif" font-size="10.5px" fill="#4a5766">原始条目（不可变、append-only）</text>
+<text x="140" y="272" font-family="monospace" font-size="11.5px" fill="#16202c">tsdb · 每类型一个 series</text>
+<text x="430" y="234" font-family="monospace" font-size="11.5px" fill="#16202c">&lt;type&gt;.summary</text>
+<text x="430" y="250" font-family="sans-serif" font-size="10.5px" fill="#4a5766">SummaryRecord（append-only，可被再次总结）</text>
+<text x="430" y="272" font-family="sans-serif" font-size="10.5px" fill="#4a5766">refs → 更细层，直至原始条目</text>
+<text x="120" y="302" font-family="sans-serif" font-size="10.5px" fill="#4a5766">摘要本身也是时序条目，因此可被再次总结</text>
+</svg>
+<figcaption><b>图 1.</b> 架构。客户端经 MCP 接入单一守护进程；两个独立调度器分别物化一个类型的两个 series——引用链（零成本、分钟级）与语义摘要（有 LLM 成本、按类型 opt-in）。摘要存于自己那条 append-only series，并通过 refs 指向更细层，这正是递归总结得以成立的原因（§3 P5）。</figcaption>
+</figure>
+
 **P1——记忆类型由用户自定义。** 一个*类型*是一条带名字的 series，含可选描述与 schema（供文档与 LLM 提示用，不强制校验）、一个已声明的保留期字段（当前仅为元数据，MVP 不做淘汰），以及*粒度链*（见下）。客户端可建 `work/chat`、`paper/decisions`、`tool/errors` 等类型。类型名白名单（`[A-Za-z0-9_/-]`），防路径穿越。
 
 **P2——类型级粒度链。** 每个类型声明自己的物化层级，从 {10min, 30min, 1h, 3h, day, week, month} 中取，默认为 10min→30min→1h→day→week。高频通道保留分钟级层级以支持**当天内精确回想**；稀疏通道（如一天一条的工作日志）用 day→week，避免建大量近乎为空的细桶。week 是默认的语义总结封顶：一整年的周级摘要只有约 52 条，加载便宜，且整年回忆极少需要。
@@ -64,6 +98,47 @@ Agent 在长时间尺度上工作，遇到的根本限制是：上下文窗口�
 - `mem/recall mode=summary`：返回窗口的**语义摘要**——这才是真正压缩粗窗口的形态，且**依赖摘要已生成**（此前经 `mem/summarize`，或 `summarize_on_miss=true` 时按需现算）。
 
 **P5——摘要是时序记录的一等公民。** `mem/summarize` 读一个窗口（按粒度+锚点，或按显式 `from/to` 处理不规则的「任务阶段」窗口），让 LLM 生成结构化摘要（锚点章节：决策/结论/待办/状态变更/关键词），并追加一条 `SummaryRecord` 到该类型的 `.summary` series：核心字段 `{ts, windowFrom, windowTo, model, refs, instructions, text, groupKey}`，另有生成口径字段 `{strategy, chunks, inputTokens, clippedEntries}`——记录该摘要是一次直连产出还是分块 map-reduce 聚合，以及为预算截断了多少条目。因为摘要本身是时序条目，可被再次总结：原始 → 10min 摘要 → 1h 摘要 → day 摘要，就是结构塔的语义对应物，实现**递归、非破坏的压缩**。具体地，总结**默认自底向上**进行：在总结一个粗窗口之前，服务会先确保它内部每个更细子窗口都有摘要（缺失的先按原始条目补出来），再以这些子摘要聚合——于是粗粒度总结的成本是「每个分组一次调用」，而不是把整个窗口重读一遍，而 `refs` 会记录材料实际取自哪一层。想彻底避开链式转述的调用方，可用 `recompute` 绕开递归。
+
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 258" width="100%" role="img" aria-label="summary recursion">
+<defs>
+<marker id="c1" markerWidth="8" markerHeight="8" refX="6" refY="2.6" orient="auto"><path d="M0,0 L6,2.6 L0,5.2 z" fill="#b4823c"/></marker>
+<marker id="c2" markerWidth="8" markerHeight="8" refX="6" refY="2.6" orient="auto"><path d="M0,0 L6,2.6 L0,5.2 z" fill="#c0392b"/></marker>
+</defs>
+<text x="8" y="16" font-family="sans-serif" font-size="10.5px" fill="#4a5766">原始条目（某类型的一天）</text>
+<rect x="8" y="24" width="150" height="26" fill="#eef3fa" stroke="#3f5a7d" stroke-width="1.3" rx="4"/>
+<text x="83" y="41" text-anchor="middle" font-family="monospace" font-size="11px" fill="#16202c">e1 e2 ... en</text>
+<text x="8" y="76" font-family="sans-serif" font-size="10.5px" fill="#4a5766">第 1 层 —— 10min 窗口</text>
+<rect x="8" y="84" width="86" height="26" fill="#fdf6ec" stroke="#b4823c" stroke-width="1.3" rx="4"/>
+<text x="51" y="101" text-anchor="middle" font-family="monospace" font-size="11px" fill="#16202c">S(10m)</text>
+<rect x="106" y="84" width="86" height="26" fill="#fdf6ec" stroke="#b4823c" stroke-width="1.3" rx="4"/>
+<text x="149" y="101" text-anchor="middle" font-family="monospace" font-size="11px" fill="#16202c">S(10m)</text>
+<rect x="204" y="84" width="86" height="26" fill="#fdf6ec" stroke="#b4823c" stroke-width="1.3" rx="4"/>
+<text x="247" y="101" text-anchor="middle" font-family="monospace" font-size="11px" fill="#16202c">...</text>
+<text x="330" y="76" font-family="sans-serif" font-size="10.5px" fill="#4a5766">第 2 层 —— 1h</text>
+<rect x="330" y="84" width="120" height="26" fill="#fdf6ec" stroke="#b4823c" stroke-width="1.3" rx="4"/>
+<text x="390" y="101" text-anchor="middle" font-family="monospace" font-size="11px" fill="#16202c">S(1h)</text>
+<text x="520" y="76" font-family="sans-serif" font-size="10.5px" fill="#4a5766">第 3 层 —— day</text>
+<rect x="520" y="84" width="150" height="26" fill="#fdf6ec" stroke="#b4823c" stroke-width="1.3" rx="4"/>
+<text x="595" y="101" text-anchor="middle" font-family="monospace" font-size="11px" fill="#16202c">S(day)</text>
+<path d="M51,50 L51,84" stroke="#b4823c" stroke-width="1.2" fill="none" marker-end="url(#c1)"/>
+<path d="M149,50 L149,84" stroke="#b4823c" stroke-width="1.2" fill="none" marker-end="url(#c1)"/>
+<path d="M247,50 L247,84" stroke="#b4823c" stroke-width="1.2" fill="none" marker-end="url(#c1)"/>
+<text x="262" y="46" font-family="sans-serif" font-size="10.5px" fill="#4a5766">每个 10min 窗口由它自己的原始条目总结</text>
+<path d="M94,97 L330,97" stroke="#b4823c" stroke-width="1.2" fill="none" marker-end="url(#c1)"/>
+<text x="212" y="92" text-anchor="middle" font-family="sans-serif" font-size="10.5px" fill="#4a5766">聚合 6 x S(10m)</text>
+<path d="M450,97 L520,97" stroke="#b4823c" stroke-width="1.2" fill="none" marker-end="url(#c1)"/>
+<text x="485" y="92" text-anchor="middle" font-family="sans-serif" font-size="10.5px" fill="#4a5766">聚合 24 x S(1h)</text>
+<path d="M8,140 L700,140" stroke="#c0392b" stroke-width="1.3" fill="none" stroke-dasharray="5 3" marker-end="url(#c2)"/>
+<path d="M95,140 L95,152" stroke="#c0392b" stroke-width="1.3" fill="none" stroke-dasharray="5 3" marker-end="url(#c2)"/>
+<text x="95" y="168" font-family="sans-serif" font-size="10.5px" fill="#4a5766">recompute = true</text>
+<text x="95" y="182" font-family="sans-serif" font-size="10.5px" fill="#4a5766">直接从原始条目重算该窗口，跳过整条链</text>
+<text x="8" y="212" font-family="sans-serif" font-size="10.5px" fill="#4a5766">成本：每层每分组一次 LLM 调用 —— 粗层永不重读原始条目。</text>
+<text x="8" y="230" font-family="sans-serif" font-size="10.5px" fill="#4a5766">溯源：refs 记录材料实际取自哪一层。</text>
+<text x="8" y="248" font-family="sans-serif" font-size="10.5px" fill="#4a5766">漂移：链式转述便宜但会漂移；recompute 保真但费 token —— 由调用方权衡。</text>
+</svg>
+<figcaption><b>图 2.</b> 自底向上的递归总结（§3 P5）。每一层由它下面一层总结而来；更细层缺失时按需现算；<code>recompute</code> 绕过链条、直接从原始条目重建窗口。每条摘要本身都是 append-only，链条上没有任何东西被销毁。</figcaption>
+</figure>
 
 ## 4. 双轨成本模型
 
@@ -93,7 +168,7 @@ Agent 在长时间尺度上工作，遇到的根本限制是：上下文窗口�
 
 我们呈现了忆时塔——一个基于 MCP 的时间分层外部记忆服务，其贡献是：(1) **双轨回想模型**，把零 token 的精确回想与依赖总结的语义回想区分开；(2) 摘要是**一等公民的时序条目**，支持递归、非破坏的压缩；(3) **类型级粒度链**，适配每个记忆通道自身的频率分布；(4) 把记忆做成**标准化的 MCP 能力**，跨工具共享。我们的主张不是生物保真、也不是任何单一组件在算法上的新颖——每个组件都借自数据库、日常汇总实践或 LLM 记忆系统——而在于**组合本身**，以及「导航 vs 压缩」之间诚实的成本核算。这正是我们提出供讨论、并计划在未来实证验证的贡献。
 
-## 参考文献（投稿前须由作者逐条核实）
+## 参考文献
 
 1. Packer, C., Wooders, S., Lin, K., Fang, V., Patil, S. G., Stoica, I., Gonzalez, J. E. *MemGPT: Towards LLMs as Operating Systems.* arXiv:2310.08560, 2023.
 2. Park, J. S., O'Brien, J. C., Cai, C. J., Morris, M. R., Liang, P., Bernstein, M. S. *Generative Agents: Interactive Simulacra of Human Behavior.* UIST 2023 / arXiv:2304.03442, 2023.
