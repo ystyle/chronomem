@@ -85,17 +85,24 @@ profile 变更需要**重启该 profile 的 dsh 进程**才生效。
 
 两条路都通向同一个 `Config`：
 
-1. **Web 设置页**（推荐）——`设置 → 插件 → 插件配置`。表单只投影 `.volatile()` 字段，因此界面上恰好是下面标 ★ 的四项：**服务地址 / 认证 key / 总开关 / 蒸馏开关**。`token` 带 `secret` 角色，表单只显示"已设置"、不回传明文。
+1. **Web 界面**（推荐）——侧边栏 **「插件」** 面板 → 打开本插件 → **配置**。
+   表单只投影 `.volatile()` 字段，因此界面上恰好是下面标 ★ 的四项：
+   **服务地址 / 认证 key / 总开关 / 蒸馏开关**。
+   `token` 带 `secret` 角色，界面只显示"已配置/未配置"、不回传明文。
+   表单**只在点保存时写入**（共享设置表单的 staged 语义），改动即时生效 ——
+   volatile 字段是**活引用**，插件在每个写入点读取当前值，无需重挂载。
 2. **插件行 `config` 或 `DSH_MEM_BRIDGE_*` 环境变量**——其余调优项走这里。
 
-改动即时生效：volatile 字段是**活引用**，插件在每个写入点读取当前值，无需重挂载。
+> ⚠️ 界面在**侧边栏「插件」面板**，不在"设置"页。设置页里的「内置插件」只有只读清单。
+> 另外：`token` 是**只写**控件 —— 可以改，但界面上无法清空它（Host 用"值存在与否"
+> 判断是否已配置，空串会被当作"未配置"处理）。要清空请删掉行 `config` 里的 `token`。
 
 优先级：插件行 `config` → 环境变量 → 默认值。
 
 | 行 config | 环境变量 | 默认 | 说明 |
 |---|---|---|---|
 | ★ `url` | `DSH_MEM_BRIDGE_URL` | `http://127.0.0.1:8900` | 忆时塔地址（MCP 端点为 `<url>/mcp`） |
-| ★ `token` | `DSH_MEM_BRIDGE_TOKEN` | 空 | 非空则带 `Authorization: Bearer <token>`（secret） |
+| ★ `token` | `DSH_MEM_BRIDGE_TOKEN` | 无（视作空） | 非空则带 `Authorization: Bearer <token>`（secret；**不设 `.default('')`**，否则界面会误报"已配置"） |
 | ★ `enabled` | `DSH_MEM_BRIDGE_ENABLE` | `true` | 总开关 |
 | ★ `distill` | `DSH_MEM_BRIDGE_DISTILL` | `true` | L2b 聚合蒸馏总开关；`false` 时 close 只写骨架 |
 | `type` | `DSH_MEM_BRIDGE_TYPE` | `dsh/activity` | 写入的记忆类型 |

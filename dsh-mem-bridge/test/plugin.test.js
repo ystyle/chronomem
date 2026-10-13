@@ -12,6 +12,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import plugin, { apply } from '../lib/index.js'
+import { mcpHeaders, resolveConfig } from '../lib/pure.js'
 
 /** A fake Cordis context capturing listeners and effects. */
 function fakeCtx(services = {}) {
@@ -641,9 +642,27 @@ test('Config marks token as a secret so the form redacts it', () => {
 test('Config defaults match the documented values', () => {
   const cfg = plugin.Config({})
   assert.equal(cfg.url.get(), 'http://127.0.0.1:8900')
-  assert.equal(cfg.token.get(), '')
   assert.equal(cfg.enabled.get(), true)
   assert.equal(cfg.distill.get(), true)
+})
+
+test('token carries no default, so an unset key does not read as configured', () => {
+  // The settings form derives "configured" from whether the resolved value is
+  // present at all (`redactSecrets` records presence, not content). A
+  // `.default('')` would make the resolved value present on every fresh
+  // install, so the form would claim a key nobody ever set. Absence is the
+  // honest state; the writer turns it into '' at the boundary.
+  const meta = fieldMeta(plugin.Config, 'token')
+  assert.equal(meta.default, undefined, 'token must not declare a default')
+  assert.equal(plugin.Config({}).token.get(), undefined, 'an unset token resolves to absence')
+})
+
+test('an absent token still produces the documented empty-string config', () => {
+  // `resolveConfig` is value-based and owns the '' fallback, so the wire
+  // behaviour is unchanged: no Authorization header without a token.
+  const effective = resolveConfig({ url: 'http://127.0.0.1:8900' }, {})
+  assert.equal(effective.token, '')
+  assert.equal(mcpHeaders(effective.token).authorization, undefined, 'no header without a token')
 })
 
 test('a form field is a live reference read at use time, not a snapshot', () => {

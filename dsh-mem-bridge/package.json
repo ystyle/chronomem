@@ -8,6 +8,7 @@
   "exports": {
     ".": "./lib/index.js",
     "./pure": "./lib/pure.js",
+    "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
   "engines": {
@@ -24,6 +25,13 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ]
     }
   },
   "scripts": {
