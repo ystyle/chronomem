@@ -1,0 +1,4 @@
+# 生成物（trace / 结果），可再生，不入版本控制
+.work/
+*.trace.json
+results/
