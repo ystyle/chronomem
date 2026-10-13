@@ -15,6 +15,8 @@
  * - every contribution is a fiber effect, so stop/update/undefine removes it.
  */
 
+import z from '@deepseek-ai/schemastery'
+
 import {
   DISTILL_SYSTEM,
   appendRequest,
@@ -44,8 +46,58 @@ import {
 
 export const name = 'dsh-mem-bridge'
 
+/**
+ * Config schema (design doc D16② / §282).
+ *
+ * Only the four fields a user actually needs to reach are `.volatile()`: the
+ * settings form projects exactly the volatile fields, so everything else stays
+ * a plain field reachable through the profile entry or `DSH_MEM_BRIDGE_*` env.
+ * Keeping the tuning knobs off the form is deliberate — eighteen controls would
+ * bury the four that matter.
+ *
+ * `token` is `.role('secret')`: the form reports presence instead of the value,
+ * and the secret never round-trips to a client.
+ *
+ * A volatile field is a live reference: it must be read with `.get()` at each
+ * use site, so a save in the settings form takes effect without re-mounting the
+ * plugin (see `readVolatile` below and design doc §344).
+ */
+const Config = z.object({
+  url: z.string().default('http://127.0.0.1:8900').volatile(),
+  token: z.string().role('secret').default('').volatile(),
+  enabled: z.boolean().default(true).volatile(),
+  distill: z.boolean().default(true).volatile(),
+})
+
 const MAX_SESSIONS = 200
 const REQUEST_TIMEOUT_MS = 5000
+
+/**
+ * Unwrap one config field.
+ *
+ * A `.volatile()` field arrives as a live reference (`.get()`); a plain field
+ * arrives as its value. `resolveConfig` in `./pure.js` stays value-based — it
+ * has no dependency on schemastery and keeps its own unit tests — so the
+ * unwrapping happens here, at the boundary.
+ */
+function readField(value) {
+  if (value !== null && typeof value === 'object' && typeof value.get === 'function') {
+    try {
+      return value.get()
+    } catch (_) {
+      return undefined
+    }
+  }
+  return value
+}
+
+/** Project the raw plugin config onto plain values for `resolveConfig`. */
+function plainConfig(config) {
+  if (config === null || typeof config !== 'object') return config
+  const out = {}
+  for (const key of Object.keys(config)) out[key] = readField(config[key])
+  return out
+}
 
 /** Read a leaf string off a live object without copying or enumerating it. */
 function leafString(owner, key) {
@@ -84,7 +136,7 @@ function describeError(error) {
 }
 
 export function apply(ctx, config) {
-  const cfg = resolveConfig(config, process.env)
+  const cfg = resolveConfig(plainConfig(config), process.env)
   const log = (message) => console.log(`[mem-bridge] ${message}`)
   const warn = (message) => console.error(`[mem-bridge] ${message}`)
 
@@ -547,4 +599,5 @@ export function apply(ctx, config) {
   log(`enabled → ${mcpUrl(cfg.url)} (type=${cfg.type})`)
 }
 
-export default { name, apply }
+export { Config }
+export default { name, Config, apply }

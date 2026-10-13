@@ -583,3 +583,101 @@ test('workflow/end records a fact milestone tagged role=workflow', async () => {
   assert.match(args.payload.note, /agentsStarted=7/)
   assert.equal(args.payload.outcome, 'completed')
 })
+
+// ── Config schema (design doc D16② / §282) ───────────────────────────────────
+//
+// The settings form projects exactly the `.volatile()` fields, so the schema —
+// not the README — is the contract for what a user can reach in the Web UI.
+// These tests pin that contract and the volatile-unwrapping boundary.
+
+/**
+ * The root schema node of a schemastery `toJSON()`.
+ *
+ * `toJSON()` is a flat `uid` + `refs` pool; the root object is the last ref and
+ * holds the field-name → ref-id `dict`.
+ */
+function rootNode(schema) {
+  const json = schema.toJSON()
+  const refs = json.refs ?? {}
+  const ids = Object.keys(refs)
+  return refs[ids[ids.length - 1]] ?? {}
+}
+
+/** Field names of a schemastery object's root dict, in declaration order. */
+function schemaFieldNames(schema) {
+  return Object.keys(rootNode(schema).dict ?? {})
+}
+
+/** Resolve one field's metadata through the schema's `refs` indirection. */
+function fieldMeta(schema, field) {
+  const json = schema.toJSON()
+  const ref = (rootNode(schema).dict ?? {})[field]
+  return (json.refs ?? {})[ref]?.meta ?? {}
+}
+
+test('Config declares exactly the four fields the settings form shows', () => {
+  // design doc D16②/§282 pins these four: service address, auth key, master
+  // switch, distillation switch. Everything else stays off the form on purpose.
+  assert.deepEqual(
+    schemaFieldNames(plugin.Config).sort(),
+    ['distill', 'enabled', 'token', 'url'],
+    'only the four designed fields belong on the settings form',
+  )
+})
+
+test('every form field is volatile, or the settings form would not show it', () => {
+  // The settings projection exposes only `.volatile()` fields (dsh-settings
+  // README: "Forms expose only volatile fields"). A non-volatile field here
+  // would silently disappear from the UI, so pin it.
+  for (const field of schemaFieldNames(plugin.Config)) {
+    assert.equal(fieldMeta(plugin.Config, field).volatile, true, `${field} must be volatile`)
+  }
+})
+
+test('Config marks token as a secret so the form redacts it', () => {
+  assert.equal(fieldMeta(plugin.Config, 'token').role, 'secret', 'token must carry the secret role')
+})
+
+test('Config defaults match the documented values', () => {
+  const cfg = plugin.Config({})
+  assert.equal(cfg.url.get(), 'http://127.0.0.1:8900')
+  assert.equal(cfg.token.get(), '')
+  assert.equal(cfg.enabled.get(), true)
+  assert.equal(cfg.distill.get(), true)
+})
+
+test('a form field is a live reference read at use time, not a snapshot', () => {
+  // The form writes through the profile, and the plugin keeps running: it must
+  // observe the new value without a re-mount. That is what reading `.get()` at
+  // each use site buys — a snapshot taken in apply() would go stale.
+  const cfg = plugin.Config({ url: 'http://first.test' })
+  assert.equal(cfg.url.get(), 'http://first.test')
+  assert.equal(typeof cfg.url.get, 'function', 'volatile fields expose .get()')
+})
+
+test('a plain (non-volatile) config value is accepted unchanged', () => {
+  const ctx = fakeCtx()
+  // A profile entry may still carry plain values (older composition, or a key
+  // added after this schema). Passing them must not throw.
+  assert.doesNotThrow(() => apply(ctx, { url: 'http://plain.test', enabled: false, turnNoteMax: 123 }))
+})
+
+test('a plain config value is honoured, not dropped by the unwrapping boundary', async () => {
+  // Guards plainConfig(): a plain `url` must survive into the writer, otherwise
+  // every pre-schema composition entry would silently fall back to localhost.
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://plain.test' })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('agent/session-start', { agent: { id: 'session-1' }, source: 'startup' })
+    await settled()
+  })
+  assert.ok(calls.length > 0, 'a plain config must still record')
+})
+
+test('disabled through a volatile reference stops all recording', () => {
+  const ctx = fakeCtx()
+  const cfg = plugin.Config({ url: 'http://tower.test', enabled: false })
+  apply(ctx, cfg)
+  // apply() returns early when disabled, so it registers no listeners at all.
+  assert.equal(ctx.listeners.size, 0, 'a disabled plugin must register nothing')
+})

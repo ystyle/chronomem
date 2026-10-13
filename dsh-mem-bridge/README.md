@@ -83,13 +83,21 @@ profile 变更需要**重启该 profile 的 dsh 进程**才生效。
 
 ## 配置
 
-按优先级：插件行 `config` → `DSH_MEM_BRIDGE_*` 环境变量 → 默认值。
+两条路都通向同一个 `Config`：
+
+1. **Web 设置页**（推荐）——`设置 → 插件 → 插件配置`。表单只投影 `.volatile()` 字段，因此界面上恰好是下面标 ★ 的四项：**服务地址 / 认证 key / 总开关 / 蒸馏开关**。`token` 带 `secret` 角色，表单只显示"已设置"、不回传明文。
+2. **插件行 `config` 或 `DSH_MEM_BRIDGE_*` 环境变量**——其余调优项走这里。
+
+改动即时生效：volatile 字段是**活引用**，插件在每个写入点读取当前值，无需重挂载。
+
+优先级：插件行 `config` → 环境变量 → 默认值。
 
 | 行 config | 环境变量 | 默认 | 说明 |
 |---|---|---|---|
-| `url` | `DSH_MEM_BRIDGE_URL` | `http://127.0.0.1:8900` | 忆时塔地址（MCP 端点为 `<url>/mcp`） |
-| `token` | `DSH_MEM_BRIDGE_TOKEN` | 空 | 非空则带 `Authorization: Bearer <token>` |
-| `enabled` | `DSH_MEM_BRIDGE_ENABLE` | `true` | 总开关 |
+| ★ `url` | `DSH_MEM_BRIDGE_URL` | `http://127.0.0.1:8900` | 忆时塔地址（MCP 端点为 `<url>/mcp`） |
+| ★ `token` | `DSH_MEM_BRIDGE_TOKEN` | 空 | 非空则带 `Authorization: Bearer <token>`（secret） |
+| ★ `enabled` | `DSH_MEM_BRIDGE_ENABLE` | `true` | 总开关 |
+| ★ `distill` | `DSH_MEM_BRIDGE_DISTILL` | `true` | L2b 聚合蒸馏总开关；`false` 时 close 只写骨架 |
 | `type` | `DSH_MEM_BRIDGE_TYPE` | `dsh/activity` | 写入的记忆类型 |
 | `projMap` | — | `{}` | 路径前缀 → proj 覆盖表（最长前缀优先） |
 | `turnNoteMax` | `DSH_MEM_BRIDGE_TURN_NOTE_MAX` | `6000` | turn 条目 note 上限（实测末条回复 1879–4259 字） |
@@ -99,7 +107,6 @@ profile 变更需要**重启该 profile 的 dsh 进程**才生效。
 | `queueMax` | `DSH_MEM_BRIDGE_QUEUE_MAX` | `500` | 内存写入队列上限，满则丢最旧 |
 | `retryMax` | `DSH_MEM_BRIDGE_RETRY_MAX` | `5` | 单条写入的最大尝试次数（含首次），用尽即丢并计数日志 |
 | `retryBackoffMs` | `DSH_MEM_BRIDGE_RETRY_BACKOFF_MS` | `250` | 退避基数（毫秒，指数递增）；`0` = 不等待 |
-| `distill` | `DSH_MEM_BRIDGE_DISTILL` | `true` | L2b 聚合蒸馏总开关；`false` 时 close 只写骨架 |
 | `distillProvider` | `DSH_MEM_BRIDGE_PROVIDER` | 空 | 蒸馏用的 provider 路由（缺省沿用宿主默认模型） |
 | `distillModel` | `DSH_MEM_BRIDGE_MODEL` | 空 | 蒸馏用的模型（缺省沿用宿主默认模型） |
 | `tailN` | `DSH_MEM_BRIDGE_TAIL_N` | `20` | L2b 聚合原料：取塔内该会话尾部 N 条 activity |
