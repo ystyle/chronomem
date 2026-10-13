@@ -1,8 +1,8 @@
 {
   "name": "dsh-mem-bridge",
   "version": "0.1.0",
-  "private": true,
   "description": "dsh host plugin: automatically record session activity into 忆时塔 (chronomem) — zero-LLM structure layer plus pre-distilled turn/compaction summaries.",
+  "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -14,13 +14,30 @@
   "engines": {
     "node": ">=20"
   },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "mcp",
+    "memory",
+    "chronomem"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://atomgit.com/ystyle/chronomem.git",
+    "directory": "dsh-mem-bridge"
+  },
+  "homepage": "https://atomgit.com/ystyle/chronomem/tree/master/dsh-mem-bridge",
+  "bugs": {
+    "url": "https://atomgit.com/ystyle/chronomem/issues"
+  },
   "dependencies": {
     "@deepseek-ai/schemastery": "~3.18.5-alpha.1"
   },
   "files": [
     "lib",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "dsh": {
     "bundle": {
