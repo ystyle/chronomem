@@ -1,0 +1,100 @@
+name: Release
+
+# 触发：推送版本 tag（v*）时构建二进制 + 推送容器镜像到 ghcr.io
+#
+# 为什么用 tag 而不是「在 GitHub 上手动发 Release」：
+#   主仓库在 AtomGit，tag 是各平台唯一的事实来源。`git tag vX.Y.Z && git push origin vX.Y.Z`
+#   会把同一个 tag 同步到 GitHub，工作流据此构建产物、生成 Release 并推镜像，
+#   不会出现「只在 GitHub 发版、AtomGit 侧没有对应 tag」的两边不一致。
+#
+# 发版步骤：本地打 tag → 推三个远端（origin / atomgit / github）→ 本工作流自动跑。
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  binary:
+    name: Linux amd64 二进制
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装构建依赖（liburing：badger-cj 的 io_uring 链接）
+        run: sudo apt-get update && sudo apt-get install -y liburing-dev
+
+      - uses: Zxilly/setup-cangjie@v3
+        with:
+          channel: sts
+          # auto：跟随 cjpm.toml 的 cjc-version
+          version: auto
+          components: stdx
+
+      - name: Build
+        env:
+          CANGJIE_STDX_PATH: ${{ env.CANGJIE_STDX_PATH_STATIC }}/stdx
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          cjpm build -j 16
+          mkdir -p dist
+          cp target/release/bin/chronomem.cli dist/chronomem
+          tar -czf "dist/chronomem_${VERSION}_linux_amd64.tar.gz" -C dist chronomem
+          # Web 控制台的静态资源（serveStatic("/css", "public/css") 相对运行目录）
+          tar -czf "dist/chronomem_${VERSION}_public.tar.gz" -C . public
+          ls -lh dist
+
+      - name: 创建/更新 Release 并上传产物
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
+  container:
+    name: 容器镜像（ghcr.io）
+    runs-on: ubuntu-24.04
+    needs: binary
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装构建依赖
+        run: sudo apt-get update && sudo apt-get install -y liburing-dev
+
+      - uses: Zxilly/setup-cangjie@v3
+        with:
+          channel: sts
+          # auto：跟随 cjpm.toml 的 cjc-version
+          version: auto
+          components: stdx
+
+      # 镜像只打包宿主编译产物（Dockerfile 里 COPY target/release/bin/chronomem.cli），
+      # 所以必须在 runner 上先构建。
+      - name: 构建二进制（供镜像打包）
+        env:
+          CANGJIE_STDX_PATH: ${{ env.CANGJIE_STDX_PATH_STATIC }}/stdx
+        run: cjpm build -j 16
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

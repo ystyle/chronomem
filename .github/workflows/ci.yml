@@ -1,0 +1,54 @@
+name: CI
+
+# 触发：master 推送与所有 PR
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# 依赖全部来自仓颉中心仓（cjpm.toml 里写版本号），所以这里**不需要 checkout 兄弟仓库**，
+# 只装工具链 + liburing 即可。这也是把 path 依赖换成 registry 版本换来的好处：
+# 公开仓 clone 下来就能构建。
+jobs:
+  build-test:
+    name: 构建 · 单测
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 安装构建依赖（liburing：badger-cj 的 io_uring 链接）
+        run: sudo apt-get update && sudo apt-get install -y liburing-dev
+
+      - uses: Zxilly/setup-cangjie@v3
+        with:
+          channel: sts
+          # auto：从 cjpm.toml 的 cjc-version 读版本（当前 1.2.0，属 STS 渠道）。
+          # 免得两处各写一份，升级编译器时漏改一边。
+          version: auto
+          components: stdx
+
+      - name: Build
+        env:
+          CANGJIE_STDX_PATH: ${{ env.CANGJIE_STDX_PATH_STATIC }}/stdx
+        run: cjpm build -j 16
+
+      - name: Unit tests
+        env:
+          CANGJIE_STDX_PATH: ${{ env.CANGJIE_STDX_PATH_STATIC }}/stdx
+        run: cjpm test -j 16 --no-progress
+
+  dsh-mem-bridge:
+    name: dsh-mem-bridge（Node 插件）
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: dsh-mem-bridge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      # 集成用例在塔不可达时自行 skip，因此 CI 里只跑纯逻辑与接线用例
+      - run: npm test
