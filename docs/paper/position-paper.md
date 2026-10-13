@@ -1,7 +1,7 @@
 # Chronomem (忆时塔): Time-Layered External Memory as an MCP Service for Agent Recall and Summarization
 
 > **Status**: Position / design paper — first draft. No empirical evaluation yet.
-> **Companion**: implementation at `https://github.com/ystyle/chronomem` (WIP); full design spec at `docs/design.md`.
+> **Companion**: implementation is developed in a private repository; full design spec at `docs/design.md`. A public mirror will be linked here before submission.
 > **Author responsibility**: This draft was produced with the assistance of an AI writing tool. The author(s) have reviewed and take full responsibility for every claim, and will verify all citations and factual statements before submission (required by arXiv policy).
 
 ---
@@ -39,25 +39,25 @@ This paper is a **position and design** paper. We motivate the design from two e
 
 ## 3. Design Overview
 
-Chronomem is a standalone daemon serving a single streamable-HTTP MCP endpoint. Storage is a single time-series database (`tsdb`); one series per memory type. The design has five pillars.
+Chronomem is a standalone daemon serving a single streamable-HTTP MCP endpoint (the Web console, when enabled, shares that same port, with MCP mounted at `/mcp`). Storage is a single time-series database (`tsdb`); each memory type owns two series—one for raw entries and one for its summaries. The design has five pillars.
 
-**P1 — Memory types are user-defined.** A *type* is a named series with an optional description and schema (for documentation and LLM prompting; not enforced), optional retention, and a *granularity chain* (below). Clients create types such as `work/chat`, `paper/decisions`, `tool/errors`. Type names are whitelisted (`[A-Za-z0-9_/-]`) to prevent path traversal.
+**P1 — Memory types are user-defined.** A *type* is a named series with an optional description and schema (for documentation and LLM prompting; not enforced), a declared retention field (currently metadata only — the MVP does not evict), and a *granularity chain* (below). Clients create types such as `work/chat`, `paper/decisions`, `tool/errors`. Type names are whitelisted (`[A-Za-z0-9_/-]`) to prevent path traversal.
 
 **P2 — Per-type granularity chains.** Each type declares its own materialization levels, drawn from {10min, 30min, 1h, 3h, day, week, month}, defaulting to 10min→30min→1h→day→week. High-frequency channels keep minute-level levels for *same-day exact recall*; sparse channels (e.g., a work log with one entry a day) use day→week and avoid building mostly-empty fine buckets. Week is the default semantic-summary ceiling: a full year of weekly summaries is only ~52 records, cheap to load, and whole-year recall is rarely needed.
 
-**P3 — Materialization modes.** A tower layer can in principle be materialized in three ways, with different costs. The current implementation covers the first two; the third is a planned extension for which the underlying store already provides the aggregation primitives.
+**P3 — Materialization modes.** A tower layer can in principle be materialized in three ways, with different costs. The current implementation ships the first two. The third is not implemented: the store exposes only a minimal set of aggregation primitives (count, latest, uniform sampling), and generic numeric roll-ups (avg/min/max/percentiles) would have to be added before metric-shaped types could use a zero-token overview layer.
 
 | Mode | Content of a layer | Supports | LLM cost | Status |
 |---|---|---|---|---|
 | Reference chain (default, events) | `PointRef`/`BucketRef` to finer layers | exact drill-down | none | implemented |
 | Semantic summary (optional) | LLM `SummaryRecord` | semantic recall | yes | implemented |
-| Numeric aggregation (metrics) | count/avg/min/max JSON | overview + drill-down | none | planned |
+| Numeric aggregation (metrics) | count/avg/min/max JSON | overview + drill-down | none | planned (only count/latest/sample primitives exist today) |
 
 **P4 — Dual-track recall.** Two read operations with an explicit cost difference:
 - `mem/recall mode=exact`: navigate the reference chain to the *raw entries*—lossless, zero LLM tokens, but returns raw volume (reference chains *navigate*, they do not *compress*).
 - `mem/recall mode=summary`: return the *semantic summary* of a window—this is the form that genuinely compresses coarse windows, and it is *dependent on a summary having been generated* (previously via `mem/summarize`, or computed on demand when `summarize_on_miss=true`).
 
-**P5 — Summaries are first-class temporal records.** `mem/summarize` reads a window (by granularity+anchor, or by explicit `from`/`to` for irregular "task-phase" windows), asks an LLM to produce a structured summary (anchors: decisions / conclusions / todos / state changes / keywords), and appends a `SummaryRecord {ts, windowFrom, windowTo, model, refs, text}` to the type's `.summary` series. Because summaries are themselves temporal entries, they can be re-summarized: raw → 10min summary → 1h summary → day summary is the semantic analogue of the structural tower, giving **recursive, non-destructive compression**. A `recompute` flag forces re-derivation from raw entries. Concretely, summarization proceeds *bottom-up by default*: before summarizing a coarse window the service makes sure every finer sub-window inside it has a summary—generating the missing ones from raw entries first—and then aggregates those summaries, so a coarse summary costs one call per group instead of a re-read of the whole window, while `refs` records which layer the material actually came from. A caller who wants to avoid chained paraphrase altogether can bypass the recursion with `recompute`.
+**P5 — Summaries are first-class temporal records.** `mem/summarize` reads a window (by granularity+anchor, or by explicit `from`/`to` for irregular "task-phase" windows), asks an LLM to produce a structured summary (anchors: decisions / conclusions / todos / state changes / keywords), and appends a `SummaryRecord` to the type's `.summary` series: the core fields are `{ts, windowFrom, windowTo, model, refs, instructions, text, groupKey}`, plus generation-provenance fields `{strategy, chunks, inputTokens, clippedEntries}` that record whether the summary was produced in one call or by chunked map-reduce, and how many entries were clipped for budget. Because summaries are themselves temporal entries, they can be re-summarized: raw → 10min summary → 1h summary → day summary is the semantic analogue of the structural tower, giving **recursive, non-destructive compression**. A `recompute` flag forces re-derivation from raw entries. Concretely, summarization proceeds *bottom-up by default*: before summarizing a coarse window the service makes sure every finer sub-window inside it has a summary—generating the missing ones from raw entries first—and then aggregates those summaries, so a coarse summary costs one call per group instead of a re-read of the whole window, while `refs` records which layer the material actually came from. A caller who wants to avoid chained paraphrase altogether can bypass the recursion with `recompute`.
 
 ## 4. The Dual-Track Cost Model
 
@@ -80,7 +80,7 @@ This distinction, trivial in retrospect, has concrete consequences that we argue
 
 ## 6. Evaluation Plan (Forthcoming)
 
-Empirical results are out of scope for this position paper and will appear in a follow-up. Planned studies: (i) a controlled long-horizon agent task (e.g., incremental project maintenance across simulated weeks) comparing Chronomem against flat memory and one-shot compaction on recall accuracy and token cost; (ii) a semantic-drift study along the summary chain; (iii) a qualitative study of the work-log use case (day/week granularity with task-phase summaries) by the authors. The authors have been running a single-user deployment continuously since August 2026, accumulating a few hundred structured work-log records, several hundred agent-activity records, and dozens of recursively generated day- and week-level summaries; this corpus will serve as the material for (iii) and will supply realistic window-size and compression-ratio distributions for calibrating (i) and (ii).
+Empirical results are out of scope for this position paper and will appear in a follow-up. Planned studies: (i) a controlled long-horizon agent task (e.g., incremental project maintenance across simulated weeks) comparing Chronomem against flat memory and one-shot compaction on recall accuracy and token cost; (ii) a semantic-drift study along the summary chain; (iii) a qualitative study of the work-log use case (day/week granularity with task-phase summaries) by the authors. The authors have been running a single-user deployment continuously since August 2026; as of October 2026 it holds over 450 structured work-log records, over 1,000 agent-activity records, and more than 100 recursively generated day- and week-level summaries; this corpus will serve as the material for (iii) and will supply realistic window-size and compression-ratio distributions for calibrating (i) and (ii).
 
 ## 7. Conclusion
 
@@ -88,21 +88,20 @@ We presented Chronomem, a time-layered external memory service over MCP, whose c
 
 ## References (to be verified by the author before submission)
 
-1. Packer, C., et al. *MemGPT: Towards LLMs as Operating Systems.* arXiv:2310.08560.
-2. Park, J. S., et al. *Generative Agents: Interactive Simulacra of Human Behavior.* UIST 2023 / arXiv:2304.03442.
-3. *HiMem: Hierarchical Long-Term Memory for LLM Long-Horizon Agents.* arXiv:2601.06377.
-4. *RaMem: Contextual Reinstatement for Long-term Agentic Memory.* arXiv:2606.22844.
-5. *AriadneMem: Threading the Maze of Lifelong Memory for LLM Agents.* arXiv:2603.03290.
-6. *Beyond RAG: LLM Wikis as Living Semantic Memory: Patterns, Empirical Findings, and Open Problems.* Zenodo: 20078453.
-7. Miteski, S. *Memory as Metabolism: A Design for Companion Knowledge Systems.* arXiv:2604.12034 (also Zenodo: 19501652).
+1. Packer, C., Wooders, S., Lin, K., Fang, V., Patil, S. G., Stoica, I., Gonzalez, J. E. *MemGPT: Towards LLMs as Operating Systems.* arXiv:2310.08560, 2023.
+2. Park, J. S., O'Brien, J. C., Cai, C. J., Morris, M. R., Liang, P., Bernstein, M. S. *Generative Agents: Interactive Simulacra of Human Behavior.* UIST 2023 / arXiv:2304.03442, 2023.
+3. Zhang, N., Yang, X., Tan, Z., Deng, W., Wang, W. *HiMem: Hierarchical Long-Term Memory for LLM Long-Horizon Agents.* arXiv:2601.06377, 2026.
+4. Yang, W., Kan, B., Li, S., Li, L., Qin, Y., Li, J., Bogdan, P., Thomason, J. *RaMem: Contextual Reinstatement for Long-term Agentic Memory.* arXiv:2606.22844, 2026.
+5. Zhu, W., Chen, X., Wang, Z., Wang, J., Dong, X., Huang, M., Cai, R., Sang, H., Wang, H., Qiu, P., Deng, Y., Tiwari, P., Rappazzo, B. H., Wang, Y. *AriadneMem: Threading the Maze of Lifelong Memory for LLM Agents.* arXiv:2603.03290, 2026.
+6. Zhang, B. *Beyond RAG: LLM Wikis as Living Semantic Memory: Patterns, Empirical Findings, and Open Problems.* Zenodo, 2026. DOI: 10.5281/zenodo.20078453.
+7. Miteski, S. *Memory as Metabolism: A Design for Companion Knowledge Systems.* arXiv:2604.12034, 2026 (concept DOI: 10.5281/zenodo.19501651).
 8. Model Context Protocol specification. https://modelcontextprotocol.io
-9. Xu, W., et al. *A-MEM: Agentic Memory for LLM Agents.* arXiv:2502.12110.
-10. Chhikara, P., et al. *Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory.* arXiv:2504.19413.
+9. Xu, W., Liang, Z., Mei, K., Gao, H., Tan, J., Zhang, Y. *A-MEM: Agentic Memory for LLM Agents.* NeurIPS 2025 / arXiv:2502.12110.
+10. Chhikara, P., Khant, D., Aryan, S., Singh, T., Yadav, D. *Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory.* arXiv:2504.19413, 2025.
 11. Letta (formerly MemGPT): stateful agents with long-term memory. https://github.com/letta-ai/letta
 12. Karpathy, A. *LLM Wiki: A pattern for building personal knowledge bases using LLMs.* GitHub Gist, April 2026. https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f
-13. *Compiled Memory vs Governed State: Karpathy's LLM Wiki and the Reflexive Laboratory.* Zenodo: 19507593.
-14. *Managed Memory Is Still Not Governed State: Production Lessons from LLM Wiki v2.* Zenodo: 19545947.
-15. (to add) Any additional baselines cited in §6.
+13. Bell, P. *Compiled Memory vs Governed State: Karpathy's LLM Wiki and the Reflexive Laboratory.* Zenodo, 2026. DOI: 10.5281/zenodo.19507593.
+14. Bell, P. *Managed Memory Is Still Not Governed State: Production Lessons from LLM Wiki v2.* Zenodo, 2026. DOI: 10.5281/zenodo.19545947.
 
 ## AI-Use Disclosure
 

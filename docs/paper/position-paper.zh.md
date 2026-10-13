@@ -1,7 +1,7 @@
 # 忆时塔（Chronomem）：以 MCP 服务形态提供的时间分层外部记忆——回想与语义总结
 
 > **状态**：position / 设计论文草稿（第一稿），尚无实证评估。
-> **配套**：实现见 `https://github.com/ystyle/chronomem`（开发中）；完整技术设计见 `docs/design.md`。
+> **配套**：实现在私有仓开发中；完整技术设计见 `docs/design.md`。投稿前会在此处补上公开镜像链接。
 > **作者责任**：本文草稿借助 AI 写作工具起草。作者已通读全文并对全部论述负责，投稿前须逐条核实所有引文与事实（符合 arXiv 政策要求）。
 > **说明**：本文为中文审阅版；投稿以英文版为准。
 
@@ -28,7 +28,7 @@ Agent 在长时间尺度上工作，遇到的根本限制是：上下文窗口�
 
 我们将忆时塔暴露为 **MCP 服务**——一个常驻守护进程，任何 MCP 客户端都能接入。把记忆做成**协议**而不是私有库，我们认为是系统层面的贡献：让异构工具共享一个记忆底座，而不需要代码耦合。
 
-本文定位为**设计/观点论文**：从记忆巩固的认知类比出发论证设计动机，与 LLM 记忆系统的工作对齐，陈述「双轨成本模型」这一核心主张，并列出拟用实证回答的开放问题。
+本文定位为**设计/观点论文**：从两种日常的分层汇总实践（财务汇总报表与日/周/月报体系）出发论证设计动机，与 LLM 记忆系统的工作对齐，陈述「双轨成本模型」这一核心主张，并列出拟用实证回答的开放问题。
 
 ## 2. 背景与相关工作
 
@@ -44,25 +44,25 @@ Agent 在长时间尺度上工作，遇到的根本限制是：上下文窗口�
 
 ## 3. 设计总览
 
-忆时塔是一个独立的守护进程，只提供一个 streamable-HTTP MCP 端点。存储是单一时序数据库（`tsdb`），每个记忆类型一个 series。设计有五大支柱：
+忆时塔是一个独立的守护进程，只提供一个 streamable-HTTP MCP 端点（启用 Web 控制台时与 MCP 共用同一端口，MCP 挂在 `/mcp`）。存储是单一时序数据库（`tsdb`），每个记忆类型占两个 series——原始条目一个、其摘要一个。设计有五大支柱：
 
-**P1——记忆类型由用户自定义。** 一个*类型*是一条带名字的 series，含可选描述与 schema（供文档与 LLM 提示用，不强制校验）、可选保留期，以及*粒度链*（见下）。客户端可建 `work/chat`、`paper/decisions`、`tool/errors` 等类型。类型名白名单（`[A-Za-z0-9_/-]`），防路径穿越。
+**P1——记忆类型由用户自定义。** 一个*类型*是一条带名字的 series，含可选描述与 schema（供文档与 LLM 提示用，不强制校验）、一个已声明的保留期字段（当前仅为元数据，MVP 不做淘汰），以及*粒度链*（见下）。客户端可建 `work/chat`、`paper/decisions`、`tool/errors` 等类型。类型名白名单（`[A-Za-z0-9_/-]`），防路径穿越。
 
 **P2——类型级粒度链。** 每个类型声明自己的物化层级，从 {10min, 30min, 1h, 3h, day, week, month} 中取，默认为 10min→30min→1h→day→week。高频通道保留分钟级层级以支持**当天内精确回想**；稀疏通道（如一天一条的工作日志）用 day→week，避免建大量近乎为空的细桶。week 是默认的语义总结封顶：一整年的周级摘要只有约 52 条，加载便宜，且整年回忆极少需要。
 
-**P3——物化模式。** 一个塔层原则上可以用三种方式物化，成本不同。当前实现覆盖前两种；第三种是规划中的扩展（底层存储已提供聚合原语）。
+**P3——物化模式。** 一个塔层原则上可以用三种方式物化，成本不同。当前实现交付前两种。第三种**尚未实现**：底层存储只提供一组最小的聚合原语（计数、最新、均匀抽样），要支撑指标型类型的零 token 概览层，还需先补上通用数值聚合（均值/最小/最大/分位数）。
 
 | 模式 | 塔层内容 | 支持的回想 | LLM 成本 | 状态 |
 |---|---|---|---|---|
 | 引用链（默认，事件型） | `PointRef`/`BucketRef` 指向更细层 | 精确下钻 | 零 | 已实现 |
 | 语义摘要（可选，LLM） | LLM `SummaryRecord` | 语义回顾 | 有 | 已实现 |
-| 数值聚合（指标型） | count/avg/min/max JSON | 概览 + 下钻 | 零 | 规划中 |
+| 数值聚合（指标型） | count/avg/min/max JSON | 概览 + 下钻 | 零 | 规划中（当前仅有 count/latest/sample 原语） |
 
 **P4——双轨回想。** 两个读操作，成本差异明确：
 - `mem/recall mode=exact`：沿引用链走到**原始条目**——无损、零 LLM token，但返回的是原始体量（引用链是**导航**，不是**压缩**）。
 - `mem/recall mode=summary`：返回窗口的**语义摘要**——这才是真正压缩粗窗口的形态，且**依赖摘要已生成**（此前经 `mem/summarize`，或 `summarize_on_miss=true` 时按需现算）。
 
-**P5——摘要是时序记录的一等公民。** `mem/summarize` 读一个窗口（按粒度+锚点，或按显式 `from/to` 处理不规则的「任务阶段」窗口），让 LLM 生成结构化摘要（锚点章节：决策/结论/待办/状态变更/关键词），并追加一条 `SummaryRecord {ts, windowFrom, windowTo, model, refs, text}` 到该类型的 `.summary` series。因为摘要本身是时序条目，可被再次总结：原始 → 10min 摘要 → 1h 摘要 → day 摘要，就是结构塔的语义对应物，实现**递归、非破坏的压缩**。具体地，总结**默认自底向上**进行：在总结一个粗窗口之前，服务会先确保它内部每个更细子窗口都有摘要（缺失的先按原始条目补出来），再以这些子摘要聚合——于是粗粒度总结的成本是「每个分组一次调用」，而不是把整个窗口重读一遍，而 `refs` 会记录材料实际取自哪一层。想彻底避开链式转述的调用方，可用 `recompute` 绕开递归。
+**P5——摘要是时序记录的一等公民。** `mem/summarize` 读一个窗口（按粒度+锚点，或按显式 `from/to` 处理不规则的「任务阶段」窗口），让 LLM 生成结构化摘要（锚点章节：决策/结论/待办/状态变更/关键词），并追加一条 `SummaryRecord` 到该类型的 `.summary` series：核心字段 `{ts, windowFrom, windowTo, model, refs, instructions, text, groupKey}`，另有生成口径字段 `{strategy, chunks, inputTokens, clippedEntries}`——记录该摘要是一次直连产出还是分块 map-reduce 聚合，以及为预算截断了多少条目。因为摘要本身是时序条目，可被再次总结：原始 → 10min 摘要 → 1h 摘要 → day 摘要，就是结构塔的语义对应物，实现**递归、非破坏的压缩**。具体地，总结**默认自底向上**进行：在总结一个粗窗口之前，服务会先确保它内部每个更细子窗口都有摘要（缺失的先按原始条目补出来），再以这些子摘要聚合——于是粗粒度总结的成本是「每个分组一次调用」，而不是把整个窗口重读一遍，而 `refs` 会记录材料实际取自哪一层。想彻底避开链式转述的调用方，可用 `recompute` 绕开递归。
 
 ## 4. 双轨成本模型
 
@@ -86,29 +86,28 @@ Agent 在长时间尺度上工作，遇到的根本限制是：上下文窗口�
 
 ## 6. 评估计划（待进行）
 
-实证结果超出本文 position 论文的范围，将出现在后续论文中。计划中的研究：(i) 受控的长周期 Agent 任务（如跨模拟数周递增维护项目），对比忆时塔与扁平记忆、一次性压缩在回想准确率与 token 成本上的表现；(ii) 沿摘要链的语义漂移研究；(iii) 由作者开展的工作日志用例（day/week 粒度 + 任务阶段总结）定性研究。作者自 2026 年 8 月起持续运行一套单用户部署，已积累数百条结构化工作日志、数百条 Agent 活动记录，以及数十条按日/周递归生成的摘要；这批语料将作为 (iii) 的素材，并为校准 (i)(ii) 提供真实的窗口规模与压缩比分布。
+实证结果超出本文 position 论文的范围，将出现在后续论文中。计划中的研究：(i) 受控的长周期 Agent 任务（如跨模拟数周递增维护项目），对比忆时塔与扁平记忆、一次性压缩在回想准确率与 token 成本上的表现；(ii) 沿摘要链的语义漂移研究；(iii) 由作者开展的工作日志用例（day/week 粒度 + 任务阶段总结）定性研究。作者自 2026 年 8 月起持续运行一套单用户部署；截至 2026 年 10 月，库中已有 450 条以上结构化工作日志、1000 条以上 Agent 活动记录，以及 100 条以上按日/周递归生成的摘要；这批语料将作为 (iii) 的素材，并为校准 (i)(ii) 提供真实的窗口规模与压缩比分布。
 
 ## 7. 结论
 
-我们呈现了忆时塔——一个基于 MCP 的时间分层外部记忆服务，其贡献是：(1) **双轨回想模型**，把零 token 的精确回想与依赖总结的语义回想区分开；(2) 摘要是**一等公民的时序条目**，支持递归、非破坏的压缩；(3) **类型级粒度链**，适配每个记忆通道自身的频率分布；(4) 把记忆做成**标准化的 MCP 能力**，跨工具共享。我们的主张不是生物保真、也不是任何单一组件在算法上的新颖——每个组件都借自数据库、记忆巩固理论或 LLM 记忆系统——而在于**组合本身**，以及「导航 vs 压缩」之间诚实的成本核算。这正是我们提出供讨论、并计划在未来实证验证的贡献。
+我们呈现了忆时塔——一个基于 MCP 的时间分层外部记忆服务，其贡献是：(1) **双轨回想模型**，把零 token 的精确回想与依赖总结的语义回想区分开；(2) 摘要是**一等公民的时序条目**，支持递归、非破坏的压缩；(3) **类型级粒度链**，适配每个记忆通道自身的频率分布；(4) 把记忆做成**标准化的 MCP 能力**，跨工具共享。我们的主张不是生物保真、也不是任何单一组件在算法上的新颖——每个组件都借自数据库、日常汇总实践或 LLM 记忆系统——而在于**组合本身**，以及「导航 vs 压缩」之间诚实的成本核算。这正是我们提出供讨论、并计划在未来实证验证的贡献。
 
 ## 参考文献（投稿前须由作者逐条核实）
 
-1. Packer, C., et al. *MemGPT: Towards LLMs as Operating Systems.* arXiv:2310.08560.
-2. Park, J. S., et al. *Generative Agents: Interactive Simulacra of Human Behavior.* UIST 2023 / arXiv:2304.03442.
-3. *HiMem: Hierarchical Long-Term Memory for LLM Long-Horizon Agents.* arXiv:2601.06377.
-4. *RaMem: Contextual Reinstatement for Long-term Agentic Memory.* arXiv:2606.22844.
-5. *AriadneMem: Threading the Maze of Lifelong Memory for LLM Agents.* arXiv:2603.03290.
-6. *Beyond RAG: LLM Wikis as Living Semantic Memory: Patterns, Empirical Findings, and Open Problems.* Zenodo: 20078453.
-7. Miteski, S. *Memory as Metabolism: A Design for Companion Knowledge Systems.* arXiv:2604.12034（另有 Zenodo: 19501652）。
+1. Packer, C., Wooders, S., Lin, K., Fang, V., Patil, S. G., Stoica, I., Gonzalez, J. E. *MemGPT: Towards LLMs as Operating Systems.* arXiv:2310.08560, 2023.
+2. Park, J. S., O'Brien, J. C., Cai, C. J., Morris, M. R., Liang, P., Bernstein, M. S. *Generative Agents: Interactive Simulacra of Human Behavior.* UIST 2023 / arXiv:2304.03442, 2023.
+3. Zhang, N., Yang, X., Tan, Z., Deng, W., Wang, W. *HiMem: Hierarchical Long-Term Memory for LLM Long-Horizon Agents.* arXiv:2601.06377, 2026.
+4. Yang, W., Kan, B., Li, S., Li, L., Qin, Y., Li, J., Bogdan, P., Thomason, J. *RaMem: Contextual Reinstatement for Long-term Agentic Memory.* arXiv:2606.22844, 2026.
+5. Zhu, W., Chen, X., Wang, Z., Wang, J., Dong, X., Huang, M., Cai, R., Sang, H., Wang, H., Qiu, P., Deng, Y., Tiwari, P., Rappazzo, B. H., Wang, Y. *AriadneMem: Threading the Maze of Lifelong Memory for LLM Agents.* arXiv:2603.03290, 2026.
+6. Zhang, B. *Beyond RAG: LLM Wikis as Living Semantic Memory: Patterns, Empirical Findings, and Open Problems.* Zenodo, 2026. DOI: 10.5281/zenodo.20078453.
+7. Miteski, S. *Memory as Metabolism: A Design for Companion Knowledge Systems.* arXiv:2604.12034, 2026（概念 DOI: 10.5281/zenodo.19501651）。
 8. Model Context Protocol specification. https://modelcontextprotocol.io
-9. Xu, W., et al. *A-MEM: Agentic Memory for LLM Agents.* arXiv:2502.12110.
-10. Chhikara, P., et al. *Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory.* arXiv:2504.19413.
+9. Xu, W., Liang, Z., Mei, K., Gao, H., Tan, J., Zhang, Y. *A-MEM: Agentic Memory for LLM Agents.* NeurIPS 2025 / arXiv:2502.12110.
+10. Chhikara, P., Khant, D., Aryan, S., Singh, T., Yadav, D. *Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory.* arXiv:2504.19413, 2025.
 11. Letta（原 MemGPT）：stateful agents with long-term memory. https://github.com/letta-ai/letta
 12. Karpathy, A. *LLM Wiki: A pattern for building personal knowledge bases using LLMs.* GitHub Gist, April 2026. https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f
-13. *Compiled Memory vs Governed State: Karpathy's LLM Wiki and the Reflexive Laboratory.* Zenodo: 19507593.
-14. *Managed Memory Is Still Not Governed State: Production Lessons from LLM Wiki v2.* Zenodo: 19545947.
-15. （待补充）§6 中引用的其余基线。
+13. Bell, P. *Compiled Memory vs Governed State: Karpathy's LLM Wiki and the Reflexive Laboratory.* Zenodo, 2026. DOI: 10.5281/zenodo.19507593.
+14. Bell, P. *Managed Memory Is Still Not Governed State: Production Lessons from LLM Wiki v2.* Zenodo, 2026. DOI: 10.5281/zenodo.19545947.
 
 ## AI 使用披露
 
