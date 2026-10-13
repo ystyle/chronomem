@@ -117,22 +117,34 @@ def generate(days: int, agents: int, seed: int, facts_per_day: int = 2,
                 text=f"Ran a {topic} check; nothing changed. day {day}."))
             seq += 1
 
-        # --- probe for the fact created *earliest* this day ---------------------
-        # Asking about the oldest fact on the day it was created, and re-asking
-        # older facts, is what separates architectures: a system that only keeps
-        # recent context fails the older probes.
-        day_facts = [e for e in tr.events if e.day == day and e.kind == "decision"]
-        if day_facts:
-            target = day_facts[0]
+        # --- probes: ask about facts from *earlier* days ------------------------
+        # Two things this must get right, both learned the hard way:
+        #
+        # 1. Never ask about a same-day fact. A recency window still holds that
+        #    day, so the probe measures nothing about long-horizon memory.
+        #    Measured: with same-day probes a 20-event window scored 7/9.
+        # 2. The lag must GROW with the run. A fixed short lag is also answered
+        #    by any bounded recency window: on a 30-day trace with a 1-day lag,
+        #    a 20-event window (≈2 days) still scored 90.6%. The lag therefore
+        #    grows with the day, which is exactly the axis a time-layered store
+        #    is supposed to win on — and the reason a flat store degrades as the
+        #    horizon extends.
+        all_facts = [e for e in tr.events if e.kind == "decision" and e.day < day]
+        if all_facts:
+            target_day = max(1, day - max(1, day // 2))
+            candidates = [e for e in all_facts if e.day == target_day] or all_facts
+            target = candidates[0]
             tr.probes.append(Probe(
                 qid=f"q{day:02d}", topic=target.topic,
-                question=f"What option was chosen for {target.topic} on day {day}?",
+                question=f"What option was chosen for {target.topic} on day {target.day}?",
                 answer=target.answer, fact_id=target.fact_id, day_asked=day))
 
-    # A few long-range probes: ask about the very first facts at the very end.
-    # These are the ones a recency-only store cannot answer.
-    first_decisions = [e for e in tr.events if e.kind == "decision"][:2]
-    for i, ev in enumerate(first_decisions):
+    # Long-range probes: the earliest and a mid-run fact, asked at the very end.
+    decisions = [e for e in tr.events if e.kind == "decision"]
+    for i, idx in enumerate([0, 1, len(decisions) // 2]):
+        if idx >= len(decisions):
+            continue
+        ev = decisions[idx]
         tr.probes.append(Probe(
             qid=f"q_long{i + 1}", topic=ev.topic,
             question=f"(recap) What option was chosen for {ev.topic} on day {ev.day}?",
