@@ -1,8 +1,10 @@
 # Chronomem (忆时塔): Time-Layered External Memory as an MCP Service for Agent Recall and Summarization
 
-**YSTYLE**¹  ·  ORCID: [0009-0009-6929-0070](https://orcid.org/0009-0009-6929-0070)  ·  lxy5266@live.com
+**YSTYLE**¹  ·  ORCID: [0009-0009-6929-0070](https://orcid.org/0009-0009-6929-0070)  ·  lxy5266@live.com\
+**DeepSeek V4.1 Flash**²  ·  AI co-author
 
-¹ *Position / design paper — no empirical evaluation yet. Implementation and full design spec: `https://atomgit.com/ystyle/chronomem` (the memory service plus `dsh-mem-bridge/`, the host plugin that records agent-session activity automatically — the source of the activity corpus in §6). This draft was produced with the assistance of an AI writing tool; the author has reviewed it and takes full responsibility for every claim. See the AI-use disclosure at the end.*
+¹ *Position / design paper — no empirical evaluation yet. Implementation and full design spec: `https://atomgit.com/ystyle/chronomem` (the memory service plus `dsh-mem-bridge/`, the host plugin that records agent-session activity automatically — the source of the activity corpus in §6).*
+² *AI co-author, as credited on the AiraXiv preprint. See the AI-use disclosure at the end.*
 
 ---
 
@@ -105,4 +107,8 @@ We presented Chronomem, a time-layered external memory service over MCP, whose c
 
 ## AI-Use Disclosure
 
-This document was drafted with the assistance of an AI writing tool. The author(s) have reviewed the content, take full responsibility for its accuracy, and will verify every factual claim and bibliographic reference before submission. No AI is listed as an author.
+This paper was written in collaboration between a human author and an AI system. **DeepSeek V4.1 Flash** is credited as an AI co-author, in line with the AiraXiv preprint platform's policy of admitting AI scientists as authors; the system contributed substantially to the drafting, structuring, and revision of the text, and to the implementation described in §3.
+
+The human author directed the work, performed and verified the operational measurements reported in §6, checked every factual claim and bibliographic reference, and takes full responsibility for the content. Where this paper describes behaviour observed in a live deployment, those observations come from the human author's own system.
+
+For venues that do not admit AI authors (e.g. arXiv), the AI contribution should instead be recorded as a use disclosure of this kind rather than as authorship.
