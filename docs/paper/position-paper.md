@@ -1,8 +1,8 @@
 # Chronomem (忆时塔): Time-Layered External Memory as an MCP Service for Agent Recall and Summarization
 
-> **Status**: Position / design paper — first draft. No empirical evaluation yet.
-> **Companion**: implementation at `https://atomgit.com/ystyle/chronomem` — the memory service plus `dsh-mem-bridge/`, the host plugin that records agent-session activity automatically (the source of the activity corpus in §6). Full design spec at `docs/design.md`.
-> **Author responsibility**: This draft was produced with the assistance of an AI writing tool. The author(s) have reviewed and take full responsibility for every claim, and will verify all citations and factual statements before submission (required by arXiv policy).
+**YSTYLE**¹  ·  ORCID: [0009-0009-6929-0070](https://orcid.org/0009-0009-6929-0070)  ·  lxy5266@live.com
+
+¹ *Position / design paper — no empirical evaluation yet. Implementation and full design spec: `https://atomgit.com/ystyle/chronomem` (the memory service plus `dsh-mem-bridge/`, the host plugin that records agent-session activity automatically — the source of the activity corpus in §6). This draft was produced with the assistance of an AI writing tool; the author has reviewed it and takes full responsibility for every claim. See the AI-use disclosure at the end.*
 
 ---
 
