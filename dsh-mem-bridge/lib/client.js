@@ -186,7 +186,10 @@ window.__ModuleLoader__.load({
     /**
      * One boolean setting: a visible label, the switch, and its hint.
      *
-     * @param props.id - stable id for the label association.
+     * The switch's accessible name is its own `label` prop, so the visible text
+     * is decorative here and carries no id — nothing associates it with the
+     * control, which is a button rather than a labelled input.
+     *
      * @param props.label - visible label text, also the switch's accessible name.
      * @param props.hint - one-line explanation under the row.
      * @param props.checked - current staged state.
@@ -201,7 +204,7 @@ window.__ModuleLoader__.load({
         react.createElement(
           'div',
           { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
-          react.createElement('span', { id: `${props.id}-label`, style: labelStyle }, props.label),
+          react.createElement('span', { style: labelStyle }, props.label),
           react.createElement(primitives.Switch, {
             checked: props.checked,
             label: props.label,
@@ -268,7 +271,6 @@ window.__ModuleLoader__.load({
           onEdit: (text) => props.edit(TOKEN_FIELD, text),
         }),
         react.createElement(BooleanField, {
-          id: 'plugin-config-mem-bridge-enabled',
           label: t('enabled'),
           hint: t('enabledHint'),
           checked: state.enabled.text === 'true',
@@ -276,7 +278,6 @@ window.__ModuleLoader__.load({
           onToggle: (next) => props.edit('enabled', next ? 'true' : 'false'),
         }),
         react.createElement(BooleanField, {
-          id: 'plugin-config-mem-bridge-distill',
           label: t('distill'),
           hint: t('distillHint'),
           checked: state.distill.text === 'true',
