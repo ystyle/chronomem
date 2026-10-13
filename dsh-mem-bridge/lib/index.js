@@ -64,7 +64,13 @@ export const name = 'dsh-mem-bridge'
  */
 const Config = z.object({
   url: z.string().default('http://127.0.0.1:8900').volatile(),
-  token: z.string().role('secret').default('').volatile(),
+  // No `default('')` on purpose. The settings form reports a secret as
+  // "configured" from whether the resolved value is present at all, not from
+  // its content, so an empty-string default would make every fresh install
+  // claim a key it never had. Absence is the honest state; `resolveConfig`
+  // turns it into '' for the writer, and `mcpHeaders` sends no Authorization
+  // header for '' (`pure.js`).
+  token: z.string().role('secret').volatile(),
   enabled: z.boolean().default(true).volatile(),
   distill: z.boolean().default(true).volatile(),
 })
