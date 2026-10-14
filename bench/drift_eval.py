@@ -71,9 +71,19 @@ def hour_to_ms(hour: int) -> int:
 def window_start_ms(hour: int, granularity: str) -> int:
     """Start of the calendar window containing `hour`, in the service's timezone.
 
-    Kept in step with the service's `windowRangeOf`: day = local midnight,
-    week = Monday 00:00. Getting this wrong does not error — it silently
-    returns a neighbouring window's summary, which would look like drift.
+    Must reproduce the service's `windowRangeOf` exactly, because summary lookup
+    is an **equality** match on (windowFrom, windowTo): a window computed even one
+    day off does not miss by "close enough", it returns "no summary" and the
+    experiment silently scores the level as empty.
+
+    Two bugs were found here the hard way:
+      * the base timestamp was not on an hour boundary, so every lookup missed;
+      * the week start was computed as `dayStart - 3 days`, which is only correct
+        when the day itself is a Thursday. The service anchors weeks to Monday
+        00:00 local (ISO), so the shift has to be derived from the epoch weekday,
+        not a constant. Measured error: 96 hours — a Friday instead of Monday.
+    Days since the epoch: 1970-01-01 was a Thursday, so weekday index 0 = Monday
+    needs a shift of 3 days from a Thursday epoch.
     """
     ms = hour_to_ms(hour)
     shifted = ms + TZ_SHIFT_MS
@@ -83,8 +93,10 @@ def window_start_ms(hour: int, granularity: str) -> int:
         start = shifted - (shifted % DAY_MS)
     elif granularity == "week":
         day_start = shifted - (shifted % DAY_MS)
-        # 1970-01-01 was a Thursday; shifting by 3 days makes weeks start Monday.
-        start = day_start - 3 * DAY_MS
+        days_since_epoch = day_start // DAY_MS
+        # 1970-01-01 = Thursday. Monday is 4 days after Thursday mod 7.
+        dow_from_monday = (days_since_epoch + 3) % 7
+        start = day_start - dow_from_monday * DAY_MS
     else:
         raise ValueError(granularity)
     return start - TZ_SHIFT_MS
@@ -189,6 +201,23 @@ def main() -> None:
         trace = json.load(fh)
 
     # --- ingest --------------------------------------------------------------
+    # The type must exist before anything can be written to it. An earlier
+    # version relied on the type having been created by hand, so after a cleanup
+    # every call failed and the run reported a uniform 0% at every level — which
+    # reads as "total drift" but was simply "nothing was ever built".
+    try:
+        rpc(args.url, "mem/type_create", {
+            "name": MTYPE,
+            "description": "semantic drift study (synthetic)",
+            "levels": ["1h", "day", "week"],
+            "auto_summarize": False,
+        })
+        print(f"created type {MTYPE}")
+    except RuntimeError as exc:
+        if "已存在" not in str(exc):
+            raise
+        print(f"type {MTYPE} already exists")
+
     if not args.skip_ingest:
         print(f"ingesting {len(trace['events'])} events ...")
         rpc(args.url, "mem/truncate", {"type": MTYPE})
