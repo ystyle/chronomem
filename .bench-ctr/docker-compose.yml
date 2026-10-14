@@ -1,0 +1,27 @@
+# 漂移研究的独立实例：与生产同一镜像构建方式，但用独立容器名、独立端口、
+# 独立数据卷——绝不读写 ~/docker/chronomem/data。
+services:
+  chronomem-bench:
+    build: /home/ystyle/Projects/Cangjie/chronomem
+    image: chronomem:bench
+    container_name: chronomem-bench
+    ports:
+      - "18900:8900"
+    environment:
+      - CHRONOLOG_DIR=/home/app/.chronolog
+      - CHRONOLOG_ADDR=0.0.0.0
+      - CHRONOLOG_PORT=8900
+      - CHRONOLOG_TIMEZONE=Asia/Shanghai
+      - CHRONOLOG_GC_THRESHOLD_MB=64
+      - cjHeapSize=1gb
+      # LLM 从宿主环境透传（.env），漂移研究需要真实生成摘要
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - CHRONOLOG_SUMMARY_CONTEXT_TOKENS=${CHRONOLOG_SUMMARY_CONTEXT_TOKENS:-131072}
+      - CHRONOLOG_SUMMARY_MAX_ATTEMPTS=3
+      # 关闭 worklog 播种：本实例只服务于 bench，不需要生产默认类型
+      - CHRONOLOG_SEED_WORKLOG=false
+    volumes:
+      - "./data:/home/app/.chronolog"
