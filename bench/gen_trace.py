@@ -85,10 +85,18 @@ def generate(days: int, agents: int, seed: int, facts_per_day: int = 2,
 
     for day in range(1, days + 1):
         # --- facts for this day -------------------------------------------------
-        for _ in range(facts_per_day):
+        # Topics are drawn WITHOUT replacement within a day. Repeating a topic on
+        # the same day makes a probe ambiguous: "what was chosen for storage on
+        # day 6" no longer has one answer, and a reader that finds the *first*
+        # mention reports a different (correct-looking) option than the fact the
+        # probe was built from. Measured: 6 of 54 (day, topic) pairs were
+        # ambiguous, and they accounted for every miss the layered backend
+        # showed — the system had remembered the fact, the extractor picked the
+        # other one. Determinism is preserved because the sample is seeded.
+        day_topics = rng.sample(TOPICS, min(facts_per_day, len(TOPICS)))
+        for topic in day_topics:
             fact_n += 1
             fid = f"f{fact_n:03d}"
-            topic = rng.choice(TOPICS)
             answer = CHOICES[choice_n % len(CHOICES)]
             choice_n += 1
             owner = rng.choice(OWNERS)
