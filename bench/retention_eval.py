@@ -60,6 +60,8 @@ def main() -> None:
     ap.add_argument("--purge", action="store_true")
     ap.add_argument("--backends", default="flat,compaction,chronomem-exact",
                     help="comma-separated subset")
+    ap.add_argument("--url", default="http://127.0.0.1:18900/mcp",
+                    help="Chronomem endpoint; must be the isolated bench instance")
     args = ap.parse_args()
 
     with open(args.trace, encoding="utf-8") as fh:
@@ -72,9 +74,9 @@ def main() -> None:
     if "compaction" in picked:
         todo.append(CompactionBackend())
     if "chronomem-exact" in picked:
-        todo.append(ChronomemBackend(mode="exact"))
+        todo.append(ChronomemBackend(url=args.url, mode="exact"))
     if "chronomem-summary" in picked:
-        todo.append(ChronomemBackend(mode="summary"))
+        todo.append(ChronomemBackend(url=args.url, mode="summary"))
 
     # Attach the lag to each probe before running, so the runner can report it.
     for p in trace["probes"]:
@@ -98,7 +100,7 @@ def main() -> None:
                 # nothing while looking like a legitimate zero.
                 backend.purge()
                 backend.setup()
-            res = run_backend(backend, trace)
+            res = run_backend(backend, trace, prepare=backend.prepare)
         except Exception as exc:                       # noqa: BLE001
             print(f"[{name}] FAILED: {type(exc).__name__}: {exc}", file=sys.stderr)
             continue

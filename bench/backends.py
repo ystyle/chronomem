@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import urllib.request
 import urllib.error
 from dataclasses import dataclass, field
@@ -54,6 +55,11 @@ CHARS_PER_TOKEN = 4.0
 # the summarizer's configured per-call input budget so that the summary track is
 # not accidentally reported as free.
 SUMMARY_CALL_TOKENS = 40_000
+
+# `mem/summarize` replies "已提交后台总结任务 #<id>（...）". Each submission gets
+# its own id, so the id must be captured per call — polling a fixed id reports
+# success while other windows are still queued.
+JOB_ID_RE = re.compile(r"#\s*(\d+)")
 
 
 def est_tokens(text: str) -> int:
@@ -83,6 +89,9 @@ class Backend:
     def answer(self, question: str, day_asked: int) -> Answer:
         raise NotImplementedError
 
+    def prepare(self, trace: dict) -> None:
+        """Optional pre-probing work (e.g. generating summaries). Default: none."""
+
     def close(self) -> None:
         pass
 
@@ -96,10 +105,19 @@ class ChronomemBackend(Backend):
     the production types that hold real records.
     """
 
-    def __init__(self, url: str = "http://127.0.0.1:8900/mcp",
+    def __init__(self, url: str = "http://127.0.0.1:18900/mcp",
                  mtype: str = "bench/eval", mode: str = "exact",
                  query_limit: int = 500):
         super().__init__(name=f"chronomem-{mode}")
+        # The default is the **bench** instance, never the production one. A
+        # default pointing at 8900 wrote a synthetic trace into the live store
+        # the moment a caller forgot `--url`; an experiment must not be able to
+        # touch production by omission. The guard below makes that impossible
+        # rather than merely unlikely.
+        if ":8900" in url:
+            raise ValueError(
+                "refusing to run against the production port (" + url + "). "
+                "Start the bench instance (see .bench-ctr/README.md) and pass its URL.")
         self.url = url
         self.mtype = mtype
         self.mode = mode          # exact | summary
@@ -149,7 +167,7 @@ class ChronomemBackend(Backend):
     def write(self, day: int, seq: int, text: str, tags: dict | None = None) -> None:
         # ts is placed inside the simulated day so window materialization lines
         # up with `day`; day 1 maps to a fixed epoch base.
-        ts = DAY_MS * day + seq * 1000
+        ts = day_ms(day) + seq * 1000
         self._call("mem/append", {
             "type": self.mtype,
             "payload": {"text": text, "day": day},
@@ -161,7 +179,11 @@ class ChronomemBackend(Backend):
 
     def answer(self, question: str, day_asked: int) -> Answer:
         """Query the whole run so far, then read it the way the mode prescribes."""
-        to_ms = DAY_MS * (day_asked + 1)
+        # Upper bound of the query must use the same time base the events were
+        # written with (`day_ms`). Mixing bases here silently returned zero
+        # entries for every probe — the layer scored 0% while looking like a
+        # system that had forgotten everything.
+        to_ms = day_ms(day_asked) + DAY_MS
         if self.mode == "exact":
             # Structural recall: pull the raw entries. Zero server-side LLM.
             got = self._text(self._call("mem/query", {
@@ -169,35 +191,64 @@ class ChronomemBackend(Backend):
             }))
             return Answer(text=got, client_tokens=est_tokens(got),
                           note="raw entries (all of them)")
-        # Semantic recall: a day-level summary of the asked-about day. The
-        # summary must already exist — the service reports "no summary yet"
-        # rather than generating one inline, which mirrors the paper's stated
-        # precondition (semantic recall is summary-dependent).
+
+        # Semantic recall: read the *day* summary of the day the question is
+        # about. Which day that is has to come from the question — the fact's day
+        # is not `day_asked` (that is the moment of asking), and reading the
+        # wrong window returns a neighbouring summary that looks plausible.
+        #
+        # The window must be computed the way the service does: day/week windows
+        # are CALENDAR-aligned in the service's timezone, not epoch-aligned. A
+        # naive `DAY_MS * day` is 8 hours off for Asia/Shanghai, so the lookup
+        # missed every time and the level scored 0 — which reads as "the
+        # summaries lose everything" rather than "the query was wrong".
+        m = re.search(r"on day (\d+)", question, re.IGNORECASE)
+        fact_day = int(m.group(1)) if m else day_asked
         got = self._text(self._call("mem/recall", {
             "type": self.mtype, "granularity": "day", "mode": "summary",
-            "windowStartMs": DAY_MS * day_asked,
+            "windowStartMs": day_window_start(fact_day),
         }))
         if "尚无语义摘要" in got or "no summary" in got.lower():
             self.missing_summaries += 1
-        # Generating a summary is server-side spend. The service does not report
-        # its token usage, so the real figure must be read from the deployment
-        # (see README); here the cost is booked only when a generation was
-        # actually attempted.
         return Answer(text=got, client_tokens=est_tokens(got),
-                      note="day summary")
+                      note=f"day summary of day {fact_day}")
 
-    def summarize_day(self, day: int) -> None:
-        """Ask the service to produce one day's summary (a background job).
+    def prepare(self, trace: dict) -> None:
+        """Generate the summary tower before probing starts.
 
-        Semantic recall has a precondition — the summary must exist — so a
-        summary-mode run has to generate them first. Kept explicit rather than
-        folded into `answer` so the server-side spend it causes is visible.
+        Realistic model: the scheduler summarizes each day once it closes, so by
+        the time a client asks about an old day the summary is already there.
+        Pre-generating models a deployment whose scheduler has caught up.
+
+        The consequence for measurement is worth stating because it decides what
+        the numbers mean: a summary is produced once and does not change as it
+        ages, so **semantic recall does not decay with lag**. What it loses is
+        whatever the compression dropped at generation time — a bounded loss,
+        against the unbounded decay a fixed recency window shows. Measuring that
+        bounded loss is the point of including this backend.
         """
-        self._call("mem/summarize", {
-            "type": self.mtype, "granularity": "day",
-            "windowStartMs": DAY_MS * day,
-        })
-        self.server_tokens += SUMMARY_CALL_TOKENS
+        days = sorted({e["day"] for e in trace["events"]})
+        for i, day in enumerate(days):
+            reply = self._call("mem/summarize", {
+                "type": self.mtype, "granularity": "day",
+                "windowStartMs": day_window_start(day),
+            })
+            jid = JOB_ID_RE.search(json.dumps(reply))
+            if jid:
+                self._wait_job(int(jid.group(1)))
+            # Server-side spend: one LLM call per summarized window.
+            self.server_tokens += SUMMARY_CALL_TOKENS
+            if (i + 1) % 10 == 0:
+                print(f"    summarized {i + 1}/{len(days)} days")
+
+    def _wait_job(self, job_id: int, timeout_s: int = 300) -> None:
+        """Poll one summarization job. Each submission returns its own id."""
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            txt = self._text(self._call("mem/summarize_status", {"job_id": job_id}))
+            if "done" in txt or "failed" in txt:
+                return
+            time.sleep(2)
 
     def purge(self) -> None:
         """Drop this run's entries. `type_delete` requires empty series first."""
@@ -210,10 +261,16 @@ class ChronomemBackend(Backend):
 # --- 2. Flat recency --------------------------------------------------------
 
 class FlatBackend(Backend):
-    """Store everything; retrieve the k most recent entries.
+    """Store everything; retrieve the k most recent entries **as of the ask**.
 
     This is the baseline the paper argues lacks compression: it keeps all
     evidence, but a reader that can only inject a bounded window sees the tail.
+
+    Events are stamped with their day and filtered by `day_asked`. That matters
+    because the runner ingests the whole trace before asking anything (so that
+    summary-generating backends can do off-line work): without the filter this
+    backend would answer day 5's question from the most recent 20 events of day
+    30 and score as well as a system that actually remembers.
     """
 
     def __init__(self, top_k: int = 20):
@@ -227,10 +284,11 @@ class FlatBackend(Backend):
         self.stored_chars += len(text)
 
     def answer(self, question: str, day_asked: int) -> Answer:
-        recent = self.events[-self.top_k:]
-        got = "\n".join(t for _, _, t in recent)
+        visible = [t for (d, _s, t) in self.events if d <= day_asked]
+        recent = visible[-self.top_k:]
+        got = "\n".join(recent)
         return Answer(text=got, client_tokens=est_tokens(got),
-                      note=f"last {len(recent)} events")
+                      note=f"last {len(recent)} events as of day {day_asked}")
 
 
 # --- 3. One-shot compaction -------------------------------------------------
@@ -264,6 +322,8 @@ class CompactionBackend(Backend):
         super().__init__(name="one-shot-compaction")
         self.report_lines: list[str] = []
         self.buffer: list[str] = []
+        # Report snapshot per compaction day (see `write`/`answer`).
+        self.reports_by_day: dict[int, list[str]] = {}
         self.every = compact_every_days
         self.keep_per_pass = keep_per_pass
         self.last_compact_day = 0
@@ -275,6 +335,10 @@ class CompactionBackend(Backend):
         if day - self.last_compact_day >= self.every:
             self._compact()
             self.last_compact_day = day
+            # Snapshot the report as of this day, so a probe asked about an
+            # earlier day reads the report as it stood then rather than one that
+            # has since absorbed later days' summaries.
+            self.reports_by_day[day] = list(self.report_lines)
 
     def _compact(self) -> None:
         """Rewrite the buffer into the running report; the rest is discarded.
@@ -298,9 +362,36 @@ class CompactionBackend(Backend):
         # Reading the running report costs the service nothing: the compaction
         # spend was already booked at `write` time (`server_tokens`), which the
         # runner adds to the total.
-        got = "\n".join(self.report_lines)
+        #
+        # The report as of `day_asked` is used (see `write`), so this backend is
+        # not credited with compaction passes that happen later in the trace.
+        past = [d for d in self.reports_by_day if d <= day_asked]
+        lines = self.reports_by_day[max(past)] if past else []
+        got = "\n".join(lines)
         return Answer(text=got, client_tokens=est_tokens(got),
                       note="running report")
 
 
 DAY_MS = 86_400_000
+HOUR_MS = 3_600_000
+
+# The service aligns day/week windows to the CALENDAR in its own timezone
+# (`CHRONOLOG_TIMEZONE`, Asia/Shanghai in the bench instance). The bench trace
+# numbers days 1..N; they are placed on a fixed UTC+8 base so that "day N" lands
+# on a whole local day. Using `DAY_MS * day` instead put each day 8 hours off and
+# silently matched the neighbouring window — a mistake that reads as total
+# summary loss rather than as a bad query.
+TZ_SHIFT_MS = 8 * HOUR_MS
+# 2024-01-01 00:00 +08:00 — day 0's local midnight.
+BASE_MS = 1_704_067_200_000 - TZ_SHIFT_MS
+
+
+def day_ms(day: int) -> int:
+    """Timestamp of the start (local midnight) of trace `day`."""
+    return BASE_MS + day * DAY_MS
+
+
+def day_window_start(day: int) -> int:
+    """Start of the calendar day window the service would compute for `day`."""
+    shifted = day_ms(day) + TZ_SHIFT_MS
+    return shifted - (shifted % DAY_MS) - TZ_SHIFT_MS

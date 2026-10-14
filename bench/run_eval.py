@@ -32,13 +32,156 @@ from backends import (Backend, ChronomemBackend, FlatBackend,
                       CompactionBackend, DAY_MS, est_tokens)
 
 # Which option did the backend leave visible for (topic, day)?
+#
+# Two surfaces have to be read here, and they do not look alike:
+#   * raw entries (exact mode, and the flat/compaction baselines) — English,
+#     `[vun] alice decided to go with option B ... day 3` / `Applied option B in
+#     the vun module (...) day 3`;
+#   * a generated summary — the summarizer answers in Chinese, e.g.
+#     `vun 模块：选择方案 B` or `在 vun 模块中应用选项 C`.
+# Matching only the English form scored every summary-backed run at 0, which
+# looks exactly like "the summary lost the information" but was the reader
+# failing to parse a language it was never taught.
 DECISION_RE = re.compile(
-    r"\[(?P<topic>[a-z]+)\].*?decided to go with option (?P<choice>[ABC]).*?day (?P<day>\d+)",
+    r"\[(?P<topic>[a-z]+)\].*?option (?P<choice>[A-D]).*?day\s*(?P<day>\d+)",
     re.IGNORECASE)
 EDIT_RE = re.compile(
-    r"Applied option (?P<choice>[ABC]) in the (?P<topic>[a-z]+) module .*?day (?P<day>\d+)",
+    r"option (?P<choice>[A-D]) in the (?P<topic>[a-z]+) module.*?day\s*(?P<day>\d+)",
     re.IGNORECASE)
+# Chinese renderings of the option.
+ZH_OPTION_RE = re.compile(r"(?:选项|方案|选择了?|采用)\s*([A-D])")
+DAY_RE = re.compile(r"(?:day\s*(\d+)|第\s*(\d+)\s*[天日])", re.IGNORECASE)
 
+# Topic vocabulary, used only to judge how many topics a sentence mentions.
+# Imported lazily (inside the function) to avoid a circular import: gen_trace
+# imports nothing from here, but keeping the reader decoupled means the trace
+# layout can change without touching the scorer. The assertion guards against
+# the two drifting apart.
+ALL_TOPICS: list[str] = []
+
+
+def _load_topics() -> list[str]:
+    global ALL_TOPICS
+    if not ALL_TOPICS:
+        from gen_trace import TOPICS
+        ALL_TOPICS = list(TOPICS)
+    return ALL_TOPICS
+
+
+def _option_in(segment: str) -> str | None:
+    """The option letter stated in one segment, or None.
+
+    Both languages are accepted: raw entries are English, a generated summary
+    answers in Chinese ("选择方案 B"). Teaching the reader only one of them made
+    every summary-backed run score 0, which looks like total information loss
+    but was the reader failing on a language it did not know.
+    """
+    for rx in (DECISION_RE, EDIT_RE):
+        mm = rx.search(segment)
+        if mm:
+            return mm.group("choice").upper()
+    mm = ZH_OPTION_RE.search(segment)
+    if mm:
+        return mm.group(1).upper()
+    return None
+
+
+def _day_in(segment: str) -> int | None:
+    m = DAY_RE.search(segment)
+    if not m:
+        return None
+    return int(m.group(1) or m.group(2))
+
+
+def extract_answer(text: str, question: str) -> str | None:
+    """Deterministic reader: recover the option for the fact the question is about.
+
+    The reader sees only `text`, and must fail when the fact is absent — that is
+    the point: a store that dropped the detail cannot be rescued by a clever
+    reader. `None` is the drift signal and must never be softened into a guess,
+    since returning some other fact's option would credit a backend for
+    information it no longer carries.
+
+    Primary key is the **reference token** (`ref ZR01`) that the trace embeds in
+    every fact-bearing event. It is the only reliable key, because a summary is
+    prose: it routinely names several topics and several options in one sentence
+    ("keb and vun were applied options A and C"), so any reader keyed on
+    (topic, day) picks the wrong letter in exactly that sentence — which is what
+    produced most of the summary-backed misses in earlier runs.
+
+    Falls back to (topic, day) only for material that has no reference token
+    (a trace generated before the token existed, or a backend that paraphrased it
+    away); then topic-only matching is allowed only when the text cannot span
+    several days, since a topic recurs across days with different options.
+    """
+    # --- primary: reference token -------------------------------------------
+    mref = re.search(r"ref\s+(Z[A-Z]\d{2})", question, re.IGNORECASE)
+    want_ref = mref.group(1).upper() if mref else None
+    if want_ref:
+        segments = [s for s in re.split(r"[\n\r;；]|(?<=[。！？])", text) if s.strip()]
+        # A summary may restate the fact on several lines; take the first line
+        # that carries both the token and an option.
+        for seg in segments:
+            if re.search(r"(?<![A-Z0-9])" + re.escape(want_ref) + r"(?![A-Z0-9])",
+                         seg, re.IGNORECASE):
+                opt = _option_in(seg)
+                if opt:
+                    return opt
+        # Token present but no option on its line (e.g. it appears only in a
+        # keyword list) — fall through to the topic-based path.
+        if not re.search(r"(?<![A-Z0-9])" + re.escape(want_ref) + r"(?![A-Z0-9])",
+                         text, re.IGNORECASE):
+            return None
+
+    # --- fallback: (topic, day), then topic alone ----------------------------
+    m = re.search(r"for ([a-z]+) on day (\d+)", question, re.IGNORECASE)
+    if not m:
+        m = re.search(r"for ref \S+ on day (\d+)", question, re.IGNORECASE)
+        if not m:
+            return None
+        want_topic, want_day = None, int(m.group(1))
+    else:
+        want_topic, want_day = m.group(1).lower(), int(m.group(2))
+
+    segments = [s for s in re.split(r"[\n\r;；]|(?<=[。！？])", text) if s.strip()]
+    days_mentioned = {int(a or b) for a, b in DAY_RE.findall(text)}
+    strict = len(days_mentioned) > 1
+
+    def names_topic(seg: str) -> bool:
+        if want_topic is None:
+            return True
+        return re.search(r"(?<![a-z])" + re.escape(want_topic) + r"(?![a-z])",
+                         seg, re.IGNORECASE) is not None
+
+    def topic_count(seg: str) -> int:
+        return sum(1 for t in _load_topics()
+                   if re.search(r"(?<![a-z])" + re.escape(t) + r"(?![a-z])",
+                                seg, re.IGNORECASE))
+
+    def candidates(require_day: bool):
+        out = []
+        for idx, seg in enumerate(segments):
+            if not names_topic(seg):
+                continue
+            d = _day_in(seg)
+            if require_day and d != want_day:
+                continue
+            if not require_day and d is not None and d != want_day:
+                continue
+            out.append((topic_count(seg), idx, seg))
+        out.sort(key=lambda x: (x[0], x[1]))       # fewest topics, then earliest
+        return [s for _c, _i, s in out]
+
+    for seg in candidates(require_day=True):
+        opt = _option_in(seg)
+        if opt:
+            return opt
+    if not strict:
+        for seg in candidates(require_day=False):
+            opt = _option_in(seg)
+            if opt:
+                return opt
+    return None
 
 @dataclass
 class ProbeResult:
@@ -81,41 +224,14 @@ class BackendResult:
         return self.client_tokens + self.server_tokens
 
 
-def extract_answer(text: str, question: str) -> str | None:
-    """Deterministic reader: pull the option for the topic+day the question asks about.
-
-    The reader sees only `text`. If the answer is not present verbatim it must
-    fail — that is the point: a compressed store that dropped the detail cannot
-    be rescued by a clever reader.
-    """
-    m = re.search(r"for ([a-z]+) on day (\d+)", question, re.IGNORECASE)
-    if not m:
-        m = re.search(r"for ([a-z]+) on day (\d+)", question, re.IGNORECASE)
-    if not m:
-        return None
-    want_topic, want_day = m.group(1).lower(), int(m.group(2))
-
-    found: str | None = None
-    for rx in (DECISION_RE, EDIT_RE):
-        for mm in rx.finditer(text):
-            if mm.group("topic").lower() == want_topic and int(mm.group("day")) == want_day:
-                found = mm.group("choice").upper()   # first match wins
-                break
-        if found:
-            break
-    return found
-
-
-def run_backend(backend: Backend, trace: dict, purge_first: bool = False) -> BackendResult:
+def run_backend(backend: Backend, trace: dict, purge_first: bool = False,
+                prepare=None) -> BackendResult:
     if purge_first and isinstance(backend, ChronomemBackend):
         backend.purge()
         backend.setup()
 
     res = BackendResult(name=backend.name)
 
-    # Replay day by day: events first, then that day's probes. Probes asked on
-    # day N must not see day N+1 events, or a recency baseline would be judged
-    # on information it could not have had.
     events_by_day: dict[int, list] = {}
     for e in trace["events"]:
         events_by_day.setdefault(e["day"], []).append(e)
@@ -124,10 +240,25 @@ def run_backend(backend: Backend, trace: dict, purge_first: bool = False) -> Bac
         probes_by_day.setdefault(p["day_asked"], []).append(p)
 
     days = sorted(set(events_by_day) | set(probes_by_day))
+
+    # Phase 1 — ingest the whole trace.
+    #
+    # All events are written before any probe is asked, which is what lets a
+    # backend do off-line preparation (summarizing closed days) the way a live
+    # deployment's scheduler does. Backends that answer from a bounded window
+    # must therefore filter by the day being asked about themselves — otherwise
+    # they would answer day 5's question using day 30's events and look
+    # artificially good. `FlatBackend`/`CompactionBackend` do that filtering.
     for day in days:
         for e in sorted(events_by_day.get(day, []), key=lambda x: x["seq"]):
             backend.write(day, e["seq"], e["text"],
                           {"topic": e["topic"]} if e.get("topic") else None)
+
+    if prepare is not None:
+        prepare(trace)
+
+    # Phase 2 — ask each probe at its own point on the timeline.
+    for day in days:
         for p in probes_by_day.get(day, []):
             ans = backend.answer(p["question"], day)
             got = extract_answer(ans.text, p["question"])

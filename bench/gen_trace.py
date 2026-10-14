@@ -28,9 +28,16 @@ import random
 from dataclasses import dataclass, field, asdict
 
 # Domains kept small and unambiguous so that an exact-match scorer is fair.
-TOPICS = ["storage", "protocol", "retry", "schema", "scheduler"]
+# Topic codes are nonsense letter strings on purpose. English words get
+# translated by the summarizer ("storage" -> "存储"), so a probe asking about
+# "storage" cannot be located in a Chinese summary at all — the extraction step
+# then fails and the level scores 0, which reads as "the summary lost
+# everything". A token with no meaning survives verbatim in either language.
+TOPICS = ["vun", "keb", "rix", "tas", "mox"]
 CHOICES = ["A", "B", "C"]
 OWNERS = ["alice", "bob", "carol"]
+# Letters used to build the per-fact reference token (see `ref` in `generate`).
+REF_LETTERS = ["Q", "R", "T", "U", "V", "W", "X", "Y"]
 
 
 @dataclass
@@ -43,6 +50,7 @@ class Event:
     fact_id: str | None = None
     answer: str | None = None   # ground truth, present only on fact-carrying events
     topic: str | None = None
+    ref: str | None = None      # opaque token that survives summarization
 
 
 @dataclass
@@ -54,6 +62,7 @@ class Probe:
     fact_id: str
     day_asked: int      # the probe is asked at the end of this day
     topic: str
+    ref: str = ""       # reference token to locate the fact in a summary
 
 
 @dataclass
@@ -100,20 +109,30 @@ def generate(days: int, agents: int, seed: int, facts_per_day: int = 2,
             answer = CHOICES[choice_n % len(CHOICES)]
             choice_n += 1
             owner = rng.choice(OWNERS)
+            # Opaque reference token carried inside the text.
+            #
+            # Why an extra token is needed at all: locating a fact in a *summary*
+            # by (topic, day) is unreliable even when each day's topics are
+            # distinct. The summarizer writes a prose conclusion naming several
+            # topics and several options in one sentence ("keb and vun were
+            # applied options A and C"), and a reader that takes the first option
+            # letter there returns the wrong topic's answer. Measured: that one
+            # sentence shape caused most of the summary-backed misses. A nonsense
+            # token survives summarization verbatim in either language, so it
+            # identifies the fact unambiguously.
+            ref = f"Z{REF_LETTERS[fact_n % len(REF_LETTERS)]}{fact_n:02d}"
 
-            # A decision names the choice; the edit/status events restate it in
-            # different words so a summary can be built from several entries.
             tr.events.append(Event(
                 day=day, seq=seq, kind="decision", fact_id=fid, answer=answer,
-                topic=topic,
-                text=f"[{topic}] {owner} decided to go with option {answer} "
-                     f"for the {topic} work on day {day}."))
+                topic=topic, ref=ref,
+                text=f"[{topic}] (ref {ref}) {owner} decided to go with option "
+                     f"{answer} for the {topic} work on day {day}."))
             seq += 1
 
             tr.events.append(Event(
                 day=day, seq=seq, kind="edit", fact_id=fid, answer=answer,
-                topic=topic,
-                text=f"Applied option {answer} in the {topic} module "
+                topic=topic, ref=ref,
+                text=f"(ref {ref}) Applied option {answer} in the {topic} module "
                      f"({owner}, day {day})."))
             seq += 1
 
@@ -144,8 +163,9 @@ def generate(days: int, agents: int, seed: int, facts_per_day: int = 2,
             target = candidates[0]
             tr.probes.append(Probe(
                 qid=f"q{day:02d}", topic=target.topic,
-                question=f"What option was chosen for {target.topic} on day {target.day}?",
-                answer=target.answer, fact_id=target.fact_id, day_asked=day))
+                question=f"What option was chosen for ref {target.ref} on day {target.day}?",
+                answer=target.answer, fact_id=target.fact_id, day_asked=day,
+                ref=target.ref))
 
     # Long-range probes: the earliest and a mid-run fact, asked at the very end.
     decisions = [e for e in tr.events if e.kind == "decision"]
@@ -155,8 +175,8 @@ def generate(days: int, agents: int, seed: int, facts_per_day: int = 2,
         ev = decisions[idx]
         tr.probes.append(Probe(
             qid=f"q_long{i + 1}", topic=ev.topic,
-            question=f"(recap) What option was chosen for {ev.topic} on day {ev.day}?",
-            answer=ev.answer, fact_id=ev.fact_id, day_asked=days))
+            question=f"(recap) What option was chosen for ref {ev.ref} on day {ev.day}?",
+            answer=ev.answer, fact_id=ev.fact_id, day_asked=days, ref=ev.ref))
 
     return tr
 
