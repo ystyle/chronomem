@@ -490,3 +490,43 @@ public func previewOf(meta: PayloadMeta, limit!: Int64 = 150): TextPreview {
 public func descPreview(desc: String, limit!: Int64 = 60): TextPreview {
     makePreview(desc, limit)
 }
+
+// ---------- 监听地址展示 ----------
+// `addr` 是**绑定**地址，不等于客户端能访问的**可达**地址：
+// 绑 127.0.0.1 时只有本机可达；绑 0.0.0.0 / :: 时是所有网卡（此时把 0.0.0.0
+// 直接显示成服务地址会让使用者以为要访问 "0.0.0.0"，而它并不是一个可访问的目标）。
+// 这里按绑定语义生成展示文案，不猜客户端 IP（服务端渲染拿不到对端地址）。
+public func listenDisplay(addr: String, port: UInt16): String {
+    let a = trimSpace(addr)
+    let p = port.toString()
+    match (a) {
+        // 空值 = 未配置：与 listenScope 的「本机可达」口径保持一致（默认绑回环）
+        case "" => "仅本机:" + p
+        case "0.0.0.0" => "所有网卡:" + p
+        case "::" => "所有网卡(IPv6):" + p
+        case "127.0.0.1" => "仅本机:" + p
+        case "localhost" => "仅本机:" + p
+        case "::1" => "仅本机(IPv6):" + p
+        // 显式绑定的具体网卡地址就是可达地址，原样展示
+        case _ => a + ":" + p
+    }
+}
+
+// 头部状态气泡文案：绑定地址语义 + 可达范围
+public func listenBadgeText(addr: String, port: UInt16): String {
+    listenScope(addr) + " · " + listenDisplay(addr, port)
+}
+
+// 可达范围：绑定通配 = 所有网卡（局域网可达）；绑回环 = 只有本机；
+// 绑具体网卡地址 = 该地址可达（不是"仅本机"）。
+public func listenScope(addr: String): String {
+    match (trimSpace(addr)) {
+        case "" => "本机可达"
+        case "0.0.0.0" => "局域网可达"
+        case "::" => "局域网可达"
+        case "127.0.0.1" => "本机可达"
+        case "localhost" => "本机可达"
+        case "::1" => "本机可达"
+        case _ => "指定地址可达"
+    }
+}

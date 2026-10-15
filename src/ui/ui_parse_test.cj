@@ -268,3 +268,49 @@ func uiDescPreviewMarksTruncation() {
     @Expect(long.truncated, true)
     @Expect(long.full.size > long.text.size, true)
 }
+
+// ---------- 监听地址展示（绑定语义 ≠ 可达语义）----------
+
+@Test
+func uiListenDisplayWildcard() {
+    // 0.0.0.0 是绑定通配，不是可访问目标：不能原样当服务地址展示
+    @Expect(listenDisplay("0.0.0.0", 8900), "所有网卡:8900")
+    @Expect(listenDisplay("::", 8900), "所有网卡(IPv6):8900")
+}
+
+@Test
+func uiListenDisplayLoopback() {
+    @Expect(listenDisplay("127.0.0.1", 18901), "仅本机:18901")
+    @Expect(listenDisplay("localhost", 8900), "仅本机:8900")
+    @Expect(listenDisplay("::1", 8900), "仅本机(IPv6):8900")
+}
+
+@Test
+func uiListenDisplayConcrete() {
+    // 显式绑定的具体网卡地址本身就是可达地址：原样展示
+    @Expect(listenDisplay("192.168.3.6", 8900), "192.168.3.6:8900")
+    @Expect(listenDisplay(" 192.168.3.6 ", 8900), "192.168.3.6:8900")
+    // 空值回退到默认绑定
+    @Expect(listenDisplay("", 8900), "仅本机:8900")
+}
+
+@Test
+func uiListenBadgeTextScope() {
+    // 头部气泡要能一眼看出「外部能不能访问」
+    @Expect(listenBadgeText("0.0.0.0", 18901), "局域网可达 · 所有网卡:18901")
+    @Expect(listenBadgeText("127.0.0.1", 8900), "本机可达 · 仅本机:8900")
+    @Expect(listenBadgeText("::", 8900), "局域网可达 · 所有网卡(IPv6):8900")
+    // 显式绑具体网卡：该地址可达，不能标成「仅本机」
+    @Expect(listenBadgeText("192.168.3.6", 8900), "指定地址可达 · 192.168.3.6:8900")
+}
+
+@Test
+func uiListenScope() {
+    @Expect(listenScope("0.0.0.0"), "局域网可达")
+    @Expect(listenScope("::"), "局域网可达")
+    @Expect(listenScope("127.0.0.1"), "本机可达")
+    @Expect(listenScope("::1"), "本机可达")
+    @Expect(listenScope("localhost"), "本机可达")
+    @Expect(listenScope(""), "本机可达")
+    @Expect(listenScope("10.0.0.5"), "指定地址可达")
+}

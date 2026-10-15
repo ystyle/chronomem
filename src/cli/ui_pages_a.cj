@@ -44,18 +44,27 @@ public func uiLayout(activePath: String, page: IComponent): IComponent {
 // 运行时信息（UI 头部/侧栏展示）：由 buildUiApp 注入，
 // 不再硬编码 —— 端口挡位/存储目录在测试实例、容器部署下与默认值不同，
 // 写死会误导使用者（曾在隔离实例上显示生产端口）。
-public var uiRuntimeInfo: ?(String, String) = None   // (endpoint, storageDir)
+// 注意存的是「绑定地址」而非「可达地址」：展示时必须按绑定语义渲染
+// （0.0.0.0 不是可访问目标），见 chronomem.ui.listenDisplay。
+public var uiRuntimeInfo: ?(String, UInt16, String) = None   // (bindAddr, port, storageDir)
 
 func uiEndpointText(): String {
     match (uiRuntimeInfo) {
-        case Some((ep, _)) => ep
-        case None => "127.0.0.1:8900"
+        case Some((addr, port, _)) => listenDisplay(addr, port)
+        case None => "仅本机:8900"
+    }
+}
+
+func uiBadgeText(): String {
+    match (uiRuntimeInfo) {
+        case Some((addr, port, _)) => listenBadgeText(addr, port)
+        case None => "本机可达 · 仅本机:8900"
     }
 }
 
 func uiStorageText(): String {
     match (uiRuntimeInfo) {
-        case Some((_, dir)) => dir
+        case Some((_, _, dir)) => dir
         case None => "~/.chronolog"
     }
 }
@@ -65,7 +74,7 @@ func uiHeader(): IComponent {
     let llmLive = uiLlmLive(svc)
     let llmModel = uiLlmModel(svc)
     let status = ArrayList<IComponent>()
-    status.add(htmlSpan("<span class=\"ui-pill\"><span class=\"dot ok\"></span>服务 " + esc(uiEndpointText()) + " · MCP 在线</span>"))
+    status.add(htmlSpan("<span class=\"ui-pill\"><span class=\"dot ok\"></span>服务 " + esc(uiBadgeText()) + " · MCP 在线</span>"))
     if (llmLive) {
         status.add(htmlSpan("<span class=\"ui-pill\"><span class=\"dot ok\"></span>LLM " + esc(llmModel) + " 已配置</span>"))
     } else {
@@ -109,6 +118,8 @@ func uiSide(activePath0: String): IComponent {
         children.add(handled)
     }
     let info = ArrayList<IComponent>()
+    // 监听地址按绑定语义展示（0.0.0.0 = 所有网卡），不是"请访问这个地址"
+    info.add(htmlSpan("<div class=\"row\"><span>监听</span><b title=\"" + esc(uiEndpointText()) + "\">" + esc(uiEndpointText()) + "</b></div>"))
     info.add(htmlSpan("<div class=\"row\"><span>存储目录</span><b title=\"" + esc(uiStorageText()) + "\">" + esc(uiStorageText()) + "</b></div>"))
     info.add(htmlSpan("<div class=\"row\"><span>结构物化</span><b>@every 1m</b></div>"))
     info.add(htmlSpan("<div class=\"row\"><span>自动总结</span><b>*/10 * * * *</b></div>"))
