@@ -1,0 +1,211 @@
+{
+ "meta": {
+  "days": 30,
+  "agents": 3,
+  "seed": 7,
+  "events": 300,
+  "probes": 32
+ },
+ "events_per_day": 10.0,
+ "rows": [
+  {
+   "top_k": 10,
+   "curve": {
+    "1": {
+     "n": 2,
+     "accuracy": 0.0
+    },
+    "2": {
+     "n": 2,
+     "accuracy": 0.0
+    },
+    "3": {
+     "n": 4,
+     "accuracy": 0.0
+    },
+    "5": {
+     "n": 4,
+     "accuracy": 0.0
+    },
+    "7": {
+     "n": 14,
+     "accuracy": 0.0
+    },
+    "14": {
+     "n": 6,
+     "accuracy": 0.0
+    }
+   },
+   "observed_cliff_days": 0,
+   "overall": 0.0,
+   "client_tokens_per_probe": 131.875,
+   "predicted_cliff_days": 1.0
+  },
+  {
+   "top_k": 20,
+   "curve": {
+    "1": {
+     "n": 2,
+     "accuracy": 1.0
+    },
+    "2": {
+     "n": 2,
+     "accuracy": 0.0
+    },
+    "3": {
+     "n": 4,
+     "accuracy": 0.0
+    },
+    "5": {
+     "n": 4,
+     "accuracy": 0.0
+    },
+    "7": {
+     "n": 14,
+     "accuracy": 0.0
+    },
+    "14": {
+     "n": 6,
+     "accuracy": 0.0
+    }
+   },
+   "observed_cliff_days": 1,
+   "overall": 0.0625,
+   "client_tokens_per_probe": 264.3125,
+   "predicted_cliff_days": 2.0
+  },
+  {
+   "top_k": 30,
+   "curve": {
+    "1": {
+     "n": 2,
+     "accuracy": 1.0
+    },
+    "2": {
+     "n": 2,
+     "accuracy": 1.0
+    },
+    "3": {
+     "n": 4,
+     "accuracy": 0.0
+    },
+    "5": {
+     "n": 4,
+     "accuracy": 0.0
+    },
+    "7": {
+     "n": 14,
+     "accuracy": 0.0
+    },
+    "14": {
+     "n": 6,
+     "accuracy": 0.0
+    }
+   },
+   "observed_cliff_days": 2,
+   "overall": 0.125,
+   "client_tokens_per_probe": 392.8125,
+   "predicted_cliff_days": 3.0
+  },
+  {
+   "top_k": 50,
+   "curve": {
+    "1": {
+     "n": 2,
+     "accuracy": 1.0
+    },
+    "2": {
+     "n": 2,
+     "accuracy": 1.0
+    },
+    "3": {
+     "n": 4,
+     "accuracy": 1.0
+    },
+    "5": {
+     "n": 4,
+     "accuracy": 0.0
+    },
+    "7": {
+     "n": 14,
+     "accuracy": 0.0
+    },
+    "14": {
+     "n": 6,
+     "accuracy": 0.0
+    }
+   },
+   "observed_cliff_days": 3,
+   "overall": 0.25,
+   "client_tokens_per_probe": 637.09375,
+   "predicted_cliff_days": 5.0
+  },
+  {
+   "top_k": 100,
+   "curve": {
+    "1": {
+     "n": 2,
+     "accuracy": 1.0
+    },
+    "2": {
+     "n": 2,
+     "accuracy": 1.0
+    },
+    "3": {
+     "n": 4,
+     "accuracy": 1.0
+    },
+    "5": {
+     "n": 4,
+     "accuracy": 1.0
+    },
+    "7": {
+     "n": 14,
+     "accuracy": 0.42857142857142855
+    },
+    "14": {
+     "n": 6,
+     "accuracy": 0.0
+    }
+   },
+   "observed_cliff_days": 5,
+   "overall": 0.5625,
+   "client_tokens_per_probe": 1175.21875,
+   "predicted_cliff_days": 10.0
+  },
+  {
+   "top_k": 200,
+   "curve": {
+    "1": {
+     "n": 2,
+     "accuracy": 1.0
+    },
+    "2": {
+     "n": 2,
+     "accuracy": 1.0
+    },
+    "3": {
+     "n": 4,
+     "accuracy": 1.0
+    },
+    "5": {
+     "n": 4,
+     "accuracy": 1.0
+    },
+    "7": {
+     "n": 14,
+     "accuracy": 1.0
+    },
+    "14": {
+     "n": 6,
+     "accuracy": 0.6666666666666666
+    }
+   },
+   "observed_cliff_days": 7,
+   "overall": 0.9375,
+   "client_tokens_per_probe": 1939.5,
+   "predicted_cliff_days": 20.0
+  }
+ ],
+ "cliff_moves": true
+}

@@ -1,0 +1,1167 @@
+{
+ "meta": {
+  "days": 30,
+  "agents": 3,
+  "seed": 7,
+  "events": 300,
+  "probes": 32
+ },
+ "by_backend": {
+  "flat-recency": {
+   "overall_accuracy": 0.0625,
+   "client_tokens_per_probe": 264.3125,
+   "server_tokens_per_probe": 0.0,
+   "curve": {
+    "1": {
+     "n": 2,
+     "accuracy": 1.0
+    },
+    "2": {
+     "n": 2,
+     "accuracy": 0.0
+    },
+    "3": {
+     "n": 4,
+     "accuracy": 0.0
+    },
+    "5": {
+     "n": 4,
+     "accuracy": 0.0
+    },
+    "7": {
+     "n": 14,
+     "accuracy": 0.0
+    },
+    "14": {
+     "n": 6,
+     "accuracy": 0.0
+    }
+   },
+   "per_probe": [
+    {
+     "qid": "q02",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 261,
+     "lag_days": 1
+    },
+    {
+     "qid": "q03",
+     "expected": "C",
+     "got": "C",
+     "correct": true,
+     "client_tokens": 262,
+     "lag_days": 1
+    },
+    {
+     "qid": "q04",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 262,
+     "lag_days": 2
+    },
+    {
+     "qid": "q05",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 262,
+     "lag_days": 2
+    },
+    {
+     "qid": "q06",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 262,
+     "lag_days": 3
+    },
+    {
+     "qid": "q07",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 260,
+     "lag_days": 3
+    },
+    {
+     "qid": "q08",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 259,
+     "lag_days": 4
+    },
+    {
+     "qid": "q09",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 260,
+     "lag_days": 4
+    },
+    {
+     "qid": "q10",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 263,
+     "lag_days": 5
+    },
+    {
+     "qid": "q11",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 266,
+     "lag_days": 5
+    },
+    {
+     "qid": "q12",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 266,
+     "lag_days": 6
+    },
+    {
+     "qid": "q13",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 266,
+     "lag_days": 6
+    },
+    {
+     "qid": "q14",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 266,
+     "lag_days": 7
+    },
+    {
+     "qid": "q15",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 266,
+     "lag_days": 7
+    },
+    {
+     "qid": "q16",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 265,
+     "lag_days": 8
+    },
+    {
+     "qid": "q17",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 265,
+     "lag_days": 8
+    },
+    {
+     "qid": "q18",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 266,
+     "lag_days": 9
+    },
+    {
+     "qid": "q19",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 265,
+     "lag_days": 9
+    },
+    {
+     "qid": "q20",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 265,
+     "lag_days": 10
+    },
+    {
+     "qid": "q21",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 265,
+     "lag_days": 10
+    },
+    {
+     "qid": "q22",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 266,
+     "lag_days": 11
+    },
+    {
+     "qid": "q23",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 266,
+     "lag_days": 11
+    },
+    {
+     "qid": "q24",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 265,
+     "lag_days": 12
+    },
+    {
+     "qid": "q25",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 265,
+     "lag_days": 12
+    },
+    {
+     "qid": "q26",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 264,
+     "lag_days": 13
+    },
+    {
+     "qid": "q27",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 265,
+     "lag_days": 13
+    },
+    {
+     "qid": "q28",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 266,
+     "lag_days": 14
+    },
+    {
+     "qid": "q29",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 265,
+     "lag_days": 14
+    },
+    {
+     "qid": "q30",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 266,
+     "lag_days": 15
+    },
+    {
+     "qid": "q_long1",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 266,
+     "lag_days": 29
+    },
+    {
+     "qid": "q_long2",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 266,
+     "lag_days": 29
+    },
+    {
+     "qid": "q_long3",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 266,
+     "lag_days": 14
+    }
+   ]
+  },
+  "one-shot-compaction": {
+   "overall_accuracy": 0.0,
+   "client_tokens_per_probe": 184.625,
+   "server_tokens_per_probe": 120.3125,
+   "curve": {
+    "1": {
+     "n": 2,
+     "accuracy": 0.0
+    },
+    "2": {
+     "n": 2,
+     "accuracy": 0.0
+    },
+    "3": {
+     "n": 4,
+     "accuracy": 0.0
+    },
+    "5": {
+     "n": 4,
+     "accuracy": 0.0
+    },
+    "7": {
+     "n": 14,
+     "accuracy": 0.0
+    },
+    "14": {
+     "n": 6,
+     "accuracy": 0.0
+    }
+   },
+   "per_probe": [
+    {
+     "qid": "q02",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 21,
+     "lag_days": 1
+    },
+    {
+     "qid": "q03",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 21,
+     "lag_days": 1
+    },
+    {
+     "qid": "q04",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 43,
+     "lag_days": 2
+    },
+    {
+     "qid": "q05",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 43,
+     "lag_days": 2
+    },
+    {
+     "qid": "q06",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 65,
+     "lag_days": 3
+    },
+    {
+     "qid": "q07",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 65,
+     "lag_days": 3
+    },
+    {
+     "qid": "q08",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 87,
+     "lag_days": 4
+    },
+    {
+     "qid": "q09",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 87,
+     "lag_days": 4
+    },
+    {
+     "qid": "q10",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 109,
+     "lag_days": 5
+    },
+    {
+     "qid": "q11",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 109,
+     "lag_days": 5
+    },
+    {
+     "qid": "q12",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 131,
+     "lag_days": 6
+    },
+    {
+     "qid": "q13",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 131,
+     "lag_days": 6
+    },
+    {
+     "qid": "q14",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 153,
+     "lag_days": 7
+    },
+    {
+     "qid": "q15",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 153,
+     "lag_days": 7
+    },
+    {
+     "qid": "q16",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 175,
+     "lag_days": 8
+    },
+    {
+     "qid": "q17",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 175,
+     "lag_days": 8
+    },
+    {
+     "qid": "q18",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 197,
+     "lag_days": 9
+    },
+    {
+     "qid": "q19",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 197,
+     "lag_days": 9
+    },
+    {
+     "qid": "q20",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 219,
+     "lag_days": 10
+    },
+    {
+     "qid": "q21",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 219,
+     "lag_days": 10
+    },
+    {
+     "qid": "q22",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 241,
+     "lag_days": 11
+    },
+    {
+     "qid": "q23",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 241,
+     "lag_days": 11
+    },
+    {
+     "qid": "q24",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 263,
+     "lag_days": 12
+    },
+    {
+     "qid": "q25",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 263,
+     "lag_days": 12
+    },
+    {
+     "qid": "q26",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 285,
+     "lag_days": 13
+    },
+    {
+     "qid": "q27",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 285,
+     "lag_days": 13
+    },
+    {
+     "qid": "q28",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 307,
+     "lag_days": 14
+    },
+    {
+     "qid": "q29",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 307,
+     "lag_days": 14
+    },
+    {
+     "qid": "q30",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 329,
+     "lag_days": 15
+    },
+    {
+     "qid": "q_long1",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 329,
+     "lag_days": 29
+    },
+    {
+     "qid": "q_long2",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 329,
+     "lag_days": 29
+    },
+    {
+     "qid": "q_long3",
+     "expected": "A",
+     "got": null,
+     "correct": false,
+     "client_tokens": 329,
+     "lag_days": 14
+    }
+   ]
+  },
+  "chronomem-exact": {
+   "overall_accuracy": 1.0,
+   "client_tokens_per_probe": 4395.75,
+   "server_tokens_per_probe": 37500.0,
+   "curve": {
+    "1": {
+     "n": 2,
+     "accuracy": 1.0
+    },
+    "2": {
+     "n": 2,
+     "accuracy": 1.0
+    },
+    "3": {
+     "n": 4,
+     "accuracy": 1.0
+    },
+    "5": {
+     "n": 4,
+     "accuracy": 1.0
+    },
+    "7": {
+     "n": 14,
+     "accuracy": 1.0
+    },
+    "14": {
+     "n": 6,
+     "accuracy": 1.0
+    }
+   },
+   "per_probe": [
+    {
+     "qid": "q02",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 509,
+     "lag_days": 1
+    },
+    {
+     "qid": "q03",
+     "expected": "C",
+     "got": "C",
+     "correct": true,
+     "client_tokens": 760,
+     "lag_days": 1
+    },
+    {
+     "qid": "q04",
+     "expected": "C",
+     "got": "C",
+     "correct": true,
+     "client_tokens": 1012,
+     "lag_days": 2
+    },
+    {
+     "qid": "q05",
+     "expected": "B",
+     "got": "B",
+     "correct": true,
+     "client_tokens": 1263,
+     "lag_days": 2
+    },
+    {
+     "qid": "q06",
+     "expected": "B",
+     "got": "B",
+     "correct": true,
+     "client_tokens": 1515,
+     "lag_days": 3
+    },
+    {
+     "qid": "q07",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 1764,
+     "lag_days": 3
+    },
+    {
+     "qid": "q08",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 2015,
+     "lag_days": 4
+    },
+    {
+     "qid": "q09",
+     "expected": "C",
+     "got": "C",
+     "correct": true,
+     "client_tokens": 2265,
+     "lag_days": 4
+    },
+    {
+     "qid": "q10",
+     "expected": "C",
+     "got": "C",
+     "correct": true,
+     "client_tokens": 2521,
+     "lag_days": 5
+    },
+    {
+     "qid": "q11",
+     "expected": "B",
+     "got": "B",
+     "correct": true,
+     "client_tokens": 2777,
+     "lag_days": 5
+    },
+    {
+     "qid": "q12",
+     "expected": "B",
+     "got": "B",
+     "correct": true,
+     "client_tokens": 3033,
+     "lag_days": 6
+    },
+    {
+     "qid": "q13",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 3289,
+     "lag_days": 6
+    },
+    {
+     "qid": "q14",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 3545,
+     "lag_days": 7
+    },
+    {
+     "qid": "q15",
+     "expected": "C",
+     "got": "C",
+     "correct": true,
+     "client_tokens": 3801,
+     "lag_days": 7
+    },
+    {
+     "qid": "q16",
+     "expected": "C",
+     "got": "C",
+     "correct": true,
+     "client_tokens": 4056,
+     "lag_days": 8
+    },
+    {
+     "qid": "q17",
+     "expected": "B",
+     "got": "B",
+     "correct": true,
+     "client_tokens": 4312,
+     "lag_days": 8
+    },
+    {
+     "qid": "q18",
+     "expected": "B",
+     "got": "B",
+     "correct": true,
+     "client_tokens": 4568,
+     "lag_days": 9
+    },
+    {
+     "qid": "q19",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 4823,
+     "lag_days": 9
+    },
+    {
+     "qid": "q20",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 5079,
+     "lag_days": 10
+    },
+    {
+     "qid": "q21",
+     "expected": "C",
+     "got": "C",
+     "correct": true,
+     "client_tokens": 5334,
+     "lag_days": 10
+    },
+    {
+     "qid": "q22",
+     "expected": "C",
+     "got": "C",
+     "correct": true,
+     "client_tokens": 5591,
+     "lag_days": 11
+    },
+    {
+     "qid": "q23",
+     "expected": "B",
+     "got": "B",
+     "correct": true,
+     "client_tokens": 5846,
+     "lag_days": 11
+    },
+    {
+     "qid": "q24",
+     "expected": "B",
+     "got": "B",
+     "correct": true,
+     "client_tokens": 6102,
+     "lag_days": 12
+    },
+    {
+     "qid": "q25",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 6357,
+     "lag_days": 12
+    },
+    {
+     "qid": "q26",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 6612,
+     "lag_days": 13
+    },
+    {
+     "qid": "q27",
+     "expected": "C",
+     "got": "C",
+     "correct": true,
+     "client_tokens": 6868,
+     "lag_days": 13
+    },
+    {
+     "qid": "q28",
+     "expected": "C",
+     "got": "C",
+     "correct": true,
+     "client_tokens": 7124,
+     "lag_days": 14
+    },
+    {
+     "qid": "q29",
+     "expected": "B",
+     "got": "B",
+     "correct": true,
+     "client_tokens": 7379,
+     "lag_days": 14
+    },
+    {
+     "qid": "q30",
+     "expected": "B",
+     "got": "B",
+     "correct": true,
+     "client_tokens": 7636,
+     "lag_days": 15
+    },
+    {
+     "qid": "q_long1",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 7636,
+     "lag_days": 29
+    },
+    {
+     "qid": "q_long2",
+     "expected": "B",
+     "got": "B",
+     "correct": true,
+     "client_tokens": 7636,
+     "lag_days": 29
+    },
+    {
+     "qid": "q_long3",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 7636,
+     "lag_days": 14
+    }
+   ]
+  },
+  "chronomem-summary": {
+   "overall_accuracy": 0.625,
+   "client_tokens_per_probe": 92.28125,
+   "server_tokens_per_probe": 37500.0,
+   "curve": {
+    "1": {
+     "n": 2,
+     "accuracy": 1.0
+    },
+    "2": {
+     "n": 2,
+     "accuracy": 0.5
+    },
+    "3": {
+     "n": 4,
+     "accuracy": 0.5
+    },
+    "5": {
+     "n": 4,
+     "accuracy": 0.25
+    },
+    "7": {
+     "n": 14,
+     "accuracy": 0.5714285714285714
+    },
+    "14": {
+     "n": 6,
+     "accuracy": 1.0
+    }
+   },
+   "per_probe": [
+    {
+     "qid": "q02",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 79,
+     "lag_days": 1
+    },
+    {
+     "qid": "q03",
+     "expected": "C",
+     "got": "C",
+     "correct": true,
+     "client_tokens": 107,
+     "lag_days": 1
+    },
+    {
+     "qid": "q04",
+     "expected": "C",
+     "got": "C",
+     "correct": true,
+     "client_tokens": 107,
+     "lag_days": 2
+    },
+    {
+     "qid": "q05",
+     "expected": "B",
+     "got": "C",
+     "correct": false,
+     "client_tokens": 75,
+     "lag_days": 2
+    },
+    {
+     "qid": "q06",
+     "expected": "B",
+     "got": "C",
+     "correct": false,
+     "client_tokens": 75,
+     "lag_days": 3
+    },
+    {
+     "qid": "q07",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 104,
+     "lag_days": 3
+    },
+    {
+     "qid": "q08",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 104,
+     "lag_days": 4
+    },
+    {
+     "qid": "q09",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 97,
+     "lag_days": 4
+    },
+    {
+     "qid": "q10",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 97,
+     "lag_days": 5
+    },
+    {
+     "qid": "q11",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 106,
+     "lag_days": 5
+    },
+    {
+     "qid": "q12",
+     "expected": "B",
+     "got": null,
+     "correct": false,
+     "client_tokens": 106,
+     "lag_days": 6
+    },
+    {
+     "qid": "q13",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 88,
+     "lag_days": 6
+    },
+    {
+     "qid": "q14",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 88,
+     "lag_days": 7
+    },
+    {
+     "qid": "q15",
+     "expected": "C",
+     "got": "C",
+     "correct": true,
+     "client_tokens": 84,
+     "lag_days": 7
+    },
+    {
+     "qid": "q16",
+     "expected": "C",
+     "got": "C",
+     "correct": true,
+     "client_tokens": 84,
+     "lag_days": 8
+    },
+    {
+     "qid": "q17",
+     "expected": "B",
+     "got": "C",
+     "correct": false,
+     "client_tokens": 88,
+     "lag_days": 8
+    },
+    {
+     "qid": "q18",
+     "expected": "B",
+     "got": "C",
+     "correct": false,
+     "client_tokens": 88,
+     "lag_days": 9
+    },
+    {
+     "qid": "q19",
+     "expected": "A",
+     "got": "B",
+     "correct": false,
+     "client_tokens": 85,
+     "lag_days": 9
+    },
+    {
+     "qid": "q20",
+     "expected": "A",
+     "got": "B",
+     "correct": false,
+     "client_tokens": 85,
+     "lag_days": 10
+    },
+    {
+     "qid": "q21",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 96,
+     "lag_days": 10
+    },
+    {
+     "qid": "q22",
+     "expected": "C",
+     "got": null,
+     "correct": false,
+     "client_tokens": 96,
+     "lag_days": 11
+    },
+    {
+     "qid": "q23",
+     "expected": "B",
+     "got": "B",
+     "correct": true,
+     "client_tokens": 108,
+     "lag_days": 11
+    },
+    {
+     "qid": "q24",
+     "expected": "B",
+     "got": "B",
+     "correct": true,
+     "client_tokens": 108,
+     "lag_days": 12
+    },
+    {
+     "qid": "q25",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 92,
+     "lag_days": 12
+    },
+    {
+     "qid": "q26",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 92,
+     "lag_days": 13
+    },
+    {
+     "qid": "q27",
+     "expected": "C",
+     "got": "C",
+     "correct": true,
+     "client_tokens": 99,
+     "lag_days": 13
+    },
+    {
+     "qid": "q28",
+     "expected": "C",
+     "got": "C",
+     "correct": true,
+     "client_tokens": 99,
+     "lag_days": 14
+    },
+    {
+     "qid": "q29",
+     "expected": "B",
+     "got": "B",
+     "correct": true,
+     "client_tokens": 83,
+     "lag_days": 14
+    },
+    {
+     "qid": "q30",
+     "expected": "B",
+     "got": "B",
+     "correct": true,
+     "client_tokens": 83,
+     "lag_days": 15
+    },
+    {
+     "qid": "q_long1",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 79,
+     "lag_days": 29
+    },
+    {
+     "qid": "q_long2",
+     "expected": "B",
+     "got": "B",
+     "correct": true,
+     "client_tokens": 79,
+     "lag_days": 29
+    },
+    {
+     "qid": "q_long3",
+     "expected": "A",
+     "got": "A",
+     "correct": true,
+     "client_tokens": 92,
+     "lag_days": 14
+    }
+   ]
+  }
+ }
+}

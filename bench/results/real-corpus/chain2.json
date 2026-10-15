@@ -1,0 +1,196 @@
+{
+ "rows": [
+  {
+   "id": "OOM3",
+   "date": "2026-09-15",
+   "desc": "第三次写路径 OOM：根因（幂等物化 + 堆无余量）与两项修复",
+   "raw": {
+    "state": "intact",
+    "hits": [
+     "幂等",
+     "1GB",
+     "256MB",
+     "存活量",
+     "217-240MB"
+    ],
+    "chars": 13736,
+    "matched": "5/5"
+   },
+   "day": {
+    "state": "intact",
+    "hits": [
+     "幂等",
+     "1GB"
+    ],
+    "chars": 7682,
+    "matched": "2/2"
+   },
+   "week": {
+    "state": "intact",
+    "hits": [
+     "幂等",
+     "1GB"
+    ],
+    "chars": 9156,
+    "matched": "2/2"
+   },
+   "day_window": 1789401600000,
+   "week_window": 1789315200000
+  },
+  {
+   "id": "IDXWAIT",
+   "date": "2026-09-15",
+   "desc": "cjreg 索引等待阶梯与默认不超时",
+   "raw": {
+    "state": "intact",
+    "hits": [
+     "5s",
+     "3m",
+     "不超时"
+    ],
+    "chars": 13736,
+    "matched": "3/3"
+   },
+   "day": {
+    "state": "intact",
+    "hits": [
+     "不超时"
+    ],
+    "chars": 7682,
+    "matched": "1/1"
+   },
+   "week": {
+    "state": "absent",
+    "hits": [],
+    "chars": 9156,
+    "matched": "0/1"
+   },
+   "day_window": 1789401600000,
+   "week_window": 1789315200000
+  },
+  {
+   "id": "RENAME",
+   "date": "2026-09-14",
+   "desc": "前端产品名改「星痕的炼金工房」，localStorage 键有意不改",
+   "raw": {
+    "state": "intact",
+    "hits": [
+     "星痕",
+     "localStorage",
+     "LiveboardWs"
+    ],
+    "chars": 16828,
+    "matched": "3/3"
+   },
+   "day": {
+    "state": "intact",
+    "hits": [
+     "星痕"
+    ],
+    "chars": 8757,
+    "matched": "1/1"
+   },
+   "week": {
+    "state": "intact",
+    "hits": [
+     "星痕"
+    ],
+    "chars": 9156,
+    "matched": "1/1"
+   },
+   "day_window": 1789315200000,
+   "week_window": 1789315200000
+  },
+  {
+   "id": "RELATION",
+   "date": "2026-09-14",
+   "desc": "忆时塔是「模式」的试验场，不是直接调服务",
+   "raw": {
+    "state": "intact",
+    "hits": [
+     "试验场",
+     "模式"
+    ],
+    "chars": 16828,
+    "matched": "2/2"
+   },
+   "day": {
+    "state": "absent",
+    "hits": [],
+    "chars": 8757,
+    "matched": "0/1"
+   },
+   "week": {
+    "state": "absent",
+    "hits": [],
+    "chars": 9156,
+    "matched": "0/1"
+   },
+   "day_window": 1789315200000,
+   "week_window": 1789315200000
+  },
+  {
+   "id": "SUMGAP",
+   "date": "2026-09-16",
+   "desc": "dsh/activity 总结缺失：compact 全量进 prompt 超 32768",
+   "raw": {
+    "state": "intact",
+    "hits": [
+     "compact",
+     "32768",
+     "400",
+     "无限重试"
+    ],
+    "chars": 6036,
+    "matched": "4/4"
+   },
+   "day": {
+    "state": "absent",
+    "hits": [],
+    "chars": 3649,
+    "matched": "0/2"
+   },
+   "week": {
+    "state": "absent",
+    "hits": [],
+    "chars": 9156,
+    "matched": "0/2"
+   },
+   "day_window": 1789488000000,
+   "week_window": 1789315200000
+  },
+  {
+   "id": "MODELAB",
+   "date": "2026-09-16",
+   "desc": "4b vs 9b-mtp A/B 与 prefill 速度",
+   "raw": {
+    "state": "intact",
+    "hits": [
+     "317",
+     "267",
+     "9b-mtp"
+    ],
+    "chars": 6036,
+    "matched": "3/3"
+   },
+   "day": {
+    "state": "intact",
+    "hits": [
+     "9b-mtp"
+    ],
+    "chars": 3649,
+    "matched": "1/1"
+   },
+   "week": {
+    "state": "intact",
+    "hits": [
+     "9b-mtp"
+    ],
+    "chars": 9156,
+    "matched": "1/1"
+   },
+   "day_window": 1789488000000,
+   "week_window": 1789315200000
+  }
+ ]
+}
