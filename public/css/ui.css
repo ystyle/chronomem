@@ -58,8 +58,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14
 .ui-nav.active{color:var(--text);background:linear-gradient(90deg,var(--accent-soft),transparent 75%);
   border-color:#1c3a4a;box-shadow:inset 2px 0 0 var(--accent)}
 .ui-side-info{margin-top:auto;border:1px solid var(--border);border-radius:10px;background:var(--panel);padding:10px 12px;font-size:11.5px;color:var(--muted)}
-.ui-side-info .row{display:flex;justify-content:space-between;padding:2.5px 0}
-.ui-side-info .row b{color:var(--text);font-weight:500;font-family:var(--mono);font-size:11px}
+.ui-side-info .row{display:flex;justify-content:space-between;gap:8px;padding:2.5px 0;align-items:baseline;min-width:0}
+/* 长值（如存储绝对路径）单行省略，完整值放 title，避免在窄侧栏里折成多行挤压布局 */
+.ui-side-info .row b{color:var(--text);font-weight:500;font-family:var(--mono);font-size:11px;
+  text-align:right;min-width:0;max-width:128px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 .ui-main{grid-row:2/3;overflow-y:auto;padding:22px 26px 60px}
 .ui-page{max-width:1280px;margin:0 auto}
@@ -250,13 +252,15 @@ textarea.ui-inp{font-family:var(--mono);font-size:11.5px;resize:vertical;min-hei
 .ui-nowrap{white-space:nowrap}
 
 /* 类型行表 */
-.ui-trows{display:flex;flex-direction:column}
-.ui-trow{display:grid;grid-template-columns:150px minmax(160px,1fr) 180px 110px 70px 100px 210px;gap:10px;padding:10px 4px;border-bottom:1px solid var(--border);align-items:center;font-size:12.5px}
+.ui-trows{display:flex;flex-direction:column;overflow-x:auto}
+/* 列宽用 minmax(...,1fr) 而非固定 px：固定总宽（150+160+180+110+70+100+210=980）
+   在 1280 视口下横向溢出，最右「清空/删除」被裁到视口外（实测 row scrollWidth 1044 > 943）。 */
+.ui-trow{display:grid;grid-template-columns:minmax(110px,150px) minmax(130px,1fr) minmax(140px,180px) minmax(70px,110px) minmax(52px,70px) minmax(76px,100px) minmax(140px,210px);gap:10px;padding:10px 4px;border-bottom:1px solid var(--border);align-items:center;font-size:12.5px}
 .ui-trow:last-child{border-bottom:none}
 .ui-trow-head{color:var(--faint);font-size:11.5px;padding:6px 4px}
-.ui-tname{color:#9fd8f0;font-size:13px}
-.ui-tdesc{color:var(--muted);max-height:34px;overflow:hidden}
-.ui-tactions{display:flex;gap:6px;justify-content:flex-end}
+.ui-tname{color:#9fd8f0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ui-tdesc{color:var(--muted);overflow:hidden}
+.ui-tactions{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
 .ui-head-right{display:flex;justify-content:flex-end}
 .ui-card-title-flex{justify-content:space-between}
 .ui-switch-row{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--text)}
@@ -281,8 +285,8 @@ textarea.ui-inp{font-family:var(--mono);font-size:11.5px;resize:vertical;min-hei
 .ui-gcell{min-width:0}
 .ui-notice{margin-top:10px}
 /* EP 组件在深色下微调 */
-.el-input__wrapper,.el-select__wrapper{background-color:var(--panel-2)}
-.el-input__wrapper.is-focus,.el-select__wrapper.is-focused{box-shadow:0 0 0 1px var(--accent) inset}
+body .el-input__wrapper,body .el-select__wrapper{background-color:var(--panel-2)}
+body .el-input__wrapper.is-focus,body .el-select__wrapper.is-focused{box-shadow:0 0 0 1px var(--accent) inset}
 .el-input__inner,.el-select__input{color:var(--text)}
 .el-select-dropdown,.el-popper{background:var(--panel-3);border-color:var(--border-2)}
 .el-select-dropdown__item{color:var(--text)}
@@ -292,6 +296,102 @@ textarea.ui-inp{font-family:var(--mono);font-size:11.5px;resize:vertical;min-hei
 .el-dialog,.el-message-box{background:var(--panel-2)}
 .el-form-item__label{color:var(--muted);font-size:12px}
 .el-radio__label,.el-checkbox__label{color:var(--text);font-size:12.5px}
+/* 弹窗内的表单项改为「标签在上、控件全宽」：
+   弹窗宽度有限（560px），而部分标签很长（如「粒度链 levels（升序；默认 …）」），
+   行内 label 会把 __content 挤到约 101px，多选/单选组于是竖排成一列。
+   text-align 必须对齐 EP 的 .el-form-item--label-right 修饰类（同特异性、
+   bundle 后加载，否则仍会右对齐）。 */
+.ui-dlg-body .el-form-item{display:block;margin-bottom:14px}
+.ui-dlg-body .el-form-item .el-form-item__label{display:block;width:auto!important;height:auto;
+  text-align:left!important;justify-content:flex-start!important;
+  padding:0 0 6px!important;margin-bottom:0;line-height:1.5;white-space:normal}
+.ui-dlg-body .el-form-item__content{margin-left:0!important;width:100%}
+.ui-dlg-body .el-input,.ui-dlg-body .el-select,
+.ui-dlg-body .el-checkbox-group,.ui-dlg-body .el-radio-group{width:100%}
+
+/* ============ EP 弹层深色修正（特异性对齐）============
+   两道坎叠加，缺一不可：
+   ① 上游 element-plus 内嵌样式里 `.el-select__popper.el-popper`（0-2-0）有两条同特异性规则，
+      后一条把 background 硬编码为 #fff，压过前面的 var(--el-bg-color-overlay)；
+      只写 `.el-popper`（0-1-0）命中不了。
+   ② 本文件与 cjxt 打包 CSS 同特异性时，**后加载者胜**；页面里 ui.css 先加载、
+      cjxt bundle 后加载，因此仅写同等特异性仍会被 #fff 压回白底。
+   故统一加 `body` 前缀把特异性提到 0-2-1，稳压上游两条规则。
+   （适配层留在本仓，不改上游已发布依赖。） */
+body .el-select__popper.el-popper,
+body .el-popper.el-select__popper{
+  background:var(--panel-3);
+  border-color:var(--border-2);
+  color:var(--text);
+  box-shadow:0 10px 30px rgba(0,0,0,.55);
+}
+body .el-select__popper.el-popper .el-popper__arrow::before{
+  background:var(--panel-3);
+  border-color:var(--border-2);
+}
+body .el-select-dropdown__wrap{max-height:280px}
+body .el-select-dropdown__list{padding:4px}
+/* 下拉宽度：上游 popper 用 left:0;right:0 撑满触发元素，触发元素窄时
+   选项文字被 ellipsis 切成「w…」这类单字母。给宽度下限保证选项可读。 */
+body .el-select__popper.el-select-dropdown{min-width:max(180px,100%)}
+body .el-select-dropdown__item{color:var(--text)}
+body .el-select-dropdown__item.is-hovering,
+body .el-select-dropdown__item:hover{background:var(--accent-soft)}
+body .el-select-dropdown__item.is-selected{color:var(--accent)}
+body .el-select-dropdown__item>span{display:block;overflow:hidden;text-overflow:ellipsis}
+
+/* 单选/复选/开关在深色下的可读性补充 */
+.el-radio__inner{background-color:var(--panel-3);border-color:var(--border-2)}
+.el-radio.is-checked .el-radio__inner{background-color:var(--accent);border-color:var(--accent)}
+.el-radio.is-checked .el-radio__label{color:var(--accent)}
+.el-checkbox__inner{background-color:var(--panel-3);border-color:var(--border-2)}
+.el-checkbox.is-checked .el-checkbox__inner{background-color:var(--accent);border-color:var(--accent)}
+.el-switch__core{border-color:var(--border-2)}
+/* Tabs 内容区默认 overflow:hidden，会把下拉 popper 裁掉（绝对定位子元素） */
+.el-tabs__content{overflow:visible}
+.el-tabs__nav-wrap::after{background-color:var(--border)}
+
+/* ============ 内容看全（预览 + 展开全文 + 详情）============ */
+.p-out{color:var(--muted);font-size:12px;line-height:1.65;word-break:break-word}
+.ui-point .p-out{max-height:none}
+details.ui-expand{margin-top:6px;border-left:2px solid var(--border-2);padding-left:9px;margin-left:1px}
+details.ui-expand[open]{border-left-color:var(--accent)}
+details.ui-expand>summary{cursor:pointer;font-size:11.5px;color:var(--accent);
+  list-style:none;display:inline-flex;align-items:center;gap:5px;user-select:none}
+details.ui-expand>summary::-webkit-details-marker{display:none}
+details.ui-expand>summary::before{content:"▸";font-size:10px;transition:transform .15s}
+details.ui-expand[open]>summary::before{transform:rotate(90deg)}
+details.ui-expand>summary:hover{text-decoration:underline}
+.ui-fulltext{margin-top:8px;font-family:var(--mono);font-size:11.5px;line-height:1.7;
+  background:#0c1017;border:1px solid var(--border);border-radius:7px;padding:10px 12px;
+  color:#c8d4e4;white-space:pre-wrap;word-break:break-word;max-height:420px;overflow:auto}
+.ui-res-row .res-out{max-height:none}
+
+/* 条目详情弹窗 */
+.ui-detail-meta{font-size:11.5px;color:var(--faint);margin-bottom:4px}
+.ui-detail-status{margin-bottom:10px}
+.ui-detail-field{margin-bottom:12px}
+.ui-detail-key{font-size:11px;color:var(--accent);letter-spacing:.3px;margin-bottom:4px}
+.ui-detail-field .p-out{color:var(--text)}
+.ui-dlg.wide{width:min(880px,100%)}
+.ui-dlg.wide .ui-dlg-body{max-height:70vh}
+
+/* 类型描述：列表内限制 2 行（不再用 max-height 硬切半行），全文走详情弹窗 */
+.ui-tdesc{-webkit-line-clamp:2;display:-webkit-box;-webkit-box-orient:vertical;
+  overflow:hidden;max-height:none;line-height:1.55}
+
+/* 统计卡：glow 装饰不得触发溢出裁切 */
+.ui-stat{overflow:visible}
+.ui-stat .glow{pointer-events:none}
+
+/* 下钻条目：卡片 + 详情入口 */
+.ui-point-wrap{margin-top:10px}
+.ui-point-wrap .ui-point{margin-top:0}
+.ui-point-actions{margin-top:6px;display:flex;gap:8px}
+.r-actions{margin-left:auto;flex:none}
+.r-actions .ui-btn{padding:2px 9px;font-size:11px}
+
+
 
 @media (max-width: 1100px){
   .ui-tower-grid{grid-template-columns:1fr}

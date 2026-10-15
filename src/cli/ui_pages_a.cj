@@ -41,14 +41,33 @@ public func uiLayout(activePath: String, page: IComponent): IComponent {
     div(children.toArray(), attrs: Some(a("ui-shell")))
 }
 
+// 运行时信息（UI 头部/侧栏展示）：由 buildUiApp 注入，
+// 不再硬编码 —— 端口挡位/存储目录在测试实例、容器部署下与默认值不同，
+// 写死会误导使用者（曾在隔离实例上显示生产端口）。
+public var uiRuntimeInfo: ?(String, String) = None   // (endpoint, storageDir)
+
+func uiEndpointText(): String {
+    match (uiRuntimeInfo) {
+        case Some((ep, _)) => ep
+        case None => "127.0.0.1:8900"
+    }
+}
+
+func uiStorageText(): String {
+    match (uiRuntimeInfo) {
+        case Some((_, dir)) => dir
+        case None => "~/.chronolog"
+    }
+}
+
 func uiHeader(): IComponent {
     let svc = svc()
     let llmLive = uiLlmLive(svc)
     let llmModel = uiLlmModel(svc)
     let status = ArrayList<IComponent>()
-    status.add(htmlSpan("<span class=\"ui-pill\"><span class=\"dot ok\"></span>服务 127.0.0.1:8900 · MCP 在线</span>"))
+    status.add(htmlSpan("<span class=\"ui-pill\"><span class=\"dot ok\"></span>服务 " + esc(uiEndpointText()) + " · MCP 在线</span>"))
     if (llmLive) {
-        status.add(htmlSpan("<span class=\"ui-pill\"><span class=\"dot ok\"></span>LLM " + llmModel + " 已配置</span>"))
+        status.add(htmlSpan("<span class=\"ui-pill\"><span class=\"dot ok\"></span>LLM " + esc(llmModel) + " 已配置</span>"))
     } else {
         status.add(htmlSpan("<span class=\"ui-pill\"><span class=\"dot warn\"></span>LLM 未配置（总结不可用）</span>"))
     }
@@ -90,7 +109,7 @@ func uiSide(activePath0: String): IComponent {
         children.add(handled)
     }
     let info = ArrayList<IComponent>()
-    info.add(htmlSpan("<div class=\"row\"><span>存储目录</span><b>~/.chronolog</b></div>"))
+    info.add(htmlSpan("<div class=\"row\"><span>存储目录</span><b title=\"" + esc(uiStorageText()) + "\">" + esc(uiStorageText()) + "</b></div>"))
     info.add(htmlSpan("<div class=\"row\"><span>结构物化</span><b>@every 1m</b></div>"))
     info.add(htmlSpan("<div class=\"row\"><span>自动总结</span><b>*/10 * * * *</b></div>"))
     children.add(div(info.toArray(), attrs: Some(a("ui-side-info"))))
@@ -146,7 +165,7 @@ public class OverviewPage <: Component {
                 for ((k, v) in tags2) {
                     if (k == "proj") { proj = v }
                 }
-                flow.add(timeflowItem(p.ts, meta.task, meta.status, proj, outcomePreview(meta), tags2))
+                flow.add(timeflowItem(p.ts, meta, proj, tags2))
                 added += 1
             }
         }
@@ -162,6 +181,8 @@ public class TowerPage <: Component {
     var selType = Signal<String>("")
     var selGran = Signal<String>("day")
     var selBucket = Signal<String>("")
+    // 选中条目的详情（全字段视图）；None = 未打开
+    var detailPoint = Signal<Option<Point>>(Option<Point>.None)
 
     public init() {}
 
@@ -253,12 +274,17 @@ public class TowerPage <: Component {
         mainCol.add(div(bucketChildren.toArray(), attrs: Some(a("ui-card"))))
 
         let drill = this.drillPanel(svc, meta, buckets)
-        uiLayout("tower", div([
-            div([
-                div(mainCol.toArray(), attrs: Some(a("ui-tower-left"))),
-                drill,
-            ], attrs: Some(a("ui-tower-grid"))),
-        ], attrs: Some(a("ui-page"))))
+        let pageChildren = ArrayList<IComponent>()
+        pageChildren.add(div([
+            div(mainCol.toArray(), attrs: Some(a("ui-tower-left"))),
+            drill,
+        ], attrs: Some(a("ui-tower-grid"))))
+        // 条目详情弹窗（全字段）
+        match (this.detailPoint.get()) {
+            case Some(_) => pageChildren.add(this.detailDialog())
+            case None => ()
+        }
+        uiLayout("tower", div(pageChildren.toArray(), attrs: Some(a("ui-page"))))
     }
 
     func drillPanel(svc: MemoryService, meta: TypeMeta, buckets: ArrayList<BucketMeta>): IComponent {
@@ -269,16 +295,42 @@ public class TowerPage <: Component {
         } else {
             let points = uiDrillDown(svc, this.selType.get(), this.selGran.get(), this.selBucket.get())
             let label = bucketLocalLabel(this.selBucket.get(), this.selGran.get(), svc.store.timeZoneOf())
-            children.add(htmlSpan("<div class=\"ui-crumb\"><b>" + this.selType.get() + "</b> › <b>" + this.selGran.get() + "</b> › 桶 " + label +
-                " · <span class=\"ui-mono\">" + this.selBucket.get() + "</span> · <b style=\"color:var(--accent)\">" + points.size.toString() + " 条</b></div>"))
+            children.add(htmlSpan("<div class=\"ui-crumb\"><b>" + esc(this.selType.get()) + "</b> › <b>" + esc(this.selGran.get()) + "</b> › 桶 " + esc(label) +
+                " · <span class=\"ui-mono\">" + esc(this.selBucket.get()) + "</span> · <b style=\"color:var(--accent)\">" + points.size.toString() + " 条</b></div>"))
             for (p in points) {
-                children.add(pointCard(p))
+                children.add(this.drillPointCard(p))
             }
             if (points.size == 0) {
                 children.add(emptyBox("该桶暂无原始条目"))
             }
         }
         div(children.toArray(), attrs: Some(a("ui-drill")))
+    }
+
+    // 下钻条目：卡片 + 「详情」入口（全字段/全文；面板窄，长内容必须有出口）
+    func drillPointCard(p: Point): IComponent {
+        let card = ArrayList<IComponent>()
+        card.add(pointCard(p))
+        card.add(div([
+            modalButton("详情 · 全部字段", "sm ghost", { ctx =>
+                this.detailPoint.set(Some(p))
+                PatchResult.ReRender
+            }),
+        ], attrs: Some(a("ui-point-actions"))))
+        div(card.toArray(), attrs: Some(a("ui-point-wrap")))
+    }
+
+    // 条目详情弹窗（与回想页共用同一 Signal 语义）
+    func detailDialog(): IComponent {
+        match (this.detailPoint.get()) {
+            case Some(p) =>
+                let close = modalButton("关闭", "ghost", { ctx =>
+                    this.detailPoint.set(Option<Point>.None)
+                    PatchResult.ReRender
+                })
+                modalShell("条目详情 · " + payloadTaskOf(p), itemDetailBody(p), [close], true)
+            case None => EmptyVNode()
+        }
     }
 }
 
@@ -295,6 +347,8 @@ public class RecallPage <: Component {
     var qTo = Signal<String>("")
     var qTag = Signal<String>("")
     var qLimit = Signal<String>("20")
+    // 选中条目的详情（全字段视图）；None = 未打开
+    var detailPoint = Signal<Option<Point>>(Option<Point>.None)
 
     public init() {}
 
@@ -313,6 +367,16 @@ public class RecallPage <: Component {
         let rawPane = TabPane([this.renderRaw(svc)], "raw", "精确回想 · 原始条目")
         let sumPane = TabPane([this.renderSummaryMode(svc)], "summary", "语义回顾 · 窗口摘要")
         children.add(div([Tabs([rawPane, sumPane]).bind(this.mode)], attrs: Some(a("ui-tabs-wrap"))))
+        // 条目详情弹窗（全字段 + 全文展开）
+        match (this.detailPoint.get()) {
+            case Some(p) =>
+                let close = modalButton("关闭", "ghost", { ctx =>
+                    this.detailPoint.set(Option<Point>.None)
+                    PatchResult.ReRender
+                })
+                children.add(modalShell("条目详情 · " + payloadTaskOf(p), itemDetailBody(p), [close], true))
+            case None => ()
+        }
         uiLayout("recall", div(children.toArray(), attrs: Some(a("ui-page"))))
     }
 
@@ -382,10 +446,16 @@ public class RecallPage <: Component {
         let head = ArrayList<IComponent>()
         head.add(htmlSpan("<span class=\"ui-mono ui-faint\" style=\"font-size:11px\">" + fmtTime(p.ts, svc().store.timeZoneOf()) + "</span>"))
         head.add(statusSpan(meta.status))
-        head.add(htmlSpan("<b style=\"font-size:13px\">" + meta.task + "</b>"))
+        head.add(htmlSpan("<b style=\"font-size:13px\">" + esc(meta.task) + "</b>"))
+        // 「详情」入口：长内容与任意自定义字段都能看全（只靠预览必然看不全）
+        let detailBtn = modalButton("详情", "sm", { ctx =>
+            this.detailPoint.set(Some(p))
+            PatchResult.ReRender
+        })
+        head.add(div([detailBtn], attrs: Some(a("r-actions"))))
         let body = ArrayList<IComponent>()
         body.add(div(head.toArray(), attrs: Some(a("res-head"))))
-        body.add(div([text(outcomePreview(meta))], attrs: Some(a("ui-muted res-out"))))
+        body.add(previewBlock(meta, 220))
         let tc = ArrayList<IComponent>()
         for ((k, v) in tags2) { tc.add(badge(k + "=" + v, "ui-mono")) }
         body.add(div(tc.toArray(), attrs: Some(a("tf-tags"))))
@@ -526,4 +596,10 @@ public func parseEpochArg(s: String): Int64 {
     } catch (_) {
         0
     }
+}
+
+// 条目标题文案（详情弹窗标题用；task 为空时回退 ts）
+func payloadTaskOf(p: Point): String {
+    let m = payloadMeta(p.payload)
+    if (m.task != "") { m.task.clone() } else { fmtTime(p.ts, svc().store.timeZoneOf()) }
 }

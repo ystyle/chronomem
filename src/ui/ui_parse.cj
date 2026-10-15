@@ -366,3 +366,127 @@ public func statusClass(status: String): String {
 }
 
 public func isWorklogLike(name: String): Bool { name == "worklog" || name.contains("log") }
+
+// ---------- UTF-8 安全截断 ----------
+// 字节切片必须停在多字节字符边界（中文 3 字节/字符）：切在字符中间会产生
+// 非法 UTF-8，序列化后前端解码失败（曾导致 500）。
+public func clampUtf8(s: String, limit: Int64): String {
+    if (limit <= 0) { return "" }
+    if (s.size <= limit) { return s }
+    var cut = limit
+    // 若第 cut 字节是续字节（10xxxxxx），说明字符被切断：回退到字符末尾
+    while (cut > 0 && (s[cut] & 0xC0u8) == 0x80u8) {
+        cut -= 1
+    }
+    s[0..cut]
+}
+
+// ---------- payload 字段扁平化 ----------
+// payload 是宽松 JSON：除 task/status/outcome 外还可能有 decisions/next 及任意自定义字段。
+// 只展示前三个字段等于「记忆内容看不全」，故把全部字段扁平化后交给 UI 呈现。
+public struct PayloadField {
+    public let key: String
+    public let value: String
+
+    public init(key: String, value: String) {
+        this.key = key
+        this.value = value
+    }
+}
+
+// 提取 payload 的全部字段（键升序，保证渲染稳定与可测）。
+// 非 object 的 payload 返回空列表（宽松模式下的历史条目）。
+public func payloadFields(payload: String): ArrayList<PayloadField> {
+    let out = ArrayList<PayloadField>()
+    var keys = ArrayList<String>()
+    var vals = HashMap<String, String>()
+    try {
+        let v = JsonValue.parse(payload)
+        match (v) {
+            case JsonValue.Map(m) =>
+                for ((k, tv) in m) {
+                    keys.add(k)
+                    vals[k] = jsonScalarText(tv)
+                }
+            case _ => ()
+        }
+    } catch (_) {}
+    sort(keys, by: { a, b => a.compare(b) })
+    for (k in keys) {
+        match (vals.get(k)) {
+            case Some(v) => out.add(PayloadField(k, v))
+            case None => ()
+        }
+    }
+    out
+}
+
+// JSON 标量 → 展示文本；对象/数组保留结构（紧凑 JSON）
+func jsonScalarText(v: JsonValue): String {
+    match (v) {
+        case JsonValue.String(s) => s
+        case JsonValue.Null => ""
+        case _ => v.stringify()
+    }
+}
+
+// ---------- 文本预览 ----------
+// 折行/截断只影响「预览」，不影响「全文」：UI 必须同时拿到两者，
+// 否则长记忆内容没有任何入口可看全（截断即不可读）。
+public struct TextPreview {
+    public let text: String      // 预览文本（单行、已归一化空白、必要时截断加省略号）
+    public let full: String      // 完整文本（保留原始换行）
+    public let truncated: Bool   // true = 预览被截断，UI 需给「展开/全文」入口
+
+    public init(text: String, full: String, truncated: Bool) {
+        this.text = text
+        this.full = full
+        this.truncated = truncated
+    }
+}
+
+// 把换行/制表符/连续空白归一化为单个空格（预览单行显示用；全文不动）。
+// 逐「字符」遍历并按 rune 边界推进：多字节字符整体写入，不会被切成单字节。
+public func normalizeInline(s: String): String {
+    let sb = StringBuilder()
+    var runes = ArrayList<String>()
+    for (r in s.runes()) {
+        runes.add(r.toString())
+    }
+    var pendingSpace = false
+    for (ch in runes) {
+        let isSpace = ch == " " || ch == "\t" || ch == "\n" || ch == "\r"
+            || ch == "\u{3000}"
+        if (isSpace) {
+            if (sb.size > 0) { pendingSpace = true }
+            continue
+        }
+        if (pendingSpace) {
+            sb.append(" ")
+            pendingSpace = false
+        }
+        sb.append(ch)
+    }
+    sb.toString()
+}
+
+public func makePreview(raw: String, limit: Int64): TextPreview {
+    let norm = normalizeInline(raw)
+    if (norm.size <= limit) {
+        return TextPreview(norm, raw, false)
+    }
+    return TextPreview(clampUtf8(norm, limit) + "…", raw, true)
+}
+
+// 条目预览：outcome 为空时回退 task（与旧行为一致，避免空预览）
+public func previewOf(meta: PayloadMeta, limit!: Int64 = 150): TextPreview {
+    let out = meta.outcome
+    if (out == "") { return makePreview(meta.task, limit) }
+    makePreview(out, limit)
+}
+
+// ---------- 类型描述预览 ----------
+// 列表里描述过长会挤爆表格；但必须有看全的入口（详情弹窗），故返回值带 truncated 标记。
+public func descPreview(desc: String, limit!: Int64 = 60): TextPreview {
+    makePreview(desc, limit)
+}
