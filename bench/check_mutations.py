@@ -167,6 +167,21 @@ def _m9():
     return lambda: setattr(gen_trace, "generate", orig)
 
 
+@mutation("清理失败被静默吞掉（旧数据残留 → 实验静默归零）", th.TestCleanupIsNotSilent,
+          ["test_other_errors_propagate", "test_connection_error_propagates"])
+def _m10():
+    """Restore the original `except RuntimeError: pass`."""
+    orig = backends.ChronomemBackend.purge
+
+    def quiet_purge(self):
+        try:
+            self._call("mem/truncate", {"type": self.mtype})
+        except Exception:
+            pass
+    backends.ChronomemBackend.purge = quiet_purge
+    return lambda: setattr(backends.ChronomemBackend, "purge", orig)
+
+
 def main() -> int:
     print("mutation check: does the suite actually catch these defects?\n")
     undetected = []

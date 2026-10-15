@@ -292,3 +292,54 @@ class TestLagBuckets(unittest.TestCase):
         # Observed lags narrower than the nominal edges are reported as-is.
         self.assertEqual(re_mod.bucket_label(14, [14, 20, 22]), "14-22")
         self.assertEqual(re_mod.bucket_label(14, [14]), "14")
+
+class TestCleanupIsNotSilent(unittest.TestCase):
+    """A clean-up that fails quietly is worse than one that crashes.
+
+    If the series is not actually emptied, the next ingest fails on
+    `out-of-order append` and the run reports 0% — indistinguishable from a
+    system that forgot everything. A wrong tool-argument name produces exactly
+    that shape, which is why only "type does not exist" may be tolerated here.
+
+    A fake `_call` is injected in every case: these tests must not need a running
+    instance, or they would fail in CI (where none exists) and be "fixed" by
+    deleting them.
+    """
+
+    def _backend(self, reply):
+        b = ChronomemBackend(mode="exact")
+
+        def fake(tool, args):
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+        b._call = fake
+        return b
+
+    def test_missing_type_is_tolerated(self):
+        # A first run has nothing to clean; the service reports the type is absent.
+        b = self._backend(RuntimeError("类型不存在: bench/eval"))
+        b.purge()          # must not raise
+
+    def test_other_errors_propagate(self):
+        # A wrong argument name fails exactly like this, and silently leaving the
+        # old series behind is what turns it into a bogus 0%.
+        b = self._backend(RuntimeError("缺少参数 type"))
+        with self.assertRaises(RuntimeError):
+            b.purge()
+
+    def test_connection_error_propagates(self):
+        b = self._backend(RuntimeError("Connection refused"))
+        with self.assertRaises(RuntimeError):
+            b.purge()
+
+    def test_setup_tolerates_only_already_exists(self):
+        b = self._backend(RuntimeError("类型已存在: bench/eval"))
+        b.setup()          # tolerated
+        b2 = self._backend(RuntimeError("连接失败"))
+        with self.assertRaises(RuntimeError):
+            b2.setup()
+
+    def test_successful_purge_is_quiet(self):
+        b = self._backend("已清空类型 bench/eval")
+        b.purge()

@@ -251,11 +251,22 @@ class ChronomemBackend(Backend):
             time.sleep(2)
 
     def purge(self) -> None:
-        """Drop this run's entries. `type_delete` requires empty series first."""
+        """Empty this run's series before ingesting.
+
+        Only "the type does not exist yet" is tolerated — that is a legitimate
+        first run. Everything else propagates. Swallowing every error here is
+        how a broken clean-up turns into a silent zero: the old series survives,
+        the new trace's timestamps are earlier than the leftovers, appends are
+        rejected as out-of-order, and the run reports 0% while looking like a
+        system that forgot everything. A wrong argument name produces exactly
+        that shape (the tool errors, nothing is truncated, and the caller never
+        hears about it).
+        """
         try:
             self._call("mem/truncate", {"type": self.mtype})
-        except RuntimeError:
-            pass
+        except RuntimeError as exc:
+            if "不存在" not in str(exc) and "not exist" not in str(exc).lower():
+                raise
 
 
 # --- 2. Flat recency --------------------------------------------------------
