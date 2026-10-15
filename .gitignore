@@ -4,6 +4,8 @@ target/
 # 测试数据与运行时产物
 .testdata/
 .testdata-serve.log
+# UI 评审用的隔离实例数据（docs/ui/scripts/serve-testenv.sh 默认落这里）
+.testdata-ui/
 .bulkout.txt
 .fullout*.log
 docs/ui/shots/

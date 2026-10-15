@@ -3,7 +3,9 @@
 set -u
 export AGENT_BROWSER_SOCKET_DIR=/tmp/ab-cm-ui
 export AGENT_BROWSER_SESSION=cm-ui-audit
-OUT=/home/ystyle/Projects/Cangjie/chronomem-ui/docs/ui/shots/audit
+# 输出目录相对本脚本定位（不写死绝对路径，换机器/worktree 都能跑）
+REPO_ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
+OUT=${OUT:-$REPO_ROOT/docs/ui/shots/audit}
 mkdir -p "$OUT"
 BASE=${BASE:-http://127.0.0.1:18901}
 
