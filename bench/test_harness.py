@@ -343,3 +343,29 @@ class TestCleanupIsNotSilent(unittest.TestCase):
     def test_successful_purge_is_quiet(self):
         b = self._backend("已清空类型 bench/eval")
         b.purge()
+
+class TestPackedSegments(unittest.TestCase):
+    """Several facts can share one line, keyed by their reference tokens.
+
+    A summary often packs a whole day into one sentence — "- Day 1: ZT02 选方案 B
+    (keb), ZR01 选方案 A (rix)". A reader that takes the segment's first option
+    returns the *other* fact's answer, and because the letter is plausible it
+    looks like a wrong answer rather than a reader bug. Measured: this made the
+    week-level arm score 0% at short lags while the correct option sat in the
+    same line.
+    """
+
+    def test_token_before_option(self):
+        text = "决策：\n- Day 1: ZT02 选方案 B (keb), ZR01 选方案 A (rix)"
+        self.assertEqual(extract_answer(text, "What option was chosen for ref ZR01 on day 1?"), "A")
+        self.assertEqual(extract_answer(text, "What option was chosen for ref ZT02 on day 1?"), "B")
+
+    def test_option_before_token(self):
+        text = "决策：- 方案 A（ZR01）、方案 C（ZT02）"
+        self.assertEqual(extract_answer(text, "What option was chosen for ref ZR01 on day 1?"), "A")
+        self.assertEqual(extract_answer(text, "What option was chosen for ref ZT02 on day 1?"), "C")
+
+    def test_token_only_in_keyword_list_is_none(self):
+        # A token that appears solely in a keyword list carries no answer for it.
+        text = "关键词：ZR01, ZT02, keb"
+        self.assertIsNone(extract_answer(text, "What option was chosen for ref ZR01 on day 1?"))

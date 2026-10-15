@@ -182,6 +182,27 @@ def _m10():
     return lambda: setattr(backends.ChronomemBackend, "purge", orig)
 
 
+@mutation("取段内首个选项（一段多 ref 时取错事实）", th.TestPackedSegments,
+          ["test_token_before_option", "test_option_before_token"])
+def _m11():
+    """Restore the old behaviour: first option anywhere in the segment."""
+    orig = run_eval.extract_answer
+
+    def first_in_segment(text, question):
+        import re as _re
+        mref = _re.search(r"ref\s+(Z[A-Z]\d{2})", question, _re.IGNORECASE)
+        if mref:
+            want = mref.group(1).upper()
+            for seg in text.split("\n"):
+                if want in seg.upper():
+                    opt = run_eval._option_in(seg)
+                    if opt:
+                        return opt
+        return orig(text, question)
+    run_eval.extract_answer = first_in_segment
+    return lambda: setattr(run_eval, "extract_answer", orig)
+
+
 def main() -> int:
     print("mutation check: does the suite actually catch these defects?\n")
     undetected = []

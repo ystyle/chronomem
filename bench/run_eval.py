@@ -68,6 +68,23 @@ def _load_topics() -> list[str]:
     return ALL_TOPICS
 
 
+def _all_options(segment: str) -> list[str]:
+    """Every option letter stated in a segment, in order of appearance.
+
+    Needed when a reference token follows its own option: the answer is then the
+    option nearest before the token, and taking the segment's first one returns
+    another pair's letter.
+    """
+    hits: list[tuple[int, str]] = []
+    for rx in (DECISION_RE, EDIT_RE, ZH_OPTION_RE):
+        for m in rx.finditer(segment):
+            hits.append((m.start("choice") if "choice" in (m.groupdict() or {})
+                         else m.start(1), m.group("choice") if "choice" in (m.groupdict() or {})
+                         else m.group(1)))
+    hits.sort(key=lambda x: x[0])
+    return [c.upper() for _pos, c in hits]
+
+
 def _option_in(segment: str) -> str | None:
     """The option letter stated in one segment, or None.
 
@@ -118,19 +135,36 @@ def extract_answer(text: str, question: str) -> str | None:
     mref = re.search(r"ref\s+(Z[A-Z]\d{2})", question, re.IGNORECASE)
     want_ref = mref.group(1).upper() if mref else None
     if want_ref:
-        segments = [s for s in re.split(r"[\n\r;；]|(?<=[。！？])", text) if s.strip()]
-        # A summary may restate the fact on several lines; take the first line
-        # that carries both the token and an option.
+        segments = [s for s in re.split(r"[\n\r;；、、]|(?<=[。！？])", text) if s.strip()]
+        # A summary routinely packs several facts into one segment, keyed by
+        # their reference tokens:
+        #     "- Day 1: ZT02 选方案 B (keb), ZR01 选方案 A (rix)"
+        # Taking the segment's *first* option there returns the other fact's
+        # answer — and it is a plausible letter, so it reads as a wrong answer
+        # rather than as a reader bug. (Measured: this made the week arm score
+        # 0% at short lags while the correct option was in the same line.) So
+        # read from the token forward, within the segment, and stop at the first
+        # option after it.
+        ref_re = re.compile(r"(?<![A-Z0-9])" + re.escape(want_ref) + r"(?![A-Z0-9])",
+                            re.IGNORECASE)
         for seg in segments:
-            if re.search(r"(?<![A-Z0-9])" + re.escape(want_ref) + r"(?![A-Z0-9])",
-                         seg, re.IGNORECASE):
-                opt = _option_in(seg)
-                if opt:
-                    return opt
-        # Token present but no option on its line (e.g. it appears only in a
+            m = ref_re.search(seg)
+            if not m:
+                continue
+            after = seg[m.end():]
+            opt = _option_in(after)
+            if opt:
+                return opt
+            # The token can also be written *after* its option ("方案 A（ZR01）").
+            # Then the answer is the option nearest before it, not the first one
+            # in the segment — the segment may list several pairs.
+            before = seg[:m.start()]
+            opts = _all_options(before)
+            if opts:
+                return opts[-1]
+        # Token present but no option anywhere near it (e.g. it appears only in a
         # keyword list) — fall through to the topic-based path.
-        if not re.search(r"(?<![A-Z0-9])" + re.escape(want_ref) + r"(?![A-Z0-9])",
-                         text, re.IGNORECASE):
+        if not ref_re.search(text):
             return None
 
     # --- fallback: (topic, day), then topic alone ----------------------------
@@ -143,7 +177,7 @@ def extract_answer(text: str, question: str) -> str | None:
     else:
         want_topic, want_day = m.group(1).lower(), int(m.group(2))
 
-    segments = [s for s in re.split(r"[\n\r;；]|(?<=[。！？])", text) if s.strip()]
+    segments = [s for s in re.split(r"[\n\r;；、、]|(?<=[。！？])", text) if s.strip()]
     days_mentioned = {int(a or b) for a, b in DAY_RE.findall(text)}
     strict = len(days_mentioned) > 1
 
