@@ -18,9 +18,11 @@ public let UI_CSS = "/css/ui.css?v=9"
 /// （tang.compose.ComposeDistributor：UI 作为 fallback 占根路径）
 public func buildUiApp(svc: MemoryService, cfg: ChronomemConfig): App {
     uiSvc = Some(svc)
-    // 运行时信息注入：头部端点与侧栏存储目录取真实配置。
+    // 运行时信息注入：头部端点与侧栏监听项取真实配置。
     // 硬编码会在非默认端口（隔离测试实例、容器映射）下显示错误信息。
-    uiRuntimeInfo = Some((cfg.addr + ":" + cfg.port.toString(), shortenHome(cfg.dir)))
+    // 存的是**绑定地址**（0.0.0.0 = 所有网卡），展示由 listenDisplay 按绑定语义渲染
+    // —— 0.0.0.0 不是可访问目标，不能直接当服务地址显示。
+    uiRuntimeInfo = Some((cfg.addr, cfg.port, shortenHome(cfg.dir)))
     let app = App()
         .configure(AppConfig(
             title: "忆时塔 chronomem · Web 控制台",

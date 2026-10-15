@@ -227,12 +227,43 @@ func uiDisabledLayerShowsUnconfiguredOnce() {
 func uiHeaderUsesRuntimeInfo() {
     let svc = uiPageTestSvc()
     let saved = uiRuntimeInfo
-    uiRuntimeInfo = Some(("127.0.0.1:18999", "~/.chronolog-test"))
+    uiRuntimeInfo = Some(("127.0.0.1", UInt16(18999), "~/.chronolog-test"))
     let page = OverviewPage()
     let tree = RenderContext.expandTree(page.renderWithScope(""), "")
     let json = toJsonString(tree)
-    @Expect(json.contains("127.0.0.1:18999"), true)
+    @Expect(json.contains("18999"), true)
     @Expect(json.contains("~/.chronolog-test"), true)
+    uiRuntimeInfo = saved
+    svc.close()
+}
+
+// 绑定 0.0.0.0 时不得把 "0.0.0.0" 当成服务地址展示
+// （0.0.0.0 是「所有网卡」的绑定通配，不是客户端可访问的目标）
+@Test
+func uiHeaderDoesNotShowWildcardAsAddress() {
+    let svc = uiPageTestSvc()
+    let saved = uiRuntimeInfo
+    uiRuntimeInfo = Some(("0.0.0.0", UInt16(18901), "~/.chronolog-test"))
+    let page = OverviewPage()
+    let json = toJsonString(RenderContext.expandTree(page.renderWithScope(""), ""))
+    @Expect(json.contains("0.0.0.0"), false)
+    @Expect(json.contains("所有网卡"), true)
+    @Expect(json.contains("局域网可达"), true)
+    @Expect(json.contains("18901"), true)
+    uiRuntimeInfo = saved
+    svc.close()
+}
+
+// 绑回环时标明「本机可达」，避免误以为外部也能访问
+@Test
+func uiHeaderMarksLoopbackScope() {
+    let svc = uiPageTestSvc()
+    let saved = uiRuntimeInfo
+    uiRuntimeInfo = Some(("127.0.0.1", UInt16(8900), "~/.chronolog"))
+    let page = OverviewPage()
+    let json = toJsonString(RenderContext.expandTree(page.renderWithScope(""), ""))
+    @Expect(json.contains("仅本机"), true)
+    @Expect(json.contains("本机可达"), true)
     uiRuntimeInfo = saved
     svc.close()
 }
