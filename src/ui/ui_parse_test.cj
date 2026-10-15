@@ -1,6 +1,7 @@
 package chronomem.ui
 
 import std.collection.ArrayList
+import std.collection.HashMap
 import std.time.*
 
 // SummaryRecord.text 分节解析 / ISO 桶 key / 日历 / 标签解析 / payload 摘要 / levels 排序
@@ -164,4 +165,106 @@ func uiSortLevelsBasic() {
     @Expect(sorted[0], "10min")
     @Expect(sorted[1], "day")
     @Expect(sorted[2], "week")
+}
+
+// ---------- UTF-8 安全截断（回归：切在字符中间 → 非法 UTF-8 → 前端解码失败）----------
+
+@Test
+func uiClampUtf8Boundary() {
+    // 中文 3 字节/字符：limit 落在字符中间时必须回退到字符边界
+    @Expect(clampUtf8("忆时塔时间记忆", 7), "忆时")
+    @Expect(clampUtf8("chronomem忆时塔", 12), "chronomem忆")
+    @Expect(clampUtf8("abc", 10), "abc")
+    @Expect(clampUtf8("abcdef", 3), "abc")
+    @Expect(clampUtf8("任意", 0), "")
+    // 恰好等于 limit 不截断（省略号由预览层负责追加）
+    @Expect(clampUtf8("abcdefghij", 10), "abcdefghij")
+    @Expect(clampUtf8("abcdefghij", 5), "abcde")
+}
+
+// ---------- payload 字段扁平化（回归：只展示 task/status/outcome = 内容看不全）----------
+
+@Test
+func uiPayloadFieldsAll() {
+    let fs = payloadFields("{\"task\":\"T\",\"status\":\"完成\",\"outcome\":\"O\",\"decisions\":\"D\",\"next\":\"N\",\"extra\":\"E\"}")
+    @Expect(fs.size, Int64(6))
+    var keys = ArrayList<String>()
+    for (f in fs) { keys.add(f.key) }
+    // 键升序，渲染稳定
+    @Expect(keys[0], "decisions")
+    @Expect(keys[1], "extra")
+    @Expect(keys[2], "next")
+    @Expect(keys[3], "outcome")
+    @Expect(keys[4], "status")
+    @Expect(keys[5], "task")
+    @Expect(fs[0].value, "D")
+    @Expect(fs[5].value, "T")
+}
+
+@Test
+func uiPayloadFieldsNonScalar() {
+    let fs = payloadFields("{\"n\":3,\"b\":true,\"arr\":[1,2],\"nul\":null}")
+    var got = HashMap<String, String>()
+    for (f in fs) { got[f.key] = f.value }
+    @Expect(got["n"], "3")
+    @Expect(got["b"], "true")
+    @Expect(got["arr"], "[1,2]")
+    @Expect(got["nul"], "")
+}
+
+@Test
+func uiPayloadFieldsInvalid() {
+    @Expect(payloadFields("not-json").size, Int64(0))
+    @Expect(payloadFields("[1,2]").size, Int64(0))
+    @Expect(payloadFields("{}").size, Int64(0))
+}
+
+// ---------- 预览/全文（回归：截断后没有任何入口看全内容）----------
+
+@Test
+func uiNormalizeInlineCollapsesWhitespace() {
+    @Expect(normalizeInline("a\n\nb\t c  d"), "a b c d")
+    @Expect(normalizeInline("  前导与尾随  "), "前导与尾随")
+    @Expect(normalizeInline("单行"), "单行")
+    @Expect(normalizeInline(""), "")
+    // 多字节字符不得被切坏
+    @Expect(normalizeInline("忆\n时\t塔"), "忆 时 塔")
+}
+
+@Test
+func uiPreviewKeepsFullText() {
+    let long = "忆时塔" * 200
+    let pv = makePreview(long, 150)
+    @Expect(pv.truncated, true)
+    // 全文必须原样保留（长度按字节）
+    @Expect(pv.full.size, long.size)
+    // 预览不超限 + 省略号
+    @Expect(pv.text.size <= 150 + 3, true)
+    @Expect(pv.text.endsWith("…"), true)
+}
+
+@Test
+func uiPreviewShortNotTruncated() {
+    let pv = makePreview("短内容", 150)
+    @Expect(pv.truncated, false)
+    @Expect(pv.text, "短内容")
+    @Expect(pv.full, "短内容")
+}
+
+@Test
+func uiPreviewOfFallsBackToTask() {
+    // outcome 为空时回退 task（旧行为），避免空预览
+    let meta = PayloadMeta("任务名", "完成", "")
+    let pv = previewOf(meta)
+    @Expect(pv.text, "任务名")
+}
+
+@Test
+func uiDescPreviewMarksTruncation() {
+    // 列表里的描述需要「看全入口」判据：截断必须可识别
+    let short = descPreview("短描述")
+    @Expect(short.truncated, false)
+    let long = descPreview("这是一段很长的类型描述，" * 10)
+    @Expect(long.truncated, true)
+    @Expect(long.full.size > long.text.size, true)
 }

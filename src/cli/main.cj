@@ -45,7 +45,7 @@ main() {
         .mount("/mcp", McpRouteDistributor(transport))
     if (cfg.uiEnabled) {
         // UI 与 MCP 同端口：页面/静态/WS 走根路径，MCP 走 /mcp（页面直接调 svc，无 HTTP 开销）
-        let uiApp = buildUiApp(svc, cfg.addr)
+        let uiApp = buildUiApp(svc, cfg)
         compose.setFallback(uiApp.router())
     }
     let httpServer = ServerBuilder()

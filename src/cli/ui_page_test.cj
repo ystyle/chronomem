@@ -127,3 +127,122 @@ func uiLongInputCarriesBind() {
     }
     svc.close()
 }
+
+// ==================== 内容看全 / 暗色适配回归 ====================
+
+// 场景：一条 outcome 远超预览上限的条目（真实记忆内容常见）
+func uiPageLongTextSvc(): MemoryService {
+    let svc = MemoryService.openFile(freshTestDir())
+    let levels = ArrayList<String>()
+    levels.add("day")
+    let r = uiCreateType(svc, TypeMeta("worklog", "测试", Option<String>.None, levels,
+        Option<String>.None, true, Option<ArrayList<String>>.None, 1,
+        summaryGroupBy: Some(ArrayList<String>(["proj"]))))
+    if (!r.ok) { throw Exception("setup") }
+    let tl = svc.registry.timelineOf("worklog").getOrThrow()
+    let long = "忆时塔长内容验证" * 80
+    let tags = HashMap<String, String>()
+    tags["proj"] = "chronomem"
+    tl.append(1787932800000,
+        "{\"task\":\"长内容条目\",\"status\":\"完成\",\"outcome\":\"" + long +
+        "\",\"decisions\":\"" + long + "\",\"custom_field\":\"自定义字段也要看得到\"}", tags)
+    tl.materialize(1787932800000, "测试")
+    uiSvc = Some(svc)
+    svc
+}
+
+// 预览截断必须带「展开全文」出口，否则长记忆内容没有任何入口可读
+@Test
+func uiLongOutcomeHasExpandEntry() {
+    let svc = uiPageLongTextSvc()
+    uiSvc = Some(svc)
+    let long = "忆时塔长内容验证" * 80
+    let meta = PayloadMeta("长内容条目", "完成", long)
+    // 卡片级渲染路径（与下钻点/时间流/查询结果同一函数）
+    let node = previewBlock(meta, 220)
+    let json = toJsonString(RenderContext.expandTree(node, ""))
+    @Expect(json.contains("ui-expand"), true)
+    @Expect(json.contains("展开全文"), true)
+    @Expect(json.contains("ui-fulltext"), true)
+    // 短内容不套 details（避免短文也要多点一下）
+    let shortNode = previewBlock(PayloadMeta("t", "完成", "短"), 220)
+    let shortJson = toJsonString(RenderContext.expandTree(shortNode, ""))
+    @Expect(shortJson.contains("ui-expand"), false)
+    svc.close()
+}
+
+// 详情弹窗必须列出 payload 的每一个字段（宽松 JSON：不只 task/status/outcome）
+@Test
+func uiDetailShowsAllPayloadFields() {
+    let svc = uiPageLongTextSvc()
+    let page = RecallPage()
+    // 直接构造条目详情体（与「详情」按钮同一条代码路径）
+    let tl = svc.registry.timelineOf("worklog").getOrThrow()
+    let pts = tl.queryPoints(0, 0, 1, Option<(String, String)>.None)
+    @Expect(pts.size, Int64(1))
+    let body = itemDetailBody(pts[0])
+    let json = toJsonString(body)
+    for (k in ["task", "status", "outcome", "decisions", "custom_field"]) {
+        @Expect(json.contains(k), true)
+    }
+    svc.close()
+}
+
+// 回想页结果行必须带「详情」入口（长内容在此页同样不能只有预览）
+@Test
+func uiRecallRowHasDetailEntry() {
+    let svc = uiPageLongTextSvc()
+    let page = RecallPage()
+    let tree = RenderContext.expandTree(page.renderWithScope(""), "")
+    let json = toJsonString(tree)
+    @Expect(json.contains("详情"), true)
+    @Expect(json.contains("r-actions"), true)
+    svc.close()
+}
+
+// 转义：用户内容里的标记必须被转义（预览/全文走 innerhtml 通道）
+@Test
+func uiEscHandlesMarkup() {
+    @Expect(esc("<script>alert(1)</script>"), "&lt;script&gt;alert(1)&lt;/script&gt;")
+    @Expect(esc("a & b"), "a &amp; b")
+    @Expect(esc("引号\"与'"), "引号&quot;与&#39;")
+    @Expect(esc("正常中文"), "正常中文")
+}
+
+// 禁用塔层只标一次「未配置」（此前 metric 与单位位都写「未配置」→ 连读两遍）
+@Test
+func uiDisabledLayerShowsUnconfiguredOnce() {
+    let svc = uiPageTestSvc()
+    let page = TowerPage()
+    let tree = RenderContext.expandTree(page.renderWithScope(""), "")
+    let json = toJsonString(tree)
+    // 未配置层不再出现「未配置未配置」相邻串
+    @Expect(json.contains("未配置未配置"), false)
+    @Expect(json.contains("未配置"), true)
+    svc.close()
+}
+
+// 头部/侧栏不再硬编码端口与目录（隔离实例、容器部署下需显示真实值）
+@Test
+func uiHeaderUsesRuntimeInfo() {
+    let svc = uiPageTestSvc()
+    let saved = uiRuntimeInfo
+    uiRuntimeInfo = Some(("127.0.0.1:18999", "~/.chronolog-test"))
+    let page = OverviewPage()
+    let tree = RenderContext.expandTree(page.renderWithScope(""), "")
+    let json = toJsonString(tree)
+    @Expect(json.contains("127.0.0.1:18999"), true)
+    @Expect(json.contains("~/.chronolog-test"), true)
+    uiRuntimeInfo = saved
+    svc.close()
+}
+
+// 预览只归一化空白、不丢全文（换行在全文里保留）
+@Test
+func uiPreviewKeepsNewlinesInFull() {
+    let raw = "第一行\n第二行"
+    let pv = makePreview(raw, 200)
+    @Expect(pv.truncated, false)
+    @Expect(pv.text, "第一行 第二行")
+    @Expect(pv.full, "第一行\n第二行")
+}

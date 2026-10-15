@@ -76,10 +76,15 @@ public func pill(text0: String, dot: String, cls: String): IComponent {
 
 // 内联 HTML 小片段（只用于无用户输入的静态标记）
 func htmlSpan(html: String): IComponent {
+    htmlSpan(html, "span")
+}
+
+// 指定标签的内联 HTML 片段（<details>/<div> 等块级容器需要非 span 标签）
+func htmlSpan(html: String, tag: String): IComponent {
     // 使用 markdown 组件的 innerhtml 通道太重，这里用原始 VNode + innerhtml 属性
     let m = HashMap<String, String>()
     m.add("innerhtml", html)
-    VNode("span", Array<IComponent>(), attrs: Some(m))
+    VNode(tag, Array<IComponent>(), attrs: Some(m))
 }
 
 public func badge(text0: String, cls: String): IComponent {
@@ -137,18 +142,22 @@ public func statRow(items: ArrayList<IComponent>): IComponent {
 
 // ---------- 时间流条目 ----------
 
-public func timeflowItem(ts: Int64, task: String, status: String, proj: String, out: String, tags2: ArrayList<(String, String)>): IComponent {
+public func timeflowItem(ts: Int64, meta: PayloadMeta, proj: String, tags2: ArrayList<(String, String)>): IComponent {
+    let status = meta.status
     let done = status == "完成"
     var cls = "ui-tf-item"
     if (done) { cls = "ui-tf-item done" }
     let children = ArrayList<IComponent>()
     children.add(div([text(fmtTime(ts, svc().store.timeZoneOf()))], attrs: Some(a("tf-ts"))))
     let head = ArrayList<IComponent>()
-    head.add(htmlSpan("<span class=\"ui-st-" + statusDot(status) + "\">" + s(status) + "</span>"))
-    head.add(text(" " + task))
-    head.add(htmlSpan("<span class=\"ui-faint\" style=\"font-weight:400;font-size:11px\"> · " + proj + "</span>"))
+    head.add(htmlSpan("<span class=\"ui-st-" + statusDot(status) + "\">" + esc(status) + "</span>"))
+    head.add(text(" " + (if (meta.task != "") { meta.task } else { "（无 task 字段）" })))
+    if (proj != "") {
+        head.add(htmlSpan("<span class=\"ui-faint\" style=\"font-weight:400;font-size:11px\"> · " + esc(proj) + "</span>"))
+    }
     children.add(div(head.toArray(), attrs: Some(a("tf-task"))))
-    children.add(div([text(out)], attrs: Some(a("tf-out"))))
+    // 预览 + 展开全文（时间流同样不能让长内容不可读）
+    children.add(previewBlock(meta, 200))
     let tc = ArrayList<IComponent>()
     for ((k, v) in tags2) {
         tc.add(badge(k + "=" + v, "ui-mono"))
@@ -156,8 +165,6 @@ public func timeflowItem(ts: Int64, task: String, status: String, proj: String, 
     children.add(div(tc.toArray(), attrs: Some(a("tf-tags"))))
     div(children.toArray(), attrs: Some(a(cls)))
 }
-
-func s(x: String): String { x }
 
 public func statusDot(status: String): String {
     match (status) {
@@ -194,26 +201,108 @@ public func pointCard(p: Point): IComponent {
     head.add(text(" " + (if (meta.task != "") { meta.task } else { "（无 task 字段）" })))
     div([
         div(head.toArray(), attrs: Some(a("p-head"))),
-        div([text(outcomePreview(meta))], attrs: Some(a("p-out"))),
+        previewBlock(meta, 220),
         tagChips(p),
     ], attrs: Some(a("ui-point")))
 }
 
-// UTF-8 安全截断：字节切片必须停在多字节字符边界（中文 3 字节/字符）
-public func clampUtf8(s: String, limit: Int64): String {
-    if (s.size <= limit) { return s }
-    var cut = limit
-    // 若第 cut 字节是续字节（10xxxxxx），说明字符被切断：回退到字符末尾
-    while (cut > 0 && (s[cut] & 0xC0u8) == 0x80u8) {
-        cut -= 1
+// ---------- 内容预览（可看全） ----------
+// 记忆内容不能只有「截断后的预览」：截断必须带一个展开入口，
+// 否则长 outcome / decisions / 自定义字段在 UI 上根本读不到。
+// <details> 是原生控件：零 JS、无需 cjxt 补丁通道、键盘可达，契合本页「服务端渲染 + WS 补丁」架构。
+
+public func previewBlock(meta: PayloadMeta, limit: Int64): IComponent {
+    let pv = previewOf(meta, limit: limit)
+    if (!pv.truncated) {
+        return div([text(pv.text)], attrs: Some(a("p-out")))
     }
-    s[0..cut]
+    htmlSpan(
+        "<div class=\"p-out\">" + esc(pv.text) + "</div>" +
+        "<details class=\"ui-expand\"><summary>展开全文（" + pv.full.size.toString() + " 字节）</summary>" +
+        "<pre class=\"ui-fulltext\">" + esc(pv.full) + "</pre></details>",
+        "div")
 }
 
-public func outcomePreview(meta: PayloadMeta): String {
-    let out = meta.outcome
-    if (out == "") { return meta.task }
-    clampUtf8(out, 150) + "…"
+// 通用「预览 + 全文」文本块（保留原始换行）
+public func fullTextBlock(label: String, raw: String, limit: Int64): IComponent {
+    let pv = makePreview(raw, limit)
+    if (!pv.truncated) {
+        return div([text(pv.text)], attrs: Some(a("p-out")))
+    }
+    htmlSpan(
+        "<div class=\"p-out\">" + esc(pv.text) + "</div>" +
+        "<details class=\"ui-expand\"><summary>" + esc(label) + "（" + pv.full.size.toString() + " 字节）</summary>" +
+        "<pre class=\"ui-fulltext\">" + esc(pv.full) + "</pre></details>",
+        "div")
+}
+
+// ---------- 条目详情（全字段） ----------
+// payload 是宽松 JSON，字段任意：详情必须列出每个字段（而非只认 task/status/outcome），
+// 否则 decisions/next 与自定义字段在「详情」里同样看不到。
+public func itemDetailBody(p: Point): Array<IComponent> {
+    let out = ArrayList<IComponent>()
+    let meta = payloadMeta(p.payload)
+    out.add(htmlSpan("<div class=\"ui-detail-meta ui-mono\">" + esc(fmtTime(p.ts, svc().store.timeZoneOf())) +
+        " · ts=" + p.ts.toString() + "</div>"))
+    if (meta.status != "") {
+        out.add(div([statusSpan(meta.status)], attrs: Some(a("ui-detail-status"))))
+    }
+    let fields = payloadFields(p.payload)
+    if (fields.size == 0) {
+        out.add(emptyBox("payload 不是 JSON 对象（下方显示原始文本）"))
+        out.add(fullTextBlock("展开原始 payload", p.payload, 200))
+    } else {
+        for (f in fields) {
+            let block = ArrayList<IComponent>()
+            block.add(div([text(f.key)], attrs: Some(a("ui-detail-key ui-mono"))))
+            block.add(fullTextBlock("展开全文", f.value, 400))
+            out.add(div(block.toArray(), attrs: Some(a("ui-detail-field"))))
+        }
+    }
+    if (p.tags != "") {
+        let tb = ArrayList<IComponent>()
+        tb.add(htmlSpan("<div class=\"ui-detail-key\">tags</div>"))
+        tb.add(tagChips(p))
+        out.add(div(tb.toArray(), attrs: Some(a("ui-detail-field"))))
+    }
+    out.toArray()
+}
+
+// ---------- 通用弹窗 ----------
+
+public func modalShell(title: String, bodyArr: Array<IComponent>, footArr: Array<IComponent>, wide: Bool): IComponent {
+    var cls = "ui-dlg"
+    if (wide) { cls = "ui-dlg wide" }
+    div([
+        div([
+            htmlSpan("<div class=\"ui-dlg-head\"><h3>" + esc(title) + "</h3></div>"),
+            div(bodyArr, attrs: Some(a("ui-dlg-body"))),
+            div(footArr, attrs: Some(a("ui-dlg-foot"))),
+        ], attrs: Some(a(cls))),
+    ], attrs: Some(a("ui-dlg-mask show")))
+}
+
+public func modalButton(label: String, cls: String, h: ActionHandler): IComponent {
+    let b = div([text(label)], attrs: Some(a("ui-btn" + (if (cls == "") { "" } else { " " + cls }))))
+    b.onClick(h)
+}
+
+// HTML 文本转义：预览/全文经 innerhtml 通道注入，用户内容里的 < > & 必须转义，
+// 否则会被当作标记解析（渲染破坏 + 注入双重风险）。
+public func esc(s: String): String {
+    let sb = StringBuilder()
+    for (r in s.runes()) {
+        let c = r.toString()
+        match (c) {
+            case "&" => sb.append("&amp;")
+            case "<" => sb.append("&lt;")
+            case ">" => sb.append("&gt;")
+            case "\"" => sb.append("&quot;")
+            case "'" => sb.append("&#39;")
+            case _ => sb.append(c)
+        }
+    }
+    sb.toString()
 }
 
 // ---------- 塔层 ----------
@@ -224,9 +313,16 @@ public func towerLayer(level: String, label: String, sub: String, metric: String
     if (active) { cls = cls + " l-active" }
     let children = ArrayList<IComponent>()
     children.add(chip("", level))
-    children.add(htmlSpan("<span class=\"l-name\">" + label + "</span>"))
-    if (enabled) { children.add(htmlSpan("<span class=\"l-sub\">" + sub + "</span>")) }
-    children.add(htmlSpan("<span class=\"l-metric\"><b>" + metric + "</b><span>" + (if (enabled) { "时间桶" } else { "未配置" }) + "</span></span>"))
+    children.add(htmlSpan("<span class=\"l-name\">" + esc(label) + "</span>"))
+    if (enabled) { children.add(htmlSpan("<span class=\"l-sub\">" + esc(sub) + "</span>")) }
+    // 禁用层只标一次「未配置」：图标位放占位符，单位位放文案，
+    // 否则 <b>未配置</b><span>未配置</span> 会连读成「未配置未配置」。
+    let metricEl = if (enabled) {
+        "<b>" + esc(metric) + "</b><span>时间桶</span>"
+    } else {
+        "<b>—</b><span>未配置</span>"
+    }
+    children.add(htmlSpan("<span class=\"l-metric\">" + metricEl + "</span>"))
     let layer = div(children.toArray(), attrs: Some(a(cls)))
     match (h) {
         case Some(hh) => layer.onClick(hh)

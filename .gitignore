@@ -7,3 +7,4 @@ target/
 .bulkout.txt
 .fullout*.log
 docs/ui/shots/
+.testenv/
