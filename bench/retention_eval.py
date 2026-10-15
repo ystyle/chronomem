@@ -38,19 +38,47 @@ from collections import defaultdict
 from backends import ChronomemBackend, CompactionBackend, FlatBackend
 from run_eval import extract_answer, run_backend
 
-# Lag buckets in days. Chosen to straddle the recency window: with top_k=20 and
-# ~10 events/day, a flat store holds about two days, so the cliff should appear
-# between the 2d and 3d buckets.
+# Lag buckets, as *lower* edges. A probe falls in the largest edge <= its lag,
+# so the bucket labelled 7 holds lags 7–13 and the one labelled 14 holds 14–29.
+#
+# The label is therefore a lower bound, not the lag itself. Reporting it as
+# "lag 14" misreads the data: on a 30-day trace the top bucket actually contains
+# 29-day probes, and a capacity argument about a 20-day window then looks
+# violated when it is not. `bucket_range()` gives the true span so tables can say
+# `14–29` instead of `14`.
 LAG_BUCKETS = [0, 1, 2, 3, 5, 7, 14, 30, 60]
 
 
 def bucket_of(lag: int) -> int:
-    """Largest bucket boundary <= lag (so lag 0-1 -> 1, 4 -> 3, 10 -> 7...)."""
+    """Lower edge of the bucket containing `lag` (0–1 -> 1, 4 -> 3, 10 -> 7...)."""
     b = 0
     for edge in LAG_BUCKETS:
         if lag >= edge:
             b = edge
     return b
+
+
+def bucket_upper(bucket: int) -> int | None:
+    """Upper edge (exclusive) of a bucket; None for the last bucket."""
+    for i, edge in enumerate(LAG_BUCKETS):
+        if edge == bucket:
+            return LAG_BUCKETS[i + 1] if i + 1 < len(LAG_BUCKETS) else None
+    return None
+
+
+def bucket_label(bucket: int, lags: list[int] | None = None) -> str:
+    """Human label for a bucket, never pretending it is a single day.
+
+    Prefers the observed span when the lags are known (`14-29`), else the nominal
+    edges from the table.
+    """
+    if lags:
+        lo, hi = min(lags), max(lags)
+        return f"{lo}" if lo == hi else f"{lo}-{hi}"
+    up = bucket_upper(bucket)
+    if up is None:
+        return f"{bucket}+"
+    return f"{bucket}" if up - bucket == 1 else f"{bucket}-{up - 1}"
 
 
 def main() -> None:
@@ -110,21 +138,28 @@ def main() -> None:
         # day-then-probe order, which is NOT trace order. Zipping by index would
         # silently pair each result with the wrong lag.
         lag_of = {p["qid"]: p["lag_days"] for p in trace["probes"]}
-        buckets = defaultdict(lambda: {"n": 0, "correct": 0})
+        buckets = defaultdict(lambda: {"n": 0, "correct": 0, "lags": []})
         for pr in res.per_probe:
             b = bucket_of(lag_of[pr.qid])
             buckets[b]["n"] += 1
             buckets[b]["correct"] += int(pr.correct)
+            buckets[b]["lags"].append(lag_of[pr.qid])
 
         print(f"[{name}]  overall {res.correct}/{res.total} = {res.accuracy:.1%}")
-        print(f"  {'lag(d)':>7} {'n':>4} {'accuracy':>9}")
+        # The bucket column shows the true lag span (e.g. 14-29), not the lower
+        # edge: calling a 14–29 bucket "14" invites conclusions about "14 days"
+        # that the data does not support.
+        print(f"  {'lag(d)':>8} {'n':>4} {'accuracy':>9}")
         curve = {}
         for b in sorted(buckets):
             d = buckets[b]
             acc = d["correct"] / d["n"] if d["n"] else 0.0
-            curve[b] = {"n": d["n"], "accuracy": acc}
+            label = bucket_label(b, d["lags"])
+            curve[b] = {"n": d["n"], "accuracy": acc,
+                        "lag_min": min(d["lags"]), "lag_max": max(d["lags"]),
+                        "label": label}
             bar = "#" * int(acc * 30)
-            print(f"  {b:>7} {d['n']:>4} {acc:>8.1%}  {bar}")
+            print(f"  {label:>8} {d['n']:>4} {acc:>8.1%}  {bar}")
         print()
 
         out["by_backend"][name] = {
@@ -141,16 +176,21 @@ def main() -> None:
         }
 
     # --- the comparison ------------------------------------------------------
-    print("=== accuracy vs how long ago the fact was (lag buckets) ===")
+    print("=== accuracy vs how long ago the fact was ===")
     names = list(out["by_backend"].keys())
-    print(f"{'lag(d)':>7} " + " ".join(f"{n[:18]:>19}" for n in names))
+    print(f"{'lag(d)':>8} " + " ".join(f"{n[:18]:>19}" for n in names))
     all_b = sorted({b for v in out["by_backend"].values() for b in v["curve"]})
     for b in all_b:
         row = []
+        label = str(b)
         for n in names:
             c = out["by_backend"][n]["curve"].get(b)
-            row.append(f"{c['accuracy']:>18.1%}" if c else f"{'-':>19}")
-        print(f"{b:>7} " + " ".join(row))
+            if c:
+                label = c.get("label", str(b))
+                row.append(f"{c['accuracy']:>18.1%}")
+            else:
+                row.append(f"{'-':>19}")
+        print(f"{label:>8} " + " ".join(row))
 
     if args.json_out:
         with open(args.json_out, "w", encoding="utf-8") as fh:

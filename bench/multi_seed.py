@@ -25,6 +25,8 @@ import statistics
 import subprocess
 import sys
 
+from retention_eval import bucket_label
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_SEEDS = [7, 11, 23, 31, 43]
 
@@ -76,11 +78,16 @@ def run_one(seed: int, days: int, agents: int, workdir: str,
 def aggregate(results: list[dict]) -> dict:
     """Mean/std of accuracy per (backend, lag bucket) across seeds."""
     agg: dict = {}
+    labels: dict = {}
     for r in results:
         for backend, data in r["by_backend"].items():
             agg.setdefault(backend, {})
             for bucket, cell in data["curve"].items():
                 agg[backend].setdefault(int(bucket), []).append(cell["accuracy"])
+                # Keep the true lag span (e.g. "14-29"). Reporting the bucket's
+                # lower edge as if it were the lag invites conclusions about
+                # "14 days" that the probes never tested.
+                labels.setdefault(backend, {})[int(bucket)] = cell.get("label")
     out: dict = {}
     for backend, buckets in agg.items():
         out[backend] = {}
@@ -90,24 +97,33 @@ def aggregate(results: list[dict]) -> dict:
                 "mean": statistics.fmean(accs),
                 "std": statistics.stdev(accs) if len(accs) > 1 else 0.0,
                 "values": accs,
+                "label": labels.get(backend, {}).get(b),
             }
     return out
 
 
 def print_table(agg: dict, n_seeds: int) -> None:
     backends = list(agg.keys())
-    buckets = sorted({b for v in agg.values() for b in v})
+    # Keys arrive as strings when loading an existing aggregate from JSON;
+    # sorting those lexicographically gives 1, 14, 2, 3, 5, 7. Sort as ints.
+    buckets = sorted({int(b) for v in agg.values() for b in v})
     print(f"\n=== accuracy by lag, mean ± std over {n_seeds} seeds ===\n")
-    header = f"{'lag(d)':>7} " + " ".join(f"{b[:20]:>22}" for b in backends)
+    header = f"{'lag(d)':>9} " + " ".join(f"{b[:20]:>22}" for b in backends)
     print(header)
     print("-" * len(header))
     for b in buckets:
         row = []
+        label = bucket_label(int(b))
         for name in backends:
-            cell = agg[name].get(b)
-            row.append(f"{cell['mean']:>13.1%} ±{cell['std']:>5.1%}"
-                       if cell else f"{'-':>22}")
-        print(f"{b:>7} " + " ".join(row))
+            cell = agg[name].get(b) or agg[name].get(str(b))
+            if cell:
+                # Fall back to the nominal edges (e.g. "14-29") so a table
+                # never shows a bucket's lower edge as if it were the lag.
+                label = cell.get("label") or bucket_label(int(b))
+                row.append(f"{cell['mean']:>13.1%} ±{cell['std']:>5.1%}")
+            else:
+                row.append(f"{'-':>22}")
+        print(f"{label:>9} " + " ".join(row))
 
     print("\n=== overall (mean of per-seed overall accuracy) ===")
     for name in backends:

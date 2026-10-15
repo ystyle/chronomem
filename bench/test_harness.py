@@ -260,3 +260,35 @@ class TestBaselinesDoNotSeeTheFuture(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+class TestLagBuckets(unittest.TestCase):
+    """Bucket labels must not be mistaken for the lag itself.
+
+    A bucket holds a *range* of lags (14-29 for the bucket whose lower edge is
+    14). Reporting the lower edge as the lag invites conclusions about "14 days"
+    that the probes never tested — measured: the 30-day trace's top bucket
+    contains 29-day probes, which made a 20-day window look non-compliant.
+    """
+
+    def test_bucket_is_a_lower_bound(self):
+        re_mod = __import__("retention_eval")
+        self.assertEqual(re_mod.bucket_of(1), 1)
+        self.assertEqual(re_mod.bucket_of(4), 3)
+        self.assertEqual(re_mod.bucket_of(6), 5)
+        self.assertEqual(re_mod.bucket_of(10), 7)
+        self.assertEqual(re_mod.bucket_of(29), 14)
+
+    def test_label_shows_a_range_not_a_point(self):
+        re_mod = __import__("retention_eval")
+        self.assertEqual(re_mod.bucket_label(14), "14-29")
+        self.assertEqual(re_mod.bucket_label(7), "7-13")
+        self.assertEqual(re_mod.bucket_label(3), "3-4")
+        # A single-day bucket stays a single number.
+        self.assertEqual(re_mod.bucket_label(1), "1")
+        self.assertEqual(re_mod.bucket_label(2), "2")
+
+    def test_label_prefers_observed_span(self):
+        re_mod = __import__("retention_eval")
+        # Observed lags narrower than the nominal edges are reported as-is.
+        self.assertEqual(re_mod.bucket_label(14, [14, 20, 22]), "14-22")
+        self.assertEqual(re_mod.bucket_label(14, [14]), "14")
