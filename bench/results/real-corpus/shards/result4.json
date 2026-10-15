@@ -1,0 +1,328 @@
+{
+ "shard": "part4",
+ "samples": [
+  {
+   "day": "2026-09-09",
+   "facts": [
+    {
+     "fact": "chronomem 写路径第三次 OOM 的根因是 mcp-cj 的 handleSSE 用 sseCond.wait() 无限阻塞、客户端断开后不 close，导致 662 个 CLOSE_WAIT / 1009 个 socket fd 累积→GC 堆顶到 256MB→memTableSize 4MB 的 memtable rotate OOM；修复为 handleSSE 加 30s 心跳探测写 SSE 注释行，写失败即清理 writer 退出。",
+     "evidence_quote": "根因链：mcp-cj StreamableHttpServer.handleSSE 无限阻塞 sseCond.wait()，客户端断开后无人 close → 残留 CLOSE_WAIT/fd → 内…",
+     "day": "absent",
+     "day_lost": "该天摘要存在（7 个分组），但根本没有 chronomem/忆时塔这一组——整条事实为零：根因链（sseCond.wait() 不退出→CLOSE_WAIT/fd 泄漏→GC 堆满→memtable OOM）、数字 662/1009/4MB/30s、修复手段（心跳探测）全部无",
+     "week": "absent",
+     "week_lost": "该周摘要（09-07..09-13）有 chronomem 分组，但只写了 M0 部署与 mem/type_update；OOM 根因链、CLOSE_WAIT 662/fd 1009、心跳探测修复一字未提"
+    },
+    {
+     "fact": "cjxt WS 连接泄漏：listenLoop 无限 ws.read()，对端直接断开时 ConnectionException 逃逸到 upgradeWS 只打日志不 closeConn，实测连断 5 次 fd 10→15、CLOSE_WAIT 0→5；改用 try/finally 兜底 closeConn，并新增 WsConnReclaimE2ETest（/proc/self/fd 计数，不 closeConn 时 FAILED）。",
+     "evidence_quote": "实测确认 cjxt WS 连接泄漏：Node ws 连接+断开 5 次后 fd 10→15、CLOSE_WAIT 0→5 持续累积（与 mcp-cj SSE 同款）",
+     "day": "absent",
+     "day_lost": "该天没有 cjxt 分组摘要：根因（listenLoop 无限 read + ConnectionException 逃逸不 closeConn）、fd 10→15 对照实验、WsConnReclaimE2ETest 全丢",
+     "week": "partial",
+     "week_lost": "只在 cjxt 分组的「状态变更」里留了分支名 fix/ws-conn-leak 合并至 master，「归档本地分支 fix/ws-conn-leak」出现在待办；根因机制、fd 计数对照、E2E 用例名全部丢失（只剩一个分支名）"
+    },
+    {
+     "fact": "@defineCSS 内联此前走 input.toString() 把 raw string 的三引号定界符泄进 bundle.css，改用 token.value（新增 inlineCssRaw）+ 3 个用例，主包 263 单测全过；另给 @Page 加多行字符串支持（isStringKind + String.trimAscii()，确认 Cangjie 无 .trim()），主包 264 单测过。",
+     "evidence_quote": "defineCSS 内联此前走 input.toString() 会把 raw string 的定界符泄入 bundle.css；新增 inlineCssRaw()，对字符串字面量取 token.v…",
+     "day": "absent",
+     "day_lost": "该天没有 cjxt 分组：修复机制（toString→token.value / inlineCssRaw）、提交 f90cb83、263/264 单测数全丢",
+     "week": "partial",
+     "week_lost": "周摘要 cjxt 组写了「修复 CSS 宏定界符泄漏并新增 @Page 多行支持」，但丢失：机制（token.value 取代 toString、inlineCssRaw）、文件落点、263/264 单测数字、trimAscii 这个语言事实"
+    },
+    {
+     "fact": "jisi-pavilion 依赖 mcp 2.3.6→2.3.8 升级并重建生产容器：MCP initialize 返回 protocolVersion 2025-11-25 + serverInfo jisi-pavilion 1.0.0，tools/list 完整列出 create_group/join_group 等；并澄清 GET / 阻塞是 SSE 端点设计语义，验证应走 POST initialize/tools。",
+     "evidence_quote": "集思阁(jisi-pavilion)依赖 mcp 2.3.6→2.3.8 升级…MCP initialize 握手正常返回 protocolVersion 2025-11-25 + serverIn…",
+     "day": "absent",
+     "day_lost": "该天摘要只有 guanyi-desktop 与 atelier 两组，无 jisi-pavilion：版本 2.3.6→2.3.8、protocolVersion 2025-11-25、工具清单、容器重建全丢",
+     "week": "intact",
+     "week_lost": ""
+    },
+    {
+     "fact": "atelier ImageCapabilityMiddleware 能力感知中间件：消息含 ImageBlock 时按 supportsVision 裁决（声明则透传／未声明且有 visionModel 自动路由／否则明确抛错），纯文本恒透传；中间件只支持同 provider 换模型，跨 provider 需 ProviderRegistry 未做；新增 8 测试、355 用例两轮全绿并推 atomgit。",
+     "evidence_quote": "消息含 ImageBlock 时按 supportsVision 裁决——声明则透传，未声明且有 visionModel 则自动路由视觉模型，否则明确抛错；纯文本恒透传；新增 8 个测试，355 用…",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    },
+    {
+     "fact": "guanyi-desktop 修 SOUL 注入错位：根因是 ACP 迁移后兼容路由只读顶层 workspace_id，gzh/polish 仍传 metadata{agent_id,workspace_id,external_dirs} 被静默丢弃→会话落「通用对话」空间、cwd 为空间根目录；修复为 agentengine.New 按 AgentID 注入预设指令 + 写 {PI_CODING_AGENT_DIR}/APPEND_SYSTEM.md，实测出稿正文 7269B、persona 档案 5206B。",
+     "evidence_quote": "①agentengine.New 统一按 AgentID 注入预设指令；②acp.pihome 写 {PI_CODING_AGENT_DIR}/APPEND_SYSTEM.md 作为 pi 原生系统…",
+     "day": "intact",
+     "day_lost": "",
+     "week": "partial",
+     "week_lost": "周摘要 guanyi 组只留一句「SOUL 走 C 策略」（关键词里也只有「SOUL C 策略」）；根因（顶层 workspace_id/metadata 被静默丢弃）、专名 APPEND_SYSTEM.md / PI_CODING_AGENT_DIR、数字 7269B / 5206B 全丢"
+    }
+   ]
+  },
+  {
+   "day": "2026-09-10",
+   "facts": [
+    {
+     "fact": "忆时塔 OOM 排查博客落地：docs/blog/2026-09-09-chronomem-oom-hunt.md（328 行/约 1.05 万字/18.8KB），四幕结构，含修复对照表（fd 1009→10、CLOSE_WAIT 662→0）；口径上去掉私有项目实现细节（materialize/物化/worklog/桶/分层时间记忆）。",
+     "evidence_quote": "产出 docs/blog/2026-09-09-chronomem-oom-hunt.md（328 行/约 1.05 万字，18.8KB）…修复对照表（fd 1009→10、CLOSE_WAIT 6…",
+     "day": "intact",
+     "day_lost": "",
+     "week": "absent",
+     "week_lost": "周摘要（09-07..09-13）的 chronomem 组只写 M0/type_update 部署与幂等语义，完全没有这篇博客：文件名、328 行/18.8KB、fd/CLOSE_WAIT 对照表、方法论全丢"
+    },
+    {
+     "fact": "guanyi pi-home 分区重构：路径从 pi-home/{user}/ws-{ws}/s-{key} 改为 pi-home/{user}/agent-{agentID}（业务主键不进文件系统路径），会话归属反查改 meta 驱动；node_modules 改硬链接优先（0.39s/85M → 0.03s，12 分区 1.0G → 共享一份，元数据文件仍真实复制防写穿），E2E 含硬链接树下 MCP 工具枚举 38 个。",
+     "evidence_quote": "pi-home 分区从 pi-home/{user}/ws-{ws}/s-{key} 改为 pi-home/{user}/agent-{agentID}（业务主键不进文件系统路径）…node_mod…",
+     "day": "partial",
+     "day_lost": "day 摘要只留「业务主键不进文件系统路径，改为 agentID，node_modules 硬链接去重，分区从 ws/s- 改为 agentID」；数字（0.39s/85M→0.03s、12 分区 1.0G、工具枚举 38 个）与机制细节（元数据真实复制防写穿、session-map.json 只是缓存可自愈）全丢",
+     "week": "absent",
+     "week_lost": "周摘要 guanyi 组无 pi-home 分区重构内容（只在待办里提了一句「确认并清理残留的 {base}/pi-home 目录」）：agent-{agentID} 方案、硬链接去重的全部数字与机制丢失"
+    },
+    {
+     "fact": "guanyi 路径规范化 B1/B2：agentengine 内 16 处 os.Getwd() 清零改为注入 internal/paths（SessionOptions.Paths 作取用通道），pi-home/run-env 落到 {data}/，删掉 4 处重复路径实现，顺手修 probeNode/probeBin 的 run-env 漏版本段 bug；B1 落地 internal/paths 包 + 8 个单测，关键包全绿（含 4 个真机 E2E）。",
+     "evidence_quote": "agentengine 内 os.Getwd() 清零（16 处）→ 注入 paths；pi-home/run-env 落到 {data}/；删 4 处重复路径实现；顺手修 probeNode/pr…",
+     "day": "partial",
+     "day_lost": "day 摘要保留了「全面改用注入的 paths、清零 os.Getwd()、SessionOptions.Paths 通道、B1 落地 internal/paths 包 + 8 个单测、含 4 个真机 E2E」；丢的是量化细节（16 处、删 4 处重复实现、probeNode/probeBin 漏版本段的修复）",
+     "week": "partial",
+     "week_lost": "周摘要只留「路径规范化 B4/B3/B2」的阶段结论与「推进 B5 其余包替换为 paths」，另在状态变更里留「新增 8 个单测全绿」；os.Getwd 清零、internal/paths、SessionOptions.Paths、pi-home/run-env 迁入 data/ 全无"
+    },
+    {
+     "fact": "guanyi 会话历史持久化修复：宿主事件存储改为会话创建时建立（createSessionAsync 里 initEventFile，签名去掉 ent.Workspace 依赖），修掉「重启后历史空白」；同时删除 /agent-sessions/recent 接口，会话恢复统一走 workspaces.session_id 指针。",
+     "evidence_quote": "宿主事件存储改为会话创建时建立（createSessionAsync 里 initEventFile）…删除了 /agent-sessions/recent 接口，会话恢复统一走 workspace…",
+     "day": "intact",
+     "day_lost": "",
+     "week": "absent",
+     "week_lost": "周摘要 guanyi 组完全没有会话历史持久化这条：initEventFile 时机、/recent 删除、workspaces.session_id 指针恢复一律未提"
+    },
+    {
+     "fact": "guanyi 会话恢复语义对齐（Recent→1:1）+ dev 数据清理：发现并修复两个回归——① Recent 返回不可续写会话导致前端静默无回复；② 前端把 sessionId 当派生值导致回合中 prop 变化、聊天被重置（消息已发但界面空白）；并清理 1.1G pi-home + 11 个 meta 的旧 dev 数据。",
+     "evidence_quote": "Recent 改 1:1（workspaces.session_id 优先 + 可续写校验 + 最新可续写兼容兜底）…旧 dev 数据（1.1G pi-home + 11 个 meta + 空间 s…",
+     "day": "partial",
+     "day_lost": "day 摘要留了「Recent 改为 1:1 空间当前会话指针」与「旧 pi-home 目录 1.1G 标记为惰性垃圾」，但两个回归的成因（不可续写会话→静默无回复；sessionId 作派生值→回合中重置）与 11 个 meta、4 个 A2UI 事件等数字丢失",
+     "week": "absent",
+     "week_lost": "周摘要 guanyi 组无 Recent 1:1 语义与 dev 数据清理内容"
+    }
+   ]
+  },
+  {
+   "day": "2026-09-11",
+   "facts": [
+    {
+     "fact": "guanyi 路径规范化 B3 真机验收（空 bin 全新安装 + C 策略）：合并器从 bundled/agents 装出 agents/（18 个）+ 出厂基准，新建会话的 APPEND_SYSTEM.md 与 agents/<id>/SOUL.md 逐字节一致；C 策略三分支真机验证（用户改过则保留／未改过跟随版本／config 被改过则备份并跟随）+ 幂等 + 恢复默认写回基准；提交 687cc0a，8 个单测全绿。",
+     "evidence_quote": "空 bin 全新安装路径全绿：合并器从 bundled/agents 装出 agents/（18）+ 出厂基准；…C 策略三分支真机验证（用户改过保留 / 未改过跟随版本 / config 被改过备…",
+     "day": "partial",
+     "day_lost": "day 摘要只写「B3 真机验收通过，agents/skills 出 yiagent 及合并器启动成功，C 策略验证通过」：数字 18 个 agents、8 个单测、C 策略三分支语义、「APPEND_SYSTEM.md 与 SOUL.md 逐字节一致」的验收证据、提交 687cc0a 全丢",
+     "week": "partial",
+     "week_lost": "周摘要同为一句「B3 真机验收通过，agents/skills 成功输出 yiagent 及合并器启动，C 策略验证通过」+「新增 8 个单测全绿」；18 个 agents、三分支语义、逐字节一致证据仍缺"
+    },
+    {
+     "fact": "guanyi 删除与 MCP 传输端点撞车的死路由：GET /api/backend/mcp 不再挂住（该路径本就属于 MCP 传输端点），元数据列表唯一入口收敛到 compat 路由 /api/agent/mcp，并加源码级回归断言防止再照抄形状；提交 651e83a。",
+     "evidence_quote": "修掉跨两次提交（08-31 传输端点 vs 09-08 照抄 yiagent 形状的元数据面）的路径撞车：GET /api/backend/mcp 不再挂住；提交 651e83a，测试全绿（含新增源…",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    },
+    {
+     "fact": "guanyi 路径规范化 B4 修订：MCP 目录改用 Agent Plugins 1.0.0 标准格式且不挂 yiagent（templates/mcp.json → {base}/mcp.json）、内嵌 server 不进目录（代码生成），绑定下沉到 agents/<id>/config.yaml 的 mcp.servers（会话只注入内嵌+该 agent 绑定的 server），声明优先级纠正为 settings > 目录文件；yiagent 的 mcp.json 停投。",
+     "evidence_quote": "绑定下沉到 agent 模板（agents/<id>/config.yaml 的 mcp.servers）——会话只注入内嵌+该 agent 绑定的 server；声明优先级纠正为 settings…",
+     "day": "partial",
+     "day_lost": "day 摘要保留「MCP 目录采用 Agent Plugins 1.0.0 标准格式、绑定下沉至 agent 模板、声明层三来源统一（内嵌/settings/运行时文件）」；丢失：优先级规则（settings > 目录文件）、绑定落点路径、内嵌 server 不进目录的缘由、yiagent mcp.json 停投决策、提交 685eacd/b213c59",
+     "week": "partial",
+     "week_lost": "周摘要保留「Agent Plugins 1.0.0 标准格式管理 MCP 目录，声明层整合内嵌、settings 及运行时文件三来源」与待办里的「评估 yiagent mcp.json 停投影响」；绑定下沉 agent 模板、优先级 settings>目录文件、{base}/mcp.json 落点丢失"
+    },
+    {
+     "fact": "guanyi B2 真机集成验证并抓到删空间清理静默失效 bug：根因是 struct 字面量注入未生效，补注入并对 p==nil 加 Warn 留痕（接线错误不得静默）；验证覆盖新会话落 data/pi-home、硬链接 nlink=5、重启后历史 16 事件；提交 2abbf32。",
+     "evidence_quote": "抓到并修复删空间清理静默失效 bug（2abbf32）…根因是 struct 字面量注入未生效 → 补注入并对 p==nil 加 Warn 留痕（接线错误不得静默）",
+     "day": "partial",
+     "day_lost": "day 摘要只写「B2 真机集成验证全部通过，修复删空间清理静默失效 bug，文档记录进度」：根因（struct 字面量注入未生效）、nlink=5 / 16 事件等验证数字、提交 2abbf32 全丢",
+     "week": "partial",
+     "week_lost": "周摘要只留「B2 真机集成验证全部通过，修复了删除空间时清理静默失效的 bug」：根因与验证数字同样丢失"
+    },
+    {
+     "fact": "guanyi 前端两项修复：①深链白屏——路由从 30+ 垃圾路由收口到 14 个真路由（conventionRoutes.exclude），/workspace/:id/** 手输自动回空间首页 + 404 兜底重定向；②创建期防连点——同一 tick 连点 3 次只建 1 个会话，创建中输入框禁用 + 占位提示。",
+     "evidence_quote": "①深链白屏：路由从 30+ 垃圾路由收口到 14 个真路由，/workspace/:id/** 手输自动回空间首页；②创建中防连点：同一 tick 连点 3 次只建 1 个会话，且创建中输入框禁用+…",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    }
+   ]
+  },
+  {
+   "day": "2026-09-12",
+   "facts": [
+    {
+     "fact": "mcp-cj streamable 传输并发挂死修复：根因是单个共享 waitingForResponse bool + 单个 pendingResponse 槽位承载响应，而 HTTP 每连接一线程→并发响应被静默丢弃、30s 超时后只是重新 wait 故永久挂住；改为按 JSON-RPC id 的 FIFO 等待队列（HashMap<id, ArrayList<PendingCall>>）+ 注册先于入队 + 有界等待回显式错误。实测并发 8 唯一 id 0/8→8/8、顺序挂住 5~7%→0、并发 40 次 append 40/40 零重复，126 测试通过。",
+     "evidence_quote": "按 id 的 FIFO 等待队列（HashMap<id, ArrayList<PendingCall>>）取代单槽位…实测前后：并发 8 唯一 id 0/8→8/8；顺序 30 挂住约 5~7%→0…",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    },
+    {
+     "fact": "忆时塔总结超时修复：本地推理端点一次只驻留一个模型（换模型 8.7s/18.5s，命中热 0.3s），唯一有效的关思考开关是 chat_template_kwargs.enable_thinking=false；原先思考开 + maxTokens=32768 把 11K 材料的总结拖过 300s readTimeout，改默认关思考 + 4096 后 job#2 80s 成功、day 摘要质量达标。",
+     "evidence_quote": "唯一有效的关思考开关是 chat_template_kwargs.enable_thinking=false；原先思考开 + maxTokens=32768 把 11K 材料的总结拖过 300s r…",
+     "day": "intact",
+     "day_lost": "",
+     "week": "partial",
+     "week_lost": "周摘要 Cangjie 组保留「默认关思考 + 4096、300s+ → 80s、CHRONOLOG_SUMMARY_NO_THINK/MAX_TOKENS」；丢失：唯一有效开关的专名 chat_template_kwargs.enable_thinking=false、旧上限 32768、11K 材料规模、8.7s/18.5s/0.3s 冷热耗时"
+    },
+    {
+     "fact": "cjreg 包三级删除闭环：新增 package_lifecycle.cj（软删/恢复/硬删 + 计划项联动 + 制品校验），恢复须校验制品仍在否则 409，硬删只能对已软删版本执行；并修掉隐蔽缺陷——BlobStore.exists 与 std.fs.exists 同名导致方法体内裸调用解析为自身递归，仅在「依赖制品下载」时触发 OOM，更名 has；单测 175/175、e2e 第 8 步全绿。",
+     "evidence_quote": "新增 package_lifecycle.cj（软删/恢复/硬删 + 计划项联动 + 制品校验）…BlobStore.exists 与 std.fs.exists 同名 → DiskBlobStor…",
+     "day": "absent",
+     "day_lost": "该天 cjreg 分组摘要只写权限链（双路径取 max、组织 ID 0/-1、覆盖不转移所有权）与多管理员补丁，完全没有三级删除与 BlobStore：自递归 OOM 根因、软/硬删语义、175/175、e2e 第 8 步全丢",
+     "week": "absent",
+     "week_lost": "周摘要（09-07..09-13）cjreg 组只写权限模型升级/执行引擎重构/部署架构收敛（sha dba1899e、266/266），三级删除与 BlobStore 自递归 OOM 一字未提"
+    },
+    {
+     "fact": "dsh-mem-bridge 定下 D17/D18 并完成 L2b 生产验证：open 只写一次、resume 延迟到该会话首个真实事件；只有可证明未送达的错误才重试，超时/连接中断/应用级错误一律不重试；goal complete → 读塔内 activity 时间线 → 一次蒸馏 → close 条目（outcome/next/note），实测 tags.distilled=true，49→58 测试全过。",
+     "evidence_quote": "D17：open 只写一次、resume 延迟到该会话出现首个真实事件；D18：只有可证明未送达的错误才重试…complete 后 5 秒产出 close 条目，tags.distilled=tru…",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    },
+    {
+     "fact": "cjxt 会话上下文响应式化：新增 SessionContextState（与 Session.context 共享 map + Signal<Int64> 版本号，App.initStates 每会话自动注入），ActionContext.setContext 与令牌恢复后 bump 通知订阅者；resumeSession 在 deferred 之外补 rerenderInPlace；Session.getContext() 返回副本防篡改；rerenderInPlace 有意不重跑 onMount，故约定页面必须在 render() 里读上下文。",
+     "evidence_quote": "新增 SessionContextState（与 Session.context 共享 map + Signal<Int64> 版本号…）；Session.getContext() 返回副本…公开页…",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    },
+    {
+     "fact": "cjxt SessionContext 接口化：SessionContext 改为接口（get/prop raw/onContextChanged/subscribe 必须实现，has/snapshot/isAdmin/uid/username/token 为属性默认实现），Session 按接口类型持有并加 statesInitialized 标志（取代 states.size==0 判据），App.sessionContext<T>() 泛型约束注册（零反射）；主包 280 全绿。",
+     "evidence_quote": "SessionContext 改为接口（get/prop raw/onContextChanged/subscribe 必须实现…），Session 按接口类型持有 + statesInitiali…",
+     "day": "absent",
+     "day_lost": "该天 cjxt 分组摘要只写「会话上下文响应式化方案」，接口化（接口+默认实现、泛型约束注册、零反射、statesInitialized 取代 states.size==0）完全没有",
+     "week": "absent",
+     "week_lost": "周摘要 cjxt 组也没有接口化内容：泛型约束/零反射/属性默认实现/statesInitialized 全丢"
+    }
+   ]
+  },
+  {
+   "day": "2026-09-13",
+   "facts": [
+    {
+     "fact": "llm_api 连接复用缺陷修复：llama.cpp 路由端点收到 connection: keep-alive 时响应不带 Connection: close 却主动关连接，stdx 按 HTTP 语义把死连接放回池，下次 POST 读 EOF 抛 ConnectionException，而 POST 非幂等不自动重连→长生命周期 Provider 上第二次调用必挂（OK/ERR/OK/ERR）→忆时塔整窗总结 100% 失败；修复为新增 ResilientHttpClient（默认每请求 Connection: close + 连接级失败换新连接重试 1 次），三 Provider 统一；连续调用成功率 0%→100%，生产 4 次连调 170s 全成功。",
+     "evidence_quote": "llama.cpp 路由端点在收到 connection: keep-alive 时响应不带 Connection: close（只回 Keep-Alive: timeout=5）却主动关连接…长生…",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    },
+    {
+     "fact": "rpcx decoder 短读真缺陷修复：确认 decoder.cj 有 6 处把 stream.read(buf) 当语句丢弃返回值（短读零填充→帧错配/假 frame too short），新增 internal func readFully 循环读满（用 Array Range 切片做共享存储视图原地补读，不扩大 public API），测试 36/36→45/45 全绿，反向验证（stash 回修复前）7/9 失败或报错。",
+     "evidence_quote": "确认 decoder.cj 有 6 处（非任务书所说的 8 处）把 stream.read(buf) 当语句丢弃返回值…新增 internal func readFully(stream, buf…",
+     "day": "partial",
+     "day_lost": "该天 rpcx 分组摘要停在修复前的旧状态：把「保留 decoder.cj 忽略 stream.read 返回值」「在 decoder 模块增加 readFully 机制与短读告警」列为未改项/待办；6 处修复、36→45、反向验证 7/9 全部未体现（摘要与事实相反）",
+     "week": "partial",
+     "week_lost": "周摘要 rpcx 组同样只在待办里写「在 decoder 模块增加 readFully 机制与短读告警」，缺失修复已完成、6 处范围、36→45 数字"
+    },
+    {
+     "fact": "cjreg 发布计划制品库接线错误：执行器用了错路径（./data/blobs，而容器里是 /app/data/blobs 空目录），导致每一项都误报「制品缺失」；改用 main.cj 注入的 st.blobStore、抽出 buildPlanExecutor + 3 例接线回归；并给 execute/推送/收口各补 try/catch，收口无条件执行且无论成败写审计；261/261 绿，部署 sha 8fbff694。",
+     "evidence_quote": "① 发布计划执行器用了错的制品库路径（./data/blobs → 容器里 /app/data/blobs 空目录），导致每一项都报「制品缺失」而实际包都是好的 —— 改用 main.cj 注入的…",
+     "day": "partial",
+     "day_lost": "day 摘要 cjreg 组只留「制品库与线程安全：统一使用启动注入的制品库路径；执行线程异常需独立 try/catch，收口必须无条件执行并写审计」；丢失：具体错误路径 ./data/blobs vs /app/data/blobs、「每项误报制品缺失」的假象、3 例接线回归、261/261、sha 8fbff694",
+     "week": "absent",
+     "week_lost": "周摘要 cjreg 组只写权限模型升级/执行引擎重构（planRunIds）/部署架构收敛；制品库路径接线错误与假「制品缺失」根因全无"
+    },
+    {
+     "fact": "tomlcj 修 6 个时间类型反序列化缺陷并补上该仓首套单测：LocalTime.deserialize 任何输入都返回 00:00:00（catch 写成 return）、LocalDate 失败静默返回 0000-01-00、纯时间正则非锚定 + groupCount()==3 丢时分秒、带小数日期时间因 .SS 只吃 6 位而降级成 LocalTime（改用 splitLocalDatetime 保留纳秒）、toString 多一个花括号、datetimeReplace 每轮从原始串重算导致只有最后一个替换生效；测试 8/21→21/21。另 json-rpc 严格化：缺失 jsonrpc 成员抛 -32600（66→69）。",
+     "evidence_quote": "tomlcj：把继承自 cjpm 的 6 个时间类型缺陷全修并补上该仓首套单测…① LocalTime.deserialize 任何输入都返回 00:00:00…测试 8/21 → 21/21 全绿",
+     "day": "absent",
+     "day_lost": "该天【Cangjie】分组摘要只有 324 字且句子中断（截到「从 0.7.4 调整为范围」），完全没有 tomlcj：6 个缺陷的具体现象、splitLocalDatetime、首套单测 8/21→21/21、json-rpc 抛 -32600（66→69）全丢；该组摘要生成明显被截断",
+     "week": "absent",
+     "week_lost": "周摘要只在 cangjie-workspace 的关键词里出现「tomlcj」一词，无任何内容：时间类型缺陷、21/21、-32600、66→69 全丢"
+    },
+    {
+     "fact": "cjreg 存量包元数据全量回捞：停容器后跑 admin sync-metadata --all（exit 0，145s），66 个包、待补版本 300、补齐 234；回捞前后 301 个活跃版本文档的 tarballSize 缺 234→0，「size+README 都齐」的包 22→65；并给容器固定 TZ=Asia/Shanghai（原来 19:06 显示成 11:06）。",
+     "evidence_quote": "docker compose stop → admin sync-metadata -d data --all（exit 0，145s）…报告：66 个包、待补版本 300、补齐 234…tarba…",
+     "day": "partial",
+     "day_lost": "day 摘要 cjreg 组只留「元数据（README 等）从制品解压提取，失败不阻断发布；重拉覆盖需校验 SHA256」与「元数据状态：核心字段补齐」；全部数字（66/300/234/234→0/22→65）、停机 145s、容器 TZ 修复丢失",
+     "week": "partial",
+     "week_lost": "周摘要 cjreg 组只留「元数据回源策略」与状态变更「从大量缺失→核心字段补齐（README/Size 等）」；数字与 TZ 同样丢失"
+    },
+    {
+     "fact": "cjreg team 模式权限链落地：重写发布裁决为 effectivePermission = max(个人发布路径=write, 团队路径 read/write/overwrite 取最高)；组织 ID 语义收紧（org 空串=0，非空未登记=-1，不再落 0 桶）；覆盖为原地更新同一文档、不转移包名所有权；open 模式不静默覆盖；Authorization 兼容裸 token 与 Bearer；幂等改用 doc.sha256 精确比较；新增 CJREG_REQUIRE_AUTH=1 后 GET /pkg 需有效 token；117 测试全过、e2e 401/403/200 分支验证。",
+     "evidence_quote": "effectivePermission = max(个人发布路径=write, 团队路径 read/write/overwrite 取最高)…org 空串=0（无组织），非空未登记=-1（不再落到…",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    }
+   ]
+  },
+  {
+   "day": "2026-09-14",
+   "facts": [
+    {
+     "fact": "技术基座定名「世界树」并完成 atelier-harness → atelier-yggdrasil 全量改名：包/目录 harness_core/host/tests → yggdrasil_core/host/tests、类型 HarnessHost→YggdrasilHost（36 处）、HarnessProfile→YggdrasilProfile（13 处）、运行时配置 HARNESS_SESSION_DIR→YGGDRASIL_SESSION_DIR 与 ~/.harness/sessions→~/.yggdrasil/sessions，共 54 个文件；cjpm test 81/81 全绿。",
+     "evidence_quote": "三个成员目录/包名 harness_core/harness_host/harness_tests → yggdrasil_core/yggdrasil_host/yggdrasil_tests…类…",
+     "day": "intact",
+     "day_lost": "",
+     "week": "partial",
+     "week_lost": "周摘要 atelier-yggdrasil 组保留「更名 atelier-yggdrasil/世界树、81/81、~/.harness/sessions 迁移」；丢失：54 个文件、类型名 36 处/13 处、包名与目录 harness_*→yggdrasil_* 的对应、环境变量 HARNESS_SESSION_DIR→YGGDRASIL_SESSION_DIR"
+    },
+    {
+     "fact": "定名「世界树」前对四个候选做了尽调并按证据否决其余三个：建木（《淮南子》「众帝所自上下」= 宿主通道、字面暗合 build tree）语义更贴但已被 OSChina 的开源 CI/CD 平台占用（同为平台类）；量子之海因「量子」在软件语境被读成量子计算（每个新用户付解释成本）且 quanta 撞广达电脑商号被否；虚数空间最弱（仅容器义、imaginary 负面联想、空间撞命名空间）；并查证中心仓里 atelier 与各候选包名均未被占用。",
+     "evidence_quote": "中国神话的建木语义甚至更贴…但尽调发现已被 OSChina 的开源 CI/CD 平台占用（同为平台类）→ 放弃；③ 量子之海被否…且 quanta 撞广达电脑商号；④ 虚数空间最弱",
+     "day": "absent",
+     "day_lost": "day 摘要 atelier-yggdrasil 组只写「确立中文名世界树」，候选对比与否决理由（建木被占、量子之海误读、虚数空间最弱、包名未占用查证）全部没有",
+     "week": "absent",
+     "week_lost": "周摘要 atelier-yggdrasil 组同样只有「技术基座定名世界树」，四候选尽调与专名（建木/OSChina/量子之海/quanta/广达/虚数空间）全丢"
+    },
+    {
+     "fact": "工作区根 AGENTS.md 新增「注释与提交信息」小节：禁的是动机与需求方归属（谁提的需求/谁踩的坑/为谁开的接缝/修掉谁用出来的 bug），允许契约的一部分（接口与架构依赖、协议对端、指向工作区文档的链接），含一句硬规则 + 五组对照（用 X 项目占位）+ 三条理由；并确认 snappy-cj 的 harnessed 是弥尔顿《失乐园》测试语料、严禁篡改；三处旧名引用（cjxt 约 14 行、json-rpc 2 行、kux-cj 10 行）暂不清理。",
+     "evidence_quote": "在根 AGENTS.md（工作区级）新增「注释与提交信息（别写谁提的需求 / 谁踩的坑）」小节…含：一句硬规则 + 五组对照…snappy-cj 已划掉（那处是弥尔顿《失乐园》里的英文词 harne…",
+     "day": "intact",
+     "day_lost": "",
+     "week": "absent",
+     "week_lost": "周摘要（09-14 周）的 workspace 组换成了发版判据内容（实质变更/空版本回退/依赖收敛/gjson 1.2.2→badgercj 1.6.19→tsdb 0.3.3），这条注释规则整条丢失（含禁/允许清单、harnessed 例外、五组对照）"
+    },
+    {
+     "fact": "atelier-lumine 存储键在同一天被两条记录给了相反口径：17:19 的记录决定「存储键 atelier-genshin 有意不改并加注释」（防既有 userdata.json 失联，提交 00d74ab），17:28 的记录又把存储键改为 atelier-lumine（preferencePath + docs/design.md 三处，afe2c2a）。",
+     "evidence_quote": "① atelier-lumine 存储键改为 atelier-lumine（src/store/data_store.cj 的 preferencePath + docs/design.md 三处）…",
+     "day": "partial",
+     "day_lost": "day 摘要 atelier-lumine 组只保留了先一版「保留旧存储键 atelier-genshin 以保障用户数据不丢失」，却在结论里写「存储键（逻辑层）与产品名称实现全链路对齐」——同一段自相矛盾；后一版改名的提交号与三处落点丢失",
+     "week": "partial",
+     "week_lost": "周摘要 atelier-lumine 组同样只写「存储键保留」：改名后的最终态、两次相反改动的时间顺序、提交号（00d74ab/afe2c2a）全丢"
+    },
+    {
+     "fact": "atelier-starline 修掉「本体根本构建不了」的既有故障：根因是 [replace] 段为空导致 gjson 冲突（liveboard 声明 1.1.1 vs atelier→bstorm 要 1.2.1），处理为直接依赖 gjson→1.2.2、[replace] 置 gjson 1.2.2 / badgercj 1.6.19 / snappy 1.0.2 / ystyle::crc 1.0.1 / bstorm 1.4.9，并在 [dependencies] 显式声明 snappy 与 ystyle::crc（cjpm 的 replace 不传递给依赖方）；cjpm test 168/168、实机冒烟 liveboard.cli serve 18080 返回 200。",
+     "evidence_quote": "本仓此前根本无法构建：[replace] 段为空导致 gjson 冲突（liveboard 声明 1.1.1 vs atelier→bstorm 要 1.2.1）…cjpm test 168/168…",
+     "day": "partial",
+     "day_lost": "day 摘要 atelier-starline 组只写「修复依赖冲突与构建错误（如 gjson 版本升级、传递依赖显式声明）」与「测试全绿（168/168 或 161/161）」；丢失：冲突成因（1.1.1 vs 1.2.1）、[replace] 五元组具体版本、replace 不传递给依赖方这条机制、冒烟端口 18080、提交 35b3fab",
+     "week": "partial",
+     "week_lost": "周摘要 atelier-starline 组只留「更新 gjson 并显式声明传递依赖」「构建：失败→成功（测试全绿）」；版本三元组与冲突成因全丢"
+    },
+    {
+     "fact": "cjreg 部署丢数据根因定位与两层修复：badger-cj 的 runShutdownHooks 逐钩子裸调，宿主钩子（cjreg 的 cjxtApp.stop() 关 WS 必抛 SocketException）抛异常后逃出 shutdownLoop → close()/flush 被跳过 → 容器被 SIGKILL → 未落盘写入全丢；修 badger-cj 逐钩子 try/catch（bb4fd92）+ cjreg 钩子自吞异常打进度日志；实测加/删探针→force-recreate→删除保持，badgercj 364/364、bstorm 52/52、cjreg 268/268。",
+     "evidence_quote": "badger-cj 的 runShutdownHooks 逐钩子裸调，宿主钩子（cjreg 的 cjxtApp.stop() 关 WS 必抛 SocketException）抛异常后异常逃出 shu…",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    }
+   ]
+  }
+ ],
+ "summary": {
+  "total_facts": 34,
+  "day": {
+   "intact": 15,
+   "partial": 11,
+   "absent": 8,
+   "missing": 0
+  },
+  "week": {
+   "intact": 10,
+   "partial": 13,
+   "absent": 11,
+   "missing": 0
+  },
+  "lost_categories": {
+   "数字/量化证据": 15,
+   "因果/机制": 23,
+   "专名/符号": 5,
+   "其它": 0
+  }
+ }
+}

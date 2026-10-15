@@ -1,0 +1,336 @@
+{
+ "shard": "part1",
+ "samples": [
+  {
+   "day": "2026-10-11",
+   "facts": [
+    {
+     "fact": "三模式一致性脚本 check-examples.sh 因工作区化改包名后未同步二进制路径而静默失效（退出码 2），修正路径后 22/22 示例三模式一致并接入 CI 防复发。",
+     "evidence_quote": "确认三模式脚本（check-examples.sh）此前因工作区化改包名而静默失效（退出码2），修正路径后 22/22 示例三模式一致，并接进 CI",
+     "day": "absent",
+     "day_lost": "日摘要（xisp 段）完全没提该脚本：脚本名、退出码 2、22/22、以及“改包名致二进制路径失效”的因果链全丢",
+     "week": "absent",
+     "week_lost": "周摘要的 xisp 段同样未提；因此这条“静默失效的 CI 脚本”在本周记忆里不存在"
+    },
+    {
+     "fact": "evalIf 必须传播条件求值错误——原先不传播导致 and/or 展开式静默吞错，且同一表达式在 AST 返 true 而字节码后端报 TypeError。",
+     "evidence_quote": "evalIf 必须传播条件错误（否则 and/or 展开式静默吞错）；……AST 返 true 而 BC 报 TypeError",
+     "day": "partial",
+     "day_lost": "只留“解决 evalIf 条件错误传播缺失”；丢掉双后端语义分叉的具体表现（AST 返 true 而 BC 报 TypeError）与“and/or 展开式静默吞错”这一后果",
+     "week": "partial",
+     "week_lost": "同上一句，只剩“evalIf 条件错误传播缺失”，机制与双后端不一致表现全丢"
+    },
+    {
+     "fact": "length 字符串语义冲突的取舍：保持文档约定的“非列表返回 0”不动 length，改为新增 string-length 内建并修正 02_file_io.lisp 示例（此前该过滤从未生效）。",
+     "evidence_quote": "length 保持文档约定的“非列表返回 0”，改为新增 string-length 而不是改 length 语义",
+     "day": "partial",
+     "day_lost": "只留“length 字符串语义与文档约定冲突”；丢掉取舍方向（不改 length、另增 string-length）与“02_file_io.lisp 的过滤从未生效”这一实情",
+     "week": "partial",
+     "week_lost": "同上；string-length 仅以“docs-site 需同步 string-length”出现在待办里，未说明它是为替代 length 的字符串语义而新增"
+    },
+    {
+     "fact": "新增 BackendDiffTest 逐表达式差分测试：覆盖 91 个语料、暴露 726 处双后端差异，收敛到可比对文件全部一致，并修复 7 处真不兼容。",
+     "evidence_quote": "新增 BackendDiffTest（91 个语料逐表达式比对），暴露 726 处差异→现 32 个可比对文件全部一致；修复 7 处真不兼容",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    },
+    {
+     "fact": "接缝 0e 的②类一等值化采用双轨实现（保留求值器快速路径 + 另注册等价 NativeFunc），理由是纯 Lisp 版 map 处理 500 元素就爆栈。",
+     "evidence_quote": "⑤0e 用双轨（保留求值器快速路径 + 另注册等价 NativeFunc），因纯 Lisp 版 map 500 元素就爆栈",
+     "day": "absent",
+     "day_lost": "日摘要只写接缝 0/0a/0b，完全没有 0e、双轨实现与“500 元素爆栈”的取舍理由——整条设计决定丢失",
+     "week": "absent",
+     "week_lost": "周摘要同样只保留“接缝 0/0a/0b”，接缝 0e 与 procedure? map 的语义变化全无"
+    },
+    {
+     "fact": "cjreg owner 自助落地：权限收口为单一纯函数 canManageTeam 供门户 Action/门户 API/管理端 API 三条入口共用；owner 身份只存 TeamDoc.ownerId（移除 TeamMemberDoc.role）；selfService 默认关；单测 1002 例全绿（+66，覆盖率 91.3%），生产三角色验证通过。",
+     "evidence_quote": "权限收口成一个纯函数 canManageTeam，三条入口共用……单测 1002 例全绿（本迭代 +66），覆盖率 91.3%；……生产环境三角色验证通过（owner 改关联成功发布、非成员被拒）",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    }
+   ]
+  },
+  {
+   "day": "2026-10-10",
+   "facts": [
+    {
+     "fact": "chronomem 可扩展性审查定下硬约束：payload 单条上限 MAX_APPEND_PAYLOAD_BYTES=256KB / 报文 512KB；粒度允许集写死 7 档；query 只支持单 tag 过滤；TypeMeta.retention 是死配置（全仓零处 setRetention）；design.md §8 的数值聚合 count/avg/min/max 零实现。",
+     "evidence_quote": "单条上限 MAX_APPEND_PAYLOAD_BYTES=256KB / 报文 512KB；⑤TypeMeta.retention 是死配置（全仓零处调用 setRetention）",
+     "day": "absent",
+     "day_lost": "chronomem 日摘要只覆盖 11:39 的只读回溯核查；17:28 的可扩展性审查整条未出现——256KB/512KB 上限、retention 死配置、数值聚合零实现、以及“retention × 幂等物化”的三角风险全丢",
+     "week": "absent",
+     "week_lost": "周摘要的 chronomem 段同样只有回溯核查内容，未提任何可扩展性硬约束与未兑现承诺"
+    },
+    {
+     "fact": "Go BadgerDB 基准对照参数核对：skl 包的 key 实为 16B（含 KeyWithTs 8B 时间戳）、value 5B、纯内存不落盘，故无 8B key 基准；定下 5000x/-count=10/-cpu=16 与 /tmp（tmpfs）数据目录。",
+     "evidence_quote": "skl 包仅 3 个 Benchmark……key 实为 16B 含 KeyWithTs 8B 时间戳，value 5B，纯内存不落盘",
+     "day": "partial",
+     "day_lost": "保留了“缺 8B 随机 Key 基准”与命令参数；丢掉量化核对结论（16B=8B KeyWithTs+8B、value 5B、纯内存不落盘）与“必须整组跑否则命中率 0”",
+     "week": "partial",
+     "week_lost": "同上：Cangjie 段只剩结论与命令，16B/5B 的取证细节丢失"
+    },
+    {
+     "fact": "atelier 挂起请求修复：ExternalRequest 新增 request: Option<UserRequest> 承载原始提问，由 server 侧 agUiResponseSchema 映射为 AG-UI 1.0 responseSchema（审批/单选/多选/表单 + required），核心层保持协议无关；合并提交 0988c81，测试 895→903 全绿。",
+     "evidence_quote": "新增 ExternalRequest.request: Option<UserRequest> 承载原始提问，由 server 侧映射为 AG-UI 1.0 responseSchema",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    },
+    {
+     "fact": "cjreg 决赛迭代 5 覆盖率 39.3% → 92.0%（87 文件 / 11245 行），用例 179 → 934，验收口径要求 cjpm test --parallel 1 全绿 + check-routes 17/17。",
+     "evidence_quote": "src/ 行覆盖率 39.3% → 92.0%（87 文件 / 11245 行），用例 179 → 934",
+     "day": "partial",
+     "day_lost": "只留 39.3%→92.0% 与“新增 755 个用例”；丢掉 87 文件/11245 行、用例起点与终点 179→934、以及 --parallel 1 的验收口径",
+     "week": "partial",
+     "week_lost": "仅剩“覆盖率迭代 5 达标（39.3%→92.0%）”，用例数与验收口径全丢"
+    },
+    {
+     "fact": "cjreg 排序缺陷根因：plan_create 候选包比较器拿 pkgLabel（含 @version）当主键 → 版本分支永不生效、退化成字典序（alpha@1.10.0 < alpha@1.9.0），改为主键=组织+包名，并对该条做变异检验证明断言有牙。",
+     "evidence_quote": "排序比较器拿 pkgLabel（含 @version）当主键 → 版本分支永不生效、退化成字典序（alpha@1.10.0 < alpha@1.9.0），改为主键=组织+包名",
+     "day": "partial",
+     "day_lost": "只写“排序主键逻辑”四字；根因（pkgLabel 混入 @version）、字典序反例与变异检验全丢",
+     "week": "partial",
+     "week_lost": "同上：仅“修复 4 处 UI 行为缺口（排序主键逻辑……）”，根因与反例丢失"
+    },
+    {
+     "fact": "chronomem 只读核查量化：9 个类型、worklog 431 条（day 桶 33 / week 桶 7）、dsh/activity 949 条（day 23/week 5）、dsh/lesson 54 条；四条回溯路径实测全通，并发现 position-paper.zh.md 中英口径冲突与探针类型残留。",
+     "evidence_quote": "9 个类型、worklog 431 条（day 桶 33/week 桶 7……）、dsh/activity 949 条（day 23/week 5）、dsh/lesson 54 条",
+     "day": "partial",
+     "day_lost": "保留结论（四条路径全通）与三处问题的名目；丢掉全部桶计数（9/431/33/7/949/54）这一“回溯可信度”证据",
+     "week": "partial",
+     "week_lost": "同上：周摘要只留 kind 分布与 close 18 条，规模数字全丢"
+    }
+   ]
+  },
+  {
+   "day": "2026-10-09",
+   "facts": [
+    {
+     "fact": "cjreg 巨型文件拆分量化：ui 最大文件 2021→886 行；admin_handler 1358→122、publish_plan_service 1784→23、proxy_service 921→77；拆类用 extend（字段与 init 必须留在原类体），非 public 成员在同包 extend 里可直接调用。",
+     "evidence_quote": "最大文件 2021→886；③ server 拆 admin_handler 1358→122……publish_plan_service 1784→23……proxy_service 921→77",
+     "day": "partial",
+     "day_lost": "只留“ui 页面拆为一 一对应文件、server 拆出 admin_handler/publish_plan_service/proxy_service”；所有行数前后值与 extend 拆法约束全丢",
+     "week": "partial",
+     "week_lost": "同上：只剩“文件拆分完成/页面模块化完成”，无任何量化收益"
+    },
+    {
+     "fact": "cjreg master 合并 + 生产验收：refactor/api-dto 以 --no-ff 合并（9c0bc56），容器/宿主二进制 sha 一致 a597efcd…，17/17 @Page 路由 200、SSE 正常，钩子落盘探针不复活且 470 包/436 blobs 完好，容器内 200 MiB 发布+下载 sha 一致。",
+     "evidence_quote": "合并提交 9c0bc56；容器/宿主二进制 sha 一致 a597efcd…；生产 17/17 @Page 路由 200；470 包 / 436 blobs 完好",
+     "day": "partial",
+     "day_lost": "只留“路由正常、SSE 流式传输正常、钩子落盘校验通过”；sha、17/17、470 包/436 blobs、200 MiB 全部丢失",
+     "week": "partial",
+     "week_lost": "同上：周摘要只剩同类定性描述"
+    },
+    {
+     "fact": "cjxt 子包静默失效的根因被证伪：不是“链接了没初始化”而是“压根没进链接图”——最小工程实测未 import 时 registry=0 且符号=0，加 import 后 registry=1，--whole-archive 后符号=12 但 registry 仍为 0。",
+     "evidence_quote": "未 import 时 registry 和符号均为 0，添加 import 后 registry 变为 1，而强制合并（--whole-archive）仅增加符号数量却无法提升 registry",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    },
+    {
+     "fact": "stdx #856 的 VUL-001 安全回归：send 在 shouldClose 分支对 HttpNormalBodyProvider 立即 closeConnInUse，而正文改为按需读取后 Connection: close 且 body>4KB 必然读取失败；修法改为交回 returnConn 的 shouldClose 分支关闭、放弃读取由读超时兜底。",
+     "evidence_quote": "VUL-001：send 在 shouldClose 分支立即 closeConnInUse → Connection: close 且 body > 4KB 时必然读取失败",
+     "day": "partial",
+     "day_lost": "只写“VUL-001（提前关连接）已修复”；丢掉触发条件（Connection: close 且 body>4KB）、回归成因（正文改按需读）与 returnConn 兜底路径",
+     "week": "partial",
+     "week_lost": "同上：仍只有“VUL-001 修复”标签，无触发条件与修法"
+    },
+    {
+     "fact": "guanyi 两世界接缝结论：95% 代码共享/5% 分叉，不拆文件而收成一个来源对象；世界差异必须覆盖数据来源/能力开关/入口本身三类接缝；团队端尚无 /agent-sessions/:id/events，前端 sse=false 只走 3s 轮询（实测 12 秒内刷 36 条 404）。",
+     "evidence_quote": "团队端还没有 /agent-sessions/:id/events ⇒ 前端 sse=false 只走 3s 轮询（实测 12 秒内 36 条 404）",
+     "day": "partial",
+     "day_lost": "保留 95%/5% 与三类接缝；丢掉 3s 轮询的成因与量化踩坑（12 秒 36 条 404）、tsc 基线 137 的验证口径",
+     "week": "partial",
+     "week_lost": "同上：周摘要只剩“补全接口、移除轮询”的待办式表述"
+    },
+    {
+     "fact": "cangjie_test PR #2274 的 OAT 失败根因：复制仓库时源工作树检在他人分支，其未跟踪构建产物被 git add -A 一并提交，PR 相对 main 变成 37 个文件（只有 1 个是作者的）；修法是 git clean -fdq + git add <明确路径> + force push（43e5717e8a）。",
+     "evidence_quote": "PR 相对 main 变成了 37 个文件，其中只有 1 个是我的……修复：……git clean -fdq 清未跟踪……git add <明确路径>……force push（43e5717e8a）",
+     "day": "absent",
+     "day_lost": "整条未进日摘要：37 个文件/1 个真改动、git add -A 的成因、修复手法与提交号全丢",
+     "week": "absent",
+     "week_lost": "周摘要亦无此条；“提交前核对文件清单”这条可复用教训在本周记忆里不存在"
+    }
+   ]
+  },
+  {
+   "day": "2026-10-08",
+   "facts": [
+    {
+     "fact": "pdfcpu 缺口分析的量化底稿：克隆 v0.16.1 实测非测试 148,816 行 / 测试 107,391 行 / 506 个测试 PDF / 67 个 CLI 命令；中心仓 739 个包中 PDF 相关 0、字体类 0。",
+     "evidence_quote": "pdfcpu v0.16.1 实测 148,816 行 / 测试 107,391 行 / 506 个测试 PDF / 67 CLI 命令；中心仓 739 包 PDF 相关 0",
+     "day": "partial",
+     "day_lost": "保留“仓颉生态在 PDF 处理领域存在显著缺口”；丢掉全部量化底稿（148,816/107,391/506/67/739/0）",
+     "week": "partial",
+     "week_lost": "同上：周摘要只有定性的“显著缺口，需分阶段填补”"
+    },
+    {
+     "fact": "FlateDecode 的底座缺口：stdx.compress.zlib 的 WrapType 只有 DeflateFormat/GzipFormat（无 zlib 容器）→ 需自补头 + Adler-32；std/stdx 无 AES/RC4（仅 SM4），stdx.crypto.* 全线依赖 OpenSSL 3。",
+     "evidence_quote": "stdx.compress.zlib 无 zlib 容器（需自补头+Adler-32）；std/stdx 无 AES/RC4（仅 SM4），crypto 依赖 OpenSSL 3",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    },
+    {
+     "fact": "仓颉 PDF 侧的模型与许可证缺口：无通用 ASN.1（DerBlob 不透明）、无 CMS/PKCS#7；字体生态供给为 0；std.math.numeric.BigInt 可用；pdfcpu 为 Apache-2.0 可移植，但 testdata 内 unifont 是 GPL 不可进制品。",
+     "evidence_quote": "无通用 ASN.1、无 CMS/PKCS#7；字体生态 0 供给；BigInt 可用；pdfcpu Apache-2.0 可移植但 unifont 是 GPL",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    },
+    {
+     "fact": "回源大包 OOM 的两条出路被否决：仓颉 1.2.0 + stdx 1.2.0.1 编译 cjreg 完全兼容但 128 MiB 回源仍 OOM（说明 HttpNormalBody 构造即读满行为未变）；中心仓 linderHttp 1.0.0 解包读源码后确认只是对同一 stdx Client 的封装，治不了本；锁定 Range 分块回源。",
+     "evidence_quote": "仓颉 1.2.0 编译 cjreg 完全兼容但 128 MiB 回源仍 OOM；linderHttp 只是 stdx Client 的封装；只剩 Range 分块",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    },
+    {
+     "fact": "产出报告 docs/pdfcpu-cangjie-gap-analysis.md：P0/P1/P2 分级缺口、5 个架构决策、8 阶段路线、风险 Top5；下一步待用户决策“S0+S1+S2 只读子集”方案还是先做底座原子包 pdf-filter（zlib 容器/Adler-32/LZW/ASCII85/BitReader）。",
+     "evidence_quote": "产出报告 docs/pdfcpu-cangjie-gap-analysis.md，含 P0/P1/P2 分级缺口、5 个架构决策、8 阶段路线与风险 Top5",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    }
+   ]
+  },
+  {
+   "day": "2026-10-06",
+   "facts": [
+    {
+     "fact": "badger-cj“删除的记录又回来”根因链：compaction.cj 的 isDeletedOrExpired → continue 无条件丢弃 tombstone（未判是否最底层），且 lastKey 只在写入后推进、被丢弃的 tombstone 不参与去重 → 同 key 旧值被当新 key 写回；修法先去重再决定丢弃、非最底层保留 tombstone；发 badger-cj 1.6.21 并沿 bstorm 1.4.11 → cjreg 部署。",
+     "evidence_quote": "isDeletedOrExpired→continue 无条件丢弃 tombstone（未判最底层）；lastKey 只在写入后推进、被丢弃的 tombstone 不参与去重",
+     "day": "partial",
+     "day_lost": "保留“在 tombstone 丢弃逻辑前增加去重、非最底层保留 tombstone”；丢掉根因符号（isDeletedOrExpired / lastKey 推进）与 badger-cj 1.6.21 这一版本链起点",
+     "week": "partial",
+     "week_lost": "同上：周摘要只剩修法方向，根因函数名与本仓版本号缺失（只留 bstorm 1.4.11）"
+    },
+    {
+     "fact": "badger-cj WAL OOM 修复：WAL.decodeSegment 读的是映射大小（=段预分配容量）而非有效长度，大 memtable 下 -j 16 并行每轮 4 个 OOM；改为按有效长度 1MB 块扫描（scanValidLength）；回归用例用 5GB capacity 超过测试堆使旧实现必 OOM；下游 storm/tsdb/sunku 全绿、holt-cj 失败与基线逐一致。",
+     "evidence_quote": "WAL.decodeSegment 读的是映射大小（=段预分配容量）而非有效长度，大 memtable 下 -j 16 并行每轮 4 个 OOM……改为按 1MB 块扫描有效长度后只读有效部分",
+     "day": "partial",
+     "day_lost": "保留“decodeSegment 改为按有效长度分块扫描（1MB 块）”；丢掉根因（读映射大小=预分配容量）、-j16 每轮 4 个 OOM 的量化、scanValidLength 与 5GB 用例的判别力设计",
+     "week": "partial",
+     "week_lost": "同上：周摘要只留“按有效长度分块扫描（1MB 块）”，根因与验证设计丢失"
+    },
+    {
+     "fact": "chan-bench 第二轮数据：ring2（等待者计数抑制无效 notify）把 spsc 89.7→42.7ns、mpmc 143.3→99.1ns；别用队列传任务，静态分片 0.23ns/项、AtomicInt64 抢单 4.58ns/项 vs 共享队列 115.6ns/项；批量 0.6ns/元素；仓颉协作往返下限 ~1.1-1.6µs（Go 170ns）。",
+     "evidence_quote": "spsc ring2 42.7ns（ring 89.7）；mpmc 99.1 vs 143.3；static 0.23 / index 4.58 ns/项 vs 共享队列 115.6",
+     "day": "intact",
+     "day_lost": "",
+     "week": "partial",
+     "week_lost": "只留“显著降低 Spsc/Mpmc 延迟”“改用静态分片或 AtomicInt64”“批量攒批”“明确往返下限”；全部数字（42.7/99.1/0.23/4.58/115.6/0.6/1.1-1.6µs/170ns）丢失——结论在、量级证据不在"
+    },
+    {
+     "fact": "badger-cj 队列环形化落地：CloseableBlockingQueue 改单锁环形缓冲，新增 11 个队列语义测试、全量 375/375；旧实现被新用例 testBlockedProducerFailsOnClose 证实在队满时 close 唤不醒生产者会挂 20s（结构性缺陷）；端到端交替 A/B 9 轮 4567 vs 4956 ns/txn（+7.8%）、配对 9/9。",
+     "evidence_quote": "旧实现被 testBlockedProducerFailsOnClose 证实队满时 close 挂 20s；交替 9 轮 4567 vs 4956 ns/txn（+7.8%）、配对 9/9",
+     "day": "partial",
+     "day_lost": "只留“单锁环形缓冲（ring2）替代旧实现”与“+7.8%”；丢掉 20s 挂起缺陷、375/375、4567 vs 4956、配对 9/9",
+     "week": "partial",
+     "week_lost": "同上：周摘要只有“队列环形化带来端到端吞吐提升（+7.8%）”"
+    },
+    {
+     "fact": "cjpm 多平台 source-set 缺陷闭环：本地修复工具链（~/.local/bin/cjpm-fix-srcset，补依赖产物目录/链接路径/--experimental）打通 badger-cj v2.0 的 376 个测试（唯一 ERROR 是 -j16 信号测试互扰、单跑通过），并提上游 PR cangjie_tools #1311。",
+     "evidence_quote": "装为 ~/.local/bin/cjpm-fix-srcset；试用通过：badger-cj 376 个测试 FAILED=0；提上游 PR cangjie_tools #1311",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    },
+    {
+     "fact": "cjreg 生产实例迁移与依赖升级：搬到 ~/docker/cjreg（compose 只放 compose+data、build context 指源码仓、端口写死 8066），539 文件逐字节 sha256 一致、优雅停机 370ms/exit 0；bstorm 1.4.9→1.4.10 连带 badgercj 1.6.19→1.6.20（含 bb4fd92 钩子落盘修复），探针 force-recreate 后不复活，终态 465 版本/2 用户/430 制品/49M 数据。",
+     "evidence_quote": "生产目录只放 compose+data、端口写死 8066；539 文件 sha256 逐字节一致；升 bstorm 1.4.9→1.4.10（badgercj 1.6.20）",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    }
+   ]
+  },
+  {
+   "day": "2026-10-02",
+   "facts": [
+    {
+     "fact": "a2a-cj 建仓与 TCK 验证：源码 5114 行 + 测试 2889 行，131 单测全绿；官方 a2a-tck 175 passed/0 failed（可执行 MUST 100%，OVERALL 78.8%）；atelier 侧 879 全绿、真实服务端 TCK 67 passed/5 failed。",
+     "evidence_quote": "源码 5114 行 + 测试 2889 行、131 单测全绿；官方 a2a-tck 175 passed/0 failed（OVERALL 78.8%）",
+     "day": "partial",
+     "day_lost": "保留“文档补全 + atomgit 建仓 + 中心仓发版 + 依赖切换”；丢掉规模与 TCK 量化（5114/2889/131 单测/175 passed/78.8%/67 passed）",
+     "week": "partial",
+     "week_lost": "同上：周摘要只剩 sha256 与测试数 891，TCK 通过率与代码规模全丢"
+    },
+    {
+     "fact": "a2a.client 包的两处硬结论：discover 的 ETag 重载支持 304 复用（无缓存则抛 A2aError 而非返回空卡）；流式请求独占一个 stdx Client 并在结束时关闭——修掉“流用过的连接被连接池复用导致 SocketException: Socket is already closed”的真 bug；错误映射优先级 details[].reason > status 名 > gRPC code > HTTP 状态码。",
+     "evidence_quote": "流式请求独占一个 stdx Client 并结束时关闭——修掉连接池复用导致的 SocketException: Socket is already closed",
+     "day": "absent",
+     "day_lost": "整条未进日摘要：包规模 1032 行、ETag/304 语义、连接池复用导致 SocketException 的根因与错误映射优先级全丢",
+     "week": "absent",
+     "week_lost": "周摘要亦无此条；a2a-cj 段只讲文档、建仓、发版、依赖切换"
+    },
+    {
+     "fact": "atelier 0.1.14 发版红线链：clean → build → bundle --skip-lint → publish（clean 防 cjpm publish 复用 target 旧 .cjp，xisp 曾因此制品缺 backend.cj）；卡片版本宏从 cli 移到核心库（cjpm ws 只物化参与发布的成员）；tag 在索引与制品 sha256 核对通过后才打；制品 133 个 .cj（含 49 个测试）、sha256 f8a9390f 三方一致、tag v0.1.14→767c033、894 测试全绿。",
+     "evidence_quote": "严格执行 clean → build → bundle --skip-lint → publish……tag 在中心仓索引与制品 sha256 核对通过后才打……133 个 .cj（含 49 测试）",
+     "day": "partial",
+     "day_lost": "保留发布链、版本宏迁移与 tag 规则；丢掉制品量化（133 个 .cj/49 测试）与 sha256 f8a9390f 的“本地=预演=中心仓”三方一致结论",
+     "week": "partial",
+     "week_lost": "同上：周摘要只留“索引含 0.1.14、制品 200、SHA256 一致”，数量与哈希值丢失"
+    },
+    {
+     "fact": "xisp 发 0.5.0 解决 cjpminfo 依赖冲突：cjpminfo 1.2.1 在 workspace 报冲突，二分定位到 ystyle::xisp 0.4.1 钉了 cjpminfo 1.2.0 → 选择发 xisp 0.5.0 而非用 [replace]；1.2.0 的根因是用 PWD 定位清单（workspace 下 PWD 是工作区根、版本解析成空串），1.2.1 改按编译器 -p 定位；[replace] 必须放 workspace 根才生效。",
+     "evidence_quote": "cjpminfo 1.2.0 用 PWD 定位清单（workspace 下 PWD 是根、版本解析成空串），1.2.1 改按编译器 -p 定位",
+     "day": "partial",
+     "day_lost": "保留 0.4.1→0.5.0 与“而非使用 [replace]”；丢掉 PWD vs -p 的定位机制与“[replace] 必须放 workspace 根”这条可复用规则",
+     "week": "partial",
+     "week_lost": "同上：周摘要只有“解决 cjpminfo 依赖冲突、修复版本解析逻辑”，机制与规则丢失"
+    },
+    {
+     "fact": "cjxt 1.1.1 + atelier 0.1.12 的准入判据与流程：cjxt 中心仓 1.1.0 制品与本地 src 逐文件比对确认实质变更（app/component/session.cj）→ 发 1.1.1；atelier 用 cjpm ws check 认定已发布成员仅 atelier（server/cli 不参与 lockstep）→ cjpm ws bump 0.1.12；预演制品与本地 bundle sha256 一致后才发，依赖 11 个（含新增 tomlcj 1.0.0）全部可达；测试 cjxt 293+39、atelier 839。",
+     "evidence_quote": "cjxt 中心仓 1.1.0 制品与本地 src 逐文件比对确认有实质变更（app/component/session.cj）→ 发 1.1.1",
+     "day": "intact",
+     "day_lost": "",
+     "week": "partial",
+     "week_lost": "触发判据（逐文件比对、session.cj）与“11 个依赖含新增 tomlcj 1.0.0 全可达”丢失；测试口径由 293+39 变成笼统的 332 项"
+    },
+    {
+     "fact": "A2A 任务流的协议取舍：任务流只允许 statusUpdate/artifactUpdate（文本走 artifact 分片而非 Message），首片 append=false，并缓冲一片使 lastChunk 落在有内容的分片上；TurnEnd 按每回合事件而非每 run 判定。",
+     "evidence_quote": "任务流只允许 statusUpdate/artifactUpdate（规范 3.1.2），文本走 artifact 分片而非 Message；首片 append=false",
+     "day": "partial",
+     "day_lost": "保留“仅允许 statusUpdate/artifactUpdate、文本走分片、TurnEnd 按每回合”；丢掉 append=false 与 lastChunk 落片的实现机制",
+     "week": "partial",
+     "week_lost": "同上：周摘要只剩同一条协议规则，实现细节丢失"
+    }
+   ]
+  }
+ ],
+ "summary": {
+  "total_facts": 35,
+  "day": {
+   "intact": 12,
+   "partial": 18,
+   "absent": 5,
+   "missing": 0
+  },
+  "week": {
+   "intact": 10,
+   "partial": 20,
+   "absent": 5,
+   "missing": 0
+  },
+  "lost_categories": {
+   "数字/量化证据": 23,
+   "因果/机制": 20,
+   "专名/符号": 5,
+   "其它": 0
+  }
+ }
+}
