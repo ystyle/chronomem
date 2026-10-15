@@ -52,3 +52,23 @@ jobs:
       - run: npm ci
       # 集成用例在塔不可达时自行 skip，因此 CI 里只跑纯逻辑与接线用例
       - run: npm test
+
+  bench-harness:
+    name: 评测工具（离线用例 + 变异检查）
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: bench
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # 纯 stdlib，不连塔不联网：只验证「读取器与时间对齐」这类使结果可信的
+      # 逻辑。真正的对照实验需要有实例与 LLM，不在 CI 里跑。
+      - name: 回归用例
+        run: python3 -m unittest test_harness -v
+      # 故意破坏实现，断言用例会报警。测试通过本身说明不了什么——用例可能
+      # 根本没碰到它声称覆盖的东西；这一步就是为了让那种情况失败。
+      - name: 变异检查
+        run: python3 check_mutations.py
