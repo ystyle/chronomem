@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections import defaultdict
 
@@ -92,6 +93,37 @@ def main() -> None:
                     help="Chronomem endpoint; must be the isolated bench instance")
     args = ap.parse_args()
 
+    # Single-writer guard. Two runs sharing a type destroy each other: each
+    # `purge()` empties the series the other is filling, so both report whatever
+    # survived the race. Observed once — a second run was started while the first
+    # was still finishing, and the arms came back with summaries missing that had
+    # demonstrably been generated.
+    lock = os.path.join(os.path.dirname(os.path.abspath(args.trace)),
+                        ".retention_eval.lock")
+    if os.path.exists(lock):
+        try:
+            with open(lock, encoding="utf-8") as fh:
+                other = int(fh.read().strip() or 0)
+            os.kill(other, 0)                     # signal 0 = existence probe
+            print(f"another retention_eval is running (pid {other}); refusing to "
+                  f"start a second writer against the same instance.\n"
+                  f"Remove {lock} if that process is gone.", file=sys.stderr)
+            return 2
+        except (ValueError, ProcessLookupError, PermissionError):
+            pass                                   # stale lock, take it over
+    with open(lock, "w", encoding="utf-8") as fh:
+        fh.write(str(os.getpid()))
+
+    try:
+        return _run(args)
+    finally:
+        try:
+            os.unlink(lock)
+        except OSError:
+            pass
+
+
+def _run(args) -> int:
     with open(args.trace, encoding="utf-8") as fh:
         trace = json.load(fh)
 
@@ -105,6 +137,10 @@ def main() -> None:
         todo.append(ChronomemBackend(url=args.url, mode="exact"))
     if "chronomem-summary" in picked:
         todo.append(ChronomemBackend(url=args.url, mode="summary"))
+    # The coarse arm. Without it the "layered" comparison only ever exercises the
+    # day level, so the layering claim is never actually tested.
+    if "chronomem-week" in picked:
+        todo.append(ChronomemBackend(url=args.url, mode="summary-week"))
 
     # Attach the lag to each probe before running, so the runner can report it.
     for p in trace["probes"]:

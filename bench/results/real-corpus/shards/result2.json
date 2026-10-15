@@ -1,0 +1,344 @@
+{
+ "shard": "part2",
+ "samples": [
+  {
+   "day": "2026-10-01",
+   "facts": [
+    {
+     "fact": "cjxt 首推丢失的根因是 onMount 被提到 initSignals 之前(07e29a8)：onMount 与 HTTP 渲染期的推送落到空壳、此前静默丢弃；修法是会话进「初始化窗口」，回调仍同步执行、只压补丁下发(pendingPatch)，整树发完 drainPushes 补一次",
+     "evidence_quote": "onMount 提到 initSignals 之前」：onMount 里的推送（以及 HTTP 渲染阶段无连接时的推送）会落到空壳上，此前是静默丢弃；修法：会话进「初始化窗口」，**回调照旧同步执行*",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    },
+    {
+     "fact": "atelier 上下文压缩 P0–P2 全套落地：阈值改 dsh 口径(messageBudget=W−O、threshold=min(W×0.8, pressureBudget)、retain=0.16、headroom 65536)、上下文溢出恢复、工具结果修剪(8192 码点→头 4096+标记+尾 1024)、压缩事务台账(CompactionLedger 进程级互斥，后来者跳过不排队)、/compact 手动入口、检查点 <compacted-summary> 标签与摘要子调用复用热前缀、llm_api 1.4.1 发私仓",
+     "evidence_quote": "阈值口径对齐 dsh：messageBudget=W−O、pressureBudget=messageBudget−B(headroom)、threshold=floor(min(W×ratio, p",
+     "day": "absent",
+     "day_lost": "整条丢失：当天 25 条原始日志里约 10 条属压缩工作，日摘要【atelier】组只写 HarnessSpec/AG-UI/registerModelContext，压缩工作流一字未提；阈值公式 0.8/0.16/65536、修剪 8192/4096/1024、溢出恢复、台账互斥、热前缀、llm_api 1.4.1 全无",
+     "week": "absent",
+     "week_lost": "整条丢失：week0 的 atelier 组是 0.1.14/A2A 内容；仅 atelier-lumine 组残留「压缩常量嵌套」这一名字级残片、chronomem 组残留「压缩比」"
+    },
+    {
+     "fact": "godot-poc 硬结论：不初始化仓颉运行时直接调 @C → runtime != nullptr → SIGABRT(134)；运行时拒绝二次初始化(failed for -4)，热重载须加 static 一次性守卫，且 dlclose 并未真正卸载(init 计数器跨 reload 累加，语义是重连不是重启)；链接必须 cjld.shared.lds 且 std 动态链，否则 dlopen 报 undefined symbol: g_runtimeStaticEnd",
+     "evidence_quote": "必须用 cjld.shared.lds 且 std 动态链；仓颉运行时只能初始化一次（用 static 守卫兼容 reloadable 热重载）。未验证风险已逐条写入 README：真实 Godot、",
+     "day": "partial",
+     "day_lost": "数字与符号丢失：SIGABRT 134、-4、g_runtimeStaticEnd；机制也丢：dlclose 未真正卸载、init 计数器跨 reload 累加(重连非重启)；日层只保住 cjld.shared.lds / std 动态链 / 一次性守卫三个名词",
+     "week": "partial",
+     "week_lost": "同 day：week0 godot-poc 组与日层近乎逐字(相似度 0.93)，同样只剩这三个名词"
+    },
+    {
+     "fact": "cjffi-export-test 实测矩阵：cjc -p src --output-type=staticlib 直编出 12 个 C 符号，cjpm build 0 个、cjpm build+LTO 0 个(产物变 .bc)、cjpm test 12 个但会被 build 覆盖、加真子包后根包 12 个而叶子子包 0 个；根因是 cjpm 两处注入 --no-sub-pkg(build.cj:546、test.cj:721)，逃逸条件只有目录结构 hasSubPkgs 与 cjpm test，无任何配置开关可关",
+     "evidence_quote": "实测矩阵：cjc 直编 12 个 T cj_*、cjpm build 0 个、cjpm build+LTO 0 个（产物变 .bc）、cjpm test 12 个（会被 build 覆盖）、加真子包后",
+     "day": "partial",
+     "day_lost": "对照数字与源码位置全丢：cjpm build 0 个、LTO 0 个、cjpm test 12 个、叶子子包 0 个、build.cj:546/test.cj:721；只剩「--no-sub-pkg」「12 个 C 符号」「确认无直接配置开关」",
+     "week": "partial",
+     "week_lost": "同 day：week0 cjffi 组与日层相似度 0.98，同样只有结论没有矩阵"
+    },
+    {
+     "fact": "lumine 迁移 atelier 0.1.11 并交叉编译出 Windows 可执行 atelier_lumine.exe(PE32+，39.8MB)，commit 7fdd086；配套把 -lcrypt32 挪进 mingw 目标块、chui 宏包继承 -lSDL3(Linux 交叉需在 .sdl3 放宿主空壳 .so)、依赖改相对路径 ../atelier、jsonvalue 跟到 1.1.1、审批回调映射 allow_once/allow_always/deny",
+     "evidence_quote": "交叉构建出 Windows 可执行**：atelier_lumine.exe（PE32+，39.8MB，36 sections）。提交 7fdd086（分支 feat/atelier-0.1.11-a",
+     "day": "intact",
+     "day_lost": "",
+     "week": "intact",
+     "week_lost": ""
+    },
+    {
+     "fact": "cangjie-doc-sync 技能：机械部分交零依赖 Python 脚本、判断部分交模型；脚本改按路径分段匹配 src(原先 /src/ 子串漏掉单包仓整段历史)、--since 裸日期自动补 00:00 按本地时区；用修正后脚本复查 atelier 全历史 400 提交得 190 候选(7 月 70/8 月 41/9 月 68/10 月 11)，7-8 月 111 条中主题词无文档者为 0，9-10 月补 3 处真遗漏",
+     "evidence_quote": "用修正后的脚本复查 atelier 全历史 400 提交：190 个候选（7月70/8月41/9月68/10月11）；9-10 月已逐条审过（3 处真遗漏已补）；7-8 月 111 条中\\\"主题关键词",
+     "day": "partial",
+     "day_lost": "量化证据全丢：400 提交、190 候选、7月70/8月41/9月68/10月11、111 条中 0 条；只剩「路径分段匹配」「补 00:00」「覆盖率 100%」「补 3 处」这些机制与结论",
+     "week": "partial",
+     "week_lost": "同 day：week0 skills 组与日层相似度 0.97，同样只留结论"
+    }
+   ]
+  },
+  {
+   "day": "2026-09-30",
+   "facts": [
+    {
+     "fact": "harness-bench 评测集口径：以「已发布 168 题 ∩ 本机可判分」划出 43 题(CF/T/H/SP 族)而不追全集；4 片并行时每片必须是受管后台任务(调用内 & 起的子进程会随 bwrap 沙箱结束被杀)；taint 命中即失败(读评测材料不算通过)且隔离环境照此判",
+     "evidence_quote": "划定评测集（43 题），而不是追全集；② 4 片并行但**每片必须是受管后台任务**（调用内 `&` 起的子进程会随 bwrap 沙箱结束被杀）；③ 判定口径：taint 命中即失败（读评测材料不算通",
+     "day": "intact",
+     "day_lost": "",
+     "week": "absent",
+     "week_lost": "整条丢失：数字(已发布 168 题、可判分 43 题)、机制(bwrap 沙箱会杀掉 `&` 起的子进程)、判定口径(taint 命中即失败)；week 层连 harness-bench 这个词都没有"
+    },
+    {
+     "fact": "43 题 × atelier/pi × 2 遍 = 219 runs 成绩单：atelier 119/119 = 100%(Wilson 95% CI 96.9–100%)、pi 94/100 = 94.0%(87.5–97.2%)；pi 的 6 次失分集中在 SP3(0/2)、H2c(0/2)、H5(1/2 tainted)、T6(2/3 tainted)，atelier 零失败零 taint；过程指标 turns 7 vs 6、工具 10 vs 9、未命中输入 token 6.2k vs 5.7k、cacheRead 30k vs 61k、耗时 14.5s vs 10.2s",
+     "evidence_quote": "atelier 119/119 = 100%（Wilson 95% CI 96.9-100%）、pi 94/100 = 94.0%（87.5-97.2%）**；pi 的 6 次失分集中在 SP3(0/",
+     "day": "partial",
+     "day_lost": "分子与样本量、每题分数、全部过程指标丢失：119/119、219 runs、SP3 0/2、H2c 0/2、H5 1/2、T6 2/3、turns 7vs6、工具 10vs9、6.2k vs 5.7k、cacheRead 30k vs 61k、14.5s vs 10.2s；日层只保住通过率与 Wilson 置信区间",
+     "week": "absent",
+     "week_lost": "整条丢失：week 层无 43 题 / harness-bench / Wilson / 119 / 94.0 任何痕迹"
+    },
+    {
+     "fact": "「模型拒答」的真相是历史不变式被破坏：assistant 带 tool_calls 的消息后没跟齐结果 → provider 判 400(不可重试) → 整轮死；修法是发请求前统一收口 ensureToolCallResults(幂等 O(n)、补齐时打警告) + 补齐三条具体路径 + llm_api 让「带 tool_call 就不收成 EndTurn」",
+     "evidence_quote": "历史不变式被破坏：assistant 带 tool_calls 的消息后面没跟齐结果，provider 判 400（不可重试）→ 整轮死；改法是在发请求前统一收口 ensureToolCallResu",
+     "day": "intact",
+     "day_lost": "",
+     "week": "absent",
+     "week_lost": "整条丢失：错误码 400、不可重试、根因机制(tool_calls 与结果未配对)、专名 ensureToolCallResults；week 层出现 3 次「拒答」但指 atelier+harbor 组的模型安全拒答，是另一件事"
+    },
+    {
+     "fact": "评测环境必须离线化：任务镜像预置 uv/uvx(verifier 依赖 github 下二进制)与 Harbor 的 ACP venv(uv python install 3.12)，否则 reward 与 agent 表现无关地变 0；开评前用 oracle 闸门验任务可用性",
+     "evidence_quote": "评测环境必须离线化：任务镜像预置 uv/uvx（verifier 依赖 github 下二进制）与 harbor 的 ACP venv（uv python install 3.12），否则 rewar",
+     "day": "intact",
+     "day_lost": "",
+     "week": "absent",
+     "week_lost": "整条丢失：uv/uvx、Harbor ACP venv、oracle 闸门，以及最关键的因果「否则 reward 与 agent 表现无关地变 0」"
+    },
+    {
+     "fact": "接入 harness-bench 不换掉 TB(TB 量绝对能力、harness-bench 量同模型同任务的壳差异)，为接入给 atelier 加机器可读事件流 cli.app run --json-events(stdout 逐行 JSON、8 条单测)+ provider 错误可见性；两轮 head-to-head(deepseek-flash vs pi 0.99.1)：round1 简单 10 题两边满分，round2b 高难 10 题 atelier 20/20、pi 15/17(SP3-offload-after-compaction 上 pi 0/2)",
+     "evidence_quote": "为接入给 atelier 加了 cli.app run --json-events（stdout 逐行 JSON，8 条单测）与 provider 错误可见性（e.toString）。两轮 head-",
+     "day": "partial",
+     "day_lost": "数字与专名丢失：8 条单测、20/20、15/17、pi 0.99.1、adapter-atelier 与 SessionIR 投影；只剩「加了 run --json-events」「保留 TB 作基准」",
+     "week": "absent",
+     "week_lost": "整条丢失：week 层无 json-events、无 head-to-head 分数"
+    },
+    {
+     "fact": "llm_api 不解析 prompt 缓存字段 → token 成本被高估 8 倍(实测 API 会返回 prompt_cache_hit_tokens)；llm_api 1.3.5 + atelier 0.1.6 已发中心仓(索引/制品 200、依赖闭包 16 包全可解析)",
+     "evidence_quote": "不解析 prompt 缓存字段→token 成本被高估 8 倍（实测 API 会返回 prompt_cache_hit_tokens）；llm_api 1.3.5 + atelier 0.1.6 已发",
+     "day": "partial",
+     "day_lost": "放大倍数、字段专名、版本号全丢：8 倍、prompt_cache_hit_tokens、llm_api 1.3.5、atelier 0.1.6、16 包依赖闭包；日层只留「缓存字段未解析导致 token 成本高估」，另处出现的是 1.3.4/0.1.5，与本次 1.3.5/0.1.6 不是一回事",
+     "week": "absent",
+     "week_lost": "整条丢失：week 层无缓存字段、无 8 倍、无 1.3.5/0.1.6"
+    }
+   ]
+  },
+  {
+   "day": "2026-09-29",
+   "facts": [
+    {
+     "fact": "atelier 输出截断自动续跑：根因是 ACP 会话 stopReason=max_tokens(模型输出撞 4096 上限就被当回合结束交回宿主)，导致两个 0 分任务半途终止；修法用 resumingSameTurn 标记挡住 TurnStartEvent / turnCount++ / MCP advanceTurn 三处副作用，只在真正回合开始时重置预算，默认 maxLengthContinuations=3，maxOutputTokens 默认 4096(评测设 8192)",
+     "evidence_quote": "stopReason: max_tokens`（模型输出撞 4096 上限就被当回合结束交回宿主）；修后 Length 会在同回合内自动续跑（不重复已写内容），且回合/输出预算可在 TOML 调；④ ",
+     "day": "intact",
+     "day_lost": "",
+     "week": "absent",
+     "week_lost": "整条丢失：数字(maxLengthContinuations 3、4096、8192、612 passed)与机制(三处副作用、resumingSameTurn、按逻辑回合计预算)；week 层无「续跑」「max_tokens」「atelier 0.1.2」"
+    },
+    {
+     "fact": "atelier 的 ACP 忙等自旋定位：热点线程是仓颉运行时 gc-main-thread(空闲 2% → 收首条消息后 100%)，cjEnableGC=0 验证因果，堆大小/GC 间隔/分配等待/处理器数均无效；用仓颉 1.2.0 重建后自旋消失(热点变 gc-pool-t1)；但 1.2.0 + stdx 1.2.0.1 组合下 ACP 消息解析报「Commas are required to separate values in arrays and object members」(连 params:{} 都炸)，1.1.3 + stdx 1.1.3.1 正常 → 升级路径被挡",
+     "evidence_quote": "gc-main-thread（空闲 2% → 收首条消息后 100%），cjEnableGC=0 验证因果，堆大小/GC 间隔/分配等待/处理器数均无效；用仓颉 1.2.0 重建后自旋消失（热点变 g",
+     "day": "intact",
+     "day_lost": "",
+     "week": "absent",
+     "week_lost": "整条丢失：专名(gc-main-thread、gc-pool-t1、cjEnableGC)、数字(2%/100%)、错误文案原文、以及「升级路径被挡」这个结论"
+    },
+    {
+     "fact": "llm_api 流式/非流式从不关闭响应体 → stdx 每主机连接池上限 10，第 11 次 LLM 调用抛 Too many connections(直连上游同样复现，与代理无关)；加 closeResponseBody + try/finally，回归用例 12 次连续流式调用红→绿",
+     "evidence_quote": "从不关闭响应体 → stdx 每主机连接池上限 10，第 11 次 LLM 调用抛 Too many connections（对照实验：直连上游同样复现，与代理无关），新增 closeResponse",
+     "day": "partial",
+     "day_lost": "数字与错误文案全丢：连接池上限 10、第 11 次、12 次回归用例、Too many connections、closeResponseBody；日层只剩「llm_api 流式响应体未关闭导致的连接泄漏」名字级描述",
+     "week": "absent",
+     "week_lost": "整条丢失：week 层无「连接泄漏」「连接池」「Too many」"
+    },
+    {
+     "fact": "workDir 信任表失效根因：SessionEnvironment.directory 为空时 workDir 退化成相对路径「.」，而信任表按文本查表 → 绝对路径登记(/trust、ATELIER_TRUST_DIR)永远命中不了，headless 下 Sequential 工具一律 user denied approval；修法 resolveWorkDir(canonicalize(\".\")) + 新增 ATELIER_TRUST_DIR 非交互信任通道(8 例单测)",
+     "evidence_quote": "workDir 在 SessionEnvironment.directory 为空时退化成相对路径 \\\".\\\"，信任表按文本查表 → 绝对路径登记（/trust、ATELIER_TRUST_DIR）永",
+     "day": "partial",
+     "day_lost": "根因机制与专名全丢：directory 为空 → 退化成 \".\"、按文本查表、/trust、ATELIER_TRUST_DIR、resolveWorkDir/canonicalize、user denied approval；日层只有「修复 workDir 相对路径信任表失效问题」",
+     "week": "absent",
+     "week_lost": "整条丢失：week 层无 workDir、无信任表"
+    },
+    {
+     "fact": "忆时塔摘要层三处静默缺陷：①摘要查询硬编码 queryPoints(0,0,50,None) 的条数上限 → 50 条之后更早窗口对 recall summary 与调度幂等同时不可见(实测 worklog 35 个日窗口有 8 个取不回)，改分页遍历(每页 200)；②粒度匹配用「区间重叠」且不区分粒度 → 周窗口被内部日摘要判为已总结、周层永不产出(dsh/activity 零条)，改「窗口全等」；③递归材料恒取自原始 series(recompute 形同虚设)，改自底向上先物化细档再聚合。验收：09-21~09-27 周摘要恢复产出 12 条、压缩比 5.1x(低于从原始算的 31x)",
+     "evidence_quote": "queryPoints(0,0,50,None)（09-03 read-path-batching 补了原始条目的分批读，漏了摘要查询这条路径）——摘要过 50 条后更早窗口的摘要对 recall m",
+     "day": "partial",
+     "day_lost": "窗口级数字丢失：50/每页 200、35 个日窗口中的 8 个、12 条周摘要、5.1x vs 31x、dsh/activity 零条；机制(分页遍历、窗口全等、自底向上递归)与 87 窗口结论保住",
+     "week": "partial",
+     "week_lost": "同 day：week 层保住三条缺陷名与「87 个窗口一致性核对全绿」，同样丢掉 50/200/8 个/12 条/5.1x/31x"
+    },
+    {
+     "fact": "忆时塔记忆层两处静默缺陷：①materializeMissingClosed 以「桶是否存在」为补齐判据 → 窗口期服务中断会让桶永久停在中断前点数(dsh/activity 09-12 实际 48 条、桶只 28 条)，改内容指纹判定(点数未变不重写、幂等)；②recall mode=exact 沿用 bucketAt 的「回退到最近更早桶」语义 → 空窗口静默返回上一窗口数据(09-25 worklog query=0 条但 exact 返回 09-24 的 6 条)，改 allowFallback 默认严格并区分「无记录」/「有记录但未物化」。验收：09-12 桶由 28 重算为 48；87 个窗口一致性核对全绿(修复前 8 处不一致)",
+     "evidence_quote": "dsh/activity 09-12 窗口实际 48 条，物化桶只有 28 条，exact 下钻永久看不到那 20 条（均为不同 session 的 resume 事件，payload 各异，是真实记",
+     "day": "partial",
+     "day_lost": "证据数字丢失：28 vs 48、09-25 query=0 却返回 09-24 的 6 条、修复前 8 处不一致；机制(指纹校验、allowFallback 默认严格)与 87 窗口结论保住",
+     "week": "partial",
+     "week_lost": "同 day：week 层有「桶内容指纹校验」「严格匹配目标窗口」「87 个窗口全绿」，同样丢掉 28/48 与 6 条串窗实例"
+    }
+   ]
+  },
+  {
+   "day": "2026-09-28",
+   "facts": [
+    {
+     "fact": "xisp 桥接层实参二次求值根因：不是「实参被展开」，而是拼出的调用式里 Cons 实参落在代码位置被二次求值；用 quote 按值注入修复，并验证 VM/JIT 下 compileQuote 走 OP_PUSH_CONSTANT 同样成立；另实现 LispValue <: LispConvertible 以支持异构实参",
+     "evidence_quote": "Cons 实参落在代码位置被二次求值——用 quote 按值注入修复，并验证 VM/JIT 下 compileQuote 走 OP_PUSH_CONSTANT 同样成立；②命名空间统一取双冒号 ::，",
+     "day": "intact",
+     "day_lost": "",
+     "week": "partial",
+     "week_lost": "验证范围与专名丢失：OP_PUSH_CONSTANT、VM/JIT 双路径验证、LispValue <: LispConvertible 异构实参；week 层只剩「修复实参二次求值问题（采用 quote 注入）」一句"
+    },
+    {
+     "fact": "xisp 阶段 2：新成员 xisp_bc(compiler 1540 + vm 1676 + jit 2608 = 5930 行)，IR(OP_*/CompiledFunction/CompiledCode)留 core 作协议，core 新增 ExecutionBackend 接口 + setExecutionBackend 注入，仅 6 处引用点改造，OP_* 与 Evaluator.evalBegin 改 public；探针验收：只依赖 ystyle::xisp 的产物中 Bytecode:/JIT 字面量为 0(CLI 对照 1/5)",
+     "evidence_quote": "新成员 xisp_bc（compiler 1540 + vm 1676 + jit 2608 = 5930 行）；IR 留 core；core 新增 ExecutionBackend 接口，仅 6 处",
+     "day": "partial",
+     "day_lost": "全部行数与引用点数字丢失：5930、1540、1676、2608、6 处引用点、探针 0 vs 1/5、OP_* 与 evalBegin 改 public；日层只剩「移至 xisp_bc，通过 ExecutionBackend 接口注入」",
+     "week": "partial",
+     "week_lost": "进一步丢失：week 层连 ExecutionBackend 都没有，只剩「后端模块化（IR 留 core，编译/VM/JIT 移至 xisp_bc）」"
+    },
+    {
+     "fact": "xisp 阶段 1：单模块拆成 6 个 cjpm workspace 成员(xisp / xisp_terminal / xisp_repl / xisp_cli / xisp_examples / xisp_tests)，96 个文件 git mv(历史保留)，core 模块名保持 xisp 使下游 import 几乎零改动；验证 build 通过、test 427/427、ws check 通过、冒烟 (println (+ 1 2)) → 3；新增 .github/workflows/ci.yml",
+     "evidence_quote": "单模块包拆成 6 个 cjpm workspace 成员：core(xisp) / terminal(xisp_terminal) / repl(xisp_repl) / cli(xisp_cli) ",
+     "day": "partial",
+     "day_lost": "数字与机制丢失：96 个文件、427/427、git mv 保留历史、ci.yml、以及「core 包名保持 xisp → 下游 import 零改动」的动机；日层只剩成员名单与拓扑序正确",
+     "week": "partial",
+     "week_lost": "同 day：week 层只剩「拆分 xisp 为 6 个工作区成员」"
+    },
+    {
+     "fact": "xisp 字节码拆分定案：模块名定 ystyle::bytecode_kit(描述型中性名、不含 xisp；弃用 bytecode-fw，因 fw 易读成 firmware)；只做方案 A，B(语义规则化)/C(语法驱动生成器)不做；特化优先(ValueHost<LispValue> / BytecodeVM<LispValue>)；JIT 不属于 kit(生成针对 LispValue 布局的机器码) → xisp_jit 依赖 bytecode_kit + xisp；作废 09-27 的 ExecutionBackend 草案统一到 ValueHost；ValueHost 必须双向(VM→宿主 isCallable/call/callNamed + 宿主→VM callClosure/closureProcedure/指令派发钩子)",
+     "evidence_quote": "模块名定 ystyle::bytecode_kit（描述型+中性，不含 xisp；弃用 bytecode-fw——fw 易读成 firmware 且 framework 无信息量）：将来第三方复用时不",
+     "day": "intact",
+     "day_lost": "",
+     "week": "partial",
+     "week_lost": "专名与取舍丢失：bytecode_kit 命名、弃用 bytecode-fw 的理由、B/C 方案不做、双向接口六项、作废 ExecutionBackend 草案；week 层还把「bytecode_kit 定案」写成「xisp_bc 模块验证通过」，把未实施的 kit 与已完成模块混成一句"
+    },
+    {
+     "fact": "xisp 发布规范：xisp_cli 纳入发布(去掉 workspace.toml 的 exclude，中心仓是源码发布、exe 包同样可分发)，4 个成员共同 lockstep；成员级 cjpm.lock 入版本控制，但只有无成员依赖的 core/terminal 能生成，repl/cli/xisp_examples/xisp_tests 要等 ystyle::xisp 0.5.0 发布后才能生成(成员目录内 bundle/update 的成员依赖从 registry 解析，未发布必然失败)",
+     "evidence_quote": "cli 纳入发布：中心仓是源码发布，exe 包同样可分发（消费方 `cjpm install ystyle::xisp_cli-<ver>`）→ workspace.toml 去掉 exclude，4",
+     "day": "partial",
+     "day_lost": "机制丢失：cjpm.lock 只有 core/terminal 能生成、未发布必然失败因而必须拓扑序发布、4 成员 lockstep 口径；日层只剩「将 xisp_cli 纳入发布成员（移除 exclude）」",
+     "week": "partial",
+     "week_lost": "同 day：week 层只剩「确立 xisp_cli 发布规范」"
+    },
+    {
+     "fact": "xisp core 零外部依赖：XISP_VERSION 与 banner 移到 xisp_repl，core 去掉 cjpminfo；cjpminfo 必须 ≥1.2.1(1.2.0 在 workspace 下从 PWD 定位清单，命中根 [workspace] → @ModuleVer 展开空串)；目录取名 xisp_examples 避开仓库根已有的 examples/；测试分两层(包内白盒测试跟源码目录，只用 public API 的 16 个 root 包测试迁入 xisp_tests)",
+     "evidence_quote": "core 零外部依赖：XISP_VERSION 与 banner 移到 xisp_repl，core 去掉 cjpminfo（版本号 4 个使用点里 3 处本就在界面）；cjpminfo 必须 ≥1.",
+     "day": "absent",
+     "day_lost": "整条丢失：cjpminfo ≥1.2.1 及「1.2.0 从 PWD 定位清单、命中根 [workspace] → @ModuleVer 空串」的机制、XISP_VERSION/banner 迁移、16 个 root 包测试分层、examples 重名规避；日层【xisp】对 cjpminfo 零提及",
+     "week": "partial",
+     "week_lost": "week 层出现「将 @ModuleVer 替换为 cjpminfo 宏，解决 cjpminfo 依赖冲突」，但那是发布动作的转述：版本门槛 ≥1.2.1 与 PWD→[workspace] 空串机制全无。另注：week 层称 0.5.0「已成功发布至中心仓」，而本分片 09-28 日层明说「0.5.0 未发布、未推远程、未发版」"
+    }
+   ]
+  },
+  {
+   "day": "2026-09-27",
+   "facts": [
+    {
+     "fact": "llm_api 1.3.0 图像能力：用同名不同参数个数的枚举构造器(ImageBlock 2 参保兼容 + 3 参带 detail)与新名 ImageFileBlock(fileId)；把 case _ => () 穷举化——它才是「新增构造器静默丢图/漏判」的根因；detail 仅 OpenAI 兼容端点有对应字段，Anthropic 忽略但图照发(file_id 需 beta 头 anthropic-beta: files-api-2025-04-14，库自动补)，Ollama 对 file_id 明确抛错",
+     "evidence_quote": "用同名不同参数个数的枚举构造器（ImageBlock 2 参保兼容 + 3 参带 detail），新能力用新名 ImageFileBlock(fileId)；② 顺手把 case _ => () 穷举",
+     "day": "intact",
+     "day_lost": "",
+     "week": "partial",
+     "week_lost": "根因与专名丢失：case _ => () 穷举化(真正的根因)、anthropic-beta: files-api-2025-04-14、Ollama 明确抛错；week 层只剩「引入 ImageFileBlock…保留 ImageBlock 枚举变体以消除静默丢图风险」"
+    },
+    {
+     "fact": "llm_api 1.3.0 测试与发版：测试 108 passed(新增 16)，含 beta 头的端到端断言(裸 TCP 服务端抓请求行)；atelier 跟版 1.3.0 把视觉闸门改用 isImageBlock(原先只认 2 参 ImageBlock，会漏判 file_id/detail 从而把图发给非视觉模型)，三包 446/36/109 全过；已发私有仓预演 → 中心仓(sha256 5dbd9ce8… 索引与制品逐文件一致)，llm_api v1.3.0 与 atelier 6eee53e 双仓 master 已推 atomgit",
+     "evidence_quote": "测试 llm_api 108 passed（新 16），含 beta 头的端到端断言（裸 TCP 服务端抓请求行）。atelier 跟版 1.3.0：视觉闸门改用 isImageBlock（原先只认 ",
+     "day": "partial",
+     "day_lost": "数字与专名丢失：新增 16 条、atelier 三包 446/36/109、sha256 5dbd9ce8、commit 6eee53e、isImageBlock、裸 TCP 抓请求行的断言手法；日层只留 108 这个总数",
+     "week": "partial",
+     "week_lost": "进一步丢失：week 层只剩「测试全过（108 项）」，连「新 16」都没有，更无 446/36/109"
+    },
+    {
+     "fact": "xisp 拆分评估结论：必须拆 cjpm 模块(依赖粒度是模块不是子包，且仓颉无 feature/可选依赖)；阶段 1 拆 5 成员 core(xisp，包名不变)/xisp_terminal/xisp_repl/xisp_cli/xisp_examples；阶段 2 加 xisp_bc(AST↔BC 已是注入式窄缝，3 调用点 + 1 静态表，接口化即可)；阶段 3 可选 xisp_jit；Lisp 侧按需加载与仓颉侧模块拆分是正交两轴",
+     "evidence_quote": "阶段1 拆 5 成员 core(xisp,包名不变)/xisp_terminal/xisp_repl/xisp_cli/xisp_examples，阶段2 加 xisp_bc（AST↔BC 已是注入式",
+     "day": "partial",
+     "day_lost": "数字与专名丢失：3 调用点 + 1 静态表、xisp_jit、以及「依赖粒度是模块不是子包 / 仓颉无 feature 与可选依赖」这个立项理由；日层只剩阶段 1 五成员 + 「是否立即启动阶段 2」",
+     "week": "partial",
+     "week_lost": "同 day：week4 的 xisp 组与 09-27 日摘要逐字相同，损失完全一致"
+    },
+    {
+     "fact": "xisp 成员配置与 CI 前置：各成员 cjpm.toml 必须补 organization = ystyle(实测缺了会导致依赖被当外部 registry 依赖而 404)；cjpm ws check 必须进 CI(workspace 内版本号不被构建校验，写 9.9.9 也能过)",
+     "evidence_quote": "补 organization = ystyle（实测缺了会导致依赖被当外部 registry 依赖而 404），并补 cjpm ws check 进 CI（workspace 内版本号不被构建校验，写",
+     "day": "partial",
+     "day_lost": "后果与证据丢失：缺 organization → 依赖被当外部 registry 依赖 404、版本号写 9.9.9 也能过构建；日层只剩「补全 organization = ystyle 及 cjpm ws check CI 校验，防止依赖解析失败」",
+     "week": "partial",
+     "week_lost": "同 day：week4 与日层同文，同样丢掉 404 与 9.9.9"
+    },
+    {
+     "fact": "xisp 能力域拆分粒度 = 「注册集合」而非「调用拦截」(registerPure 注释已论证：权限检查对特殊形式无效)；只有需要外部依赖(stdx)或平台特化(rwx JIT)的域才拆模块，内建域靠 InterpreterOption 运行期装配(31 个 withXxx + registerAll/registerPure + Bridge.registerFunc 骨架已存在)；异步域看选型——语言级 async 属 core，stdx.actors 才需拆模块",
+     "evidence_quote": "能力域粒度必须是'注册集合'而非'调用拦截'（registerPure 注释已论证：权限检查对特殊形式无效）；④ 外部依赖域（net 等）必须拆模块，因为依赖图静态且 stdx 目前只能走 CANGJ",
+     "day": "partial",
+     "day_lost": "论证依据与装配面丢失：registerPure 的注释论证(权限检查对特殊形式无效)、InterpreterOption、31 个 withXxx、registerAll/registerPure、Bridge.registerFunc、stdx.actors；日层只剩两条结论句",
+     "week": "partial",
+     "week_lost": "同 day：week4 与日层同文，损失完全一致"
+    },
+    {
+     "fact": "stdx 依赖形态是拆模块的硬约束：stdx 目前只能走 CANGJIE_STDX_PATH 二进制依赖，源码依赖需 cmake/clang/openssl 全量编译 stdx，与嵌入式定位冲突——这才是「外部依赖域必须拆模块」的根本原因",
+     "evidence_quote": "CANGJIE_STDX_PATH 二进制依赖（源码依赖需 cmake/clang/openssl 全量编译 stdx，与嵌入式定位冲突）；⑤ 异步域定位取决于实现选型（语言级 async 属 cor",
+     "day": "absent",
+     "day_lost": "整条丢失：CANGJIE_STDX_PATH、cmake/clang/openssl 全量编译、嵌入式定位冲突这一因果；日层只留「外部依赖域（如 net）必须拆模块」的结论",
+     "week": "absent",
+     "week_lost": "同 day：week4 与日层同文，因果链整体缺失"
+    }
+   ]
+  },
+  {
+   "day": "2026-09-26",
+   "facts": [
+    {
+     "fact": "llm_api 加 skipTlsVerify 命名可选参数(三个 Provider + ProviderConfig/Factory 透传 → ResilientHttpClient 落到 CertificateVerifyMode.TrustAll)，默认仍是系统 CA；开关放库的显式参数、不读环境变量(避免隐式全局状态、可单测)；先只做 TrustAll，CA 文件(CustomCA)留待后续",
+     "evidence_quote": "开关放在库的显式参数，不读环境变量（避免隐式全局状态、可单测）；② 先只做 TrustAll 开关，CA 文件（CustomCA）留待后续；③ atelier 只走配置文件，不引环境变量兜底；④ 版本",
+     "day": "intact",
+     "day_lost": "",
+     "week": "partial",
+     "week_lost": "透传链专名丢失：三个 Provider、ProviderConfig/Factory、ResilientHttpClient、CertificateVerifyMode.TrustAll；week 层只剩「显式添加 skipTlsVerify 开关…暂不实现 CA 自定义功能」"
+    },
+    {
+     "fact": "TLS 开关的测试证据：新增 5 个用例(含自签证书 HTTPS 服务端，复刻 tlsv1 alert unknown ca；开关打开才能拿到响应)，llm_api 全量 92 passed / 0 failed",
+     "evidence_quote": "含自签证书 HTTPS 服务端，复刻 tlsv1 alert unknown ca；开关打开才能拿到响应），llm_api 全量 92 passed/0 failed；制品 1.2.2 打包解包核对通",
+     "day": "partial",
+     "day_lost": "用例设计与故障复刻丢失：5 个用例、自签证书服务端、tlsv1 alert unknown ca、以及「开关打开才拿到响应」这个判别点；日层只留「llm_api 92/0」",
+     "week": "absent",
+     "week_lost": "整条丢失：week 层无 llm_api 的 92/0(week4 里唯一的「92」是 cjxt 组「主包 292」的子串)，更无 5 个用例与 tlsv1 复刻"
+    },
+    {
+     "fact": "atelier 侧 TLS 接线：TomlProvider.skipTlsVerify + toProviderConfig 映射 + 5 个用例，server 36 / root 439 / cli 109 全过(本地以 path 依赖验证，尚未提交)",
+     "evidence_quote": "TomlProvider.skipTlsVerify + toProviderConfig 映射 + 5 个用例，server 36/root 439/cli 109 全过（本地以 path 依赖验证",
+     "day": "partial",
+     "day_lost": "实现专名与全部数字丢失：TomlProvider.skipTlsVerify、toProviderConfig、5 个用例、server 36 / root 439 / cli 109；日层只有「atelier 全量通过」这五个字",
+     "week": "absent",
+     "week_lost": "整条丢失：week 层无 TomlProvider、无 TLS 侧的 36/439/109(week4 的 439/109 属 json-rpc 与 atelier-xisp 两组，与 TLS 无关)"
+    },
+    {
+     "fact": "llm_api 1.2.2 发布流程：发布前解包核对通过(include 锚定为 /src+/LICENSE)，发布后等索引同步(1min 制品 200、3min 索引命中)，随后恢复预演仓配置",
+     "evidence_quote": "发布后等索引同步（1min 制品 200、3min 索引命中），恢复预演仓配置。\",\"next\":\"① （可选）llm_api 1.2.2 已可从中心仓解析，atelier 无需改动；② 那个 Win",
+     "day": "intact",
+     "day_lost": "",
+     "week": "absent",
+     "week_lost": "整条丢失：1min 制品 200 / 3min 索引命中这两个同步时延数字、include 锚定 /src+/LICENSE、发布后恢复预演仓配置的顺序"
+    },
+    {
+     "fact": "llm_api 1.2.2 制品核对与准入判据：与本地 bundle 逐文件 sha256 一致(sha256=4556a9e51c3ff67cc361d92b02e91bfd7049fa7f514affa4de30433672c43efb)，32 文件、顶层只有 src/README.md/LICENSE/cjpm.toml；与中心仓 1.2.1 逐文件比对，src/ 下 5 个非测试文件有实质差异(非空版本)",
+     "evidence_quote": "已发布制品 sha256=4556a9e51c3ff67cc361d92b02e91bfd7049fa7f514affa4de30433672c43efb，与本地 bundle 逐文件 sha256 ",
+     "day": "intact",
+     "day_lost": "",
+     "week": "absent",
+     "week_lost": "整条丢失：sha256 全文、32 文件、顶层文件清单、与 1.2.1 的逐文件比对与「5 个非测试文件有实质差异」这条准入判据；week 层无 sha256/32 文件/5 个非测试"
+    },
+    {
+     "fact": "Windows 项目依赖清理：可删 vendor/llm_api + path 行，改 \"llm_api\" = \"1.2.2\"，并在 ~/.atelier.toml 加 skipTlsVerify = true",
+     "evidence_quote": "Windows 项目可删 vendor/llm_api + path 行，改 \\\"llm_api\\\" = \\\"1.2.2\\\"，并在 ~/.atelier.toml 加 skipTlsVerify = ",
+     "day": "intact",
+     "day_lost": "",
+     "week": "partial",
+     "week_lost": "具体项丢失：vendor/llm_api、path 行、~/.atelier.toml、skipTlsVerify = true 的落地位置；week 层只剩「清理 Windows 项目依赖并更新配置」"
+    }
+   ]
+  }
+ ],
+ "summary": {
+  "total_facts": 36,
+  "day": {
+   "intact": 14,
+   "partial": 19,
+   "absent": 3,
+   "missing": 0
+  },
+  "week": {
+   "intact": 2,
+   "partial": 18,
+   "absent": 16,
+   "missing": 0
+  },
+  "lost_categories": {
+   "数字/量化证据": 32,
+   "因果/机制": 15,
+   "专名/符号": 9,
+   "其它": 0
+  }
+ }
+}

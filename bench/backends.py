@@ -120,11 +120,17 @@ class ChronomemBackend(Backend):
                 "Start the bench instance (see .bench-ctr/README.md) and pass its URL.")
         self.url = url
         self.mtype = mtype
-        self.mode = mode          # exact | summary
+        self.mode = mode          # exact | summary | summary-week
+        # Which summary level this backend reads. `summary` keeps its original
+        # meaning (day level) so existing results stay comparable; `summary-week`
+        # is what the layered claim actually needs: the coarse arm, answering the
+        # same question from a compressed week rather than from the day it came
+        # from. Without it the "layered" comparison only ever exercised one layer.
+        self.level = "week" if mode == "summary-week" else "day"
         self.query_limit = query_limit
         self.missing_summaries = 0
         self._rpc_id = 0
-        assert mode in ("exact", "summary")
+        assert mode in ("exact", "summary", "summary-week")
 
     # -- MCP plumbing --------------------------------------------------------
     def _call(self, tool: str, args: dict) -> dict:
@@ -157,8 +163,20 @@ class ChronomemBackend(Backend):
             self._call("mem/type_create", {
                 "name": self.mtype,
                 "description": "evaluation trace (synthetic)",
-                "levels": ["1h", "day", "week"],
-                "auto_summarize": self.mode == "summary",
+                # `day` must be the finest level. With `1h` listed first, a
+                # `granularity="day"` summarization comes back with a ONE-HOUR
+                # window (measured: 1704124800000~1704128399999), because the
+                # bottom-up path takes its window from the finest level. The
+                # record lands, `mem/summaries` lists it, and every
+                # `recall(granularity="day")` misses — so the summary arm scored
+                # 0% while looking like a system that had forgotten everything.
+                # The production `worklog` type is also [day, week].
+                "levels": ["day", "week"],
+                # Auto-summarization is off for every arm: the harness generates
+                # exactly the levels it needs in `prepare`, so a background
+                # scheduler would add LLM calls that differ per run and make the
+                # comparison irreproducible.
+                "auto_summarize": False,
             })
         except RuntimeError as exc:
             if "已存在" not in str(exc):
@@ -177,6 +195,37 @@ class ChronomemBackend(Backend):
         self.events_seen += 1
         self.stored_chars += len(text)
 
+    def _query_all(self, to_ms: int, page_size: int = 200) -> str:
+        """Page through `mem/query` until every entry up to `to_ms` is read.
+
+        The service pages by number and says so in the reply header; a single
+        call returns at most `limit` entries and says nothing about what it left
+        out, so reading only the first page is a silent truncation. On a
+        300-event trace that never bites; on a longer one it removes exactly the
+        oldest entries, i.e. the evidence behind the largest-lag probes — the
+        ones the study exists to measure.
+        """
+        chunks: list[str] = []
+        page = 1
+        while True:
+            txt = self._text(self._call("mem/query", {
+                "type": self.mtype, "from": 0, "to": to_ms,
+                "limit": page_size, "page": page,
+            }))
+            # The first line of every page is the header ("共 N 条 · 第 p/q 页
+            # …"); keep it once, drop it from later pages so the result reads as
+            # one continuous listing.
+            if page == 1:
+                chunks.append(txt)
+            elif "\n" in txt:
+                chunks.append(txt.split("\n", 1)[1])
+            if "下一页请带" not in txt:
+                break
+            page += 1
+            if page > 500:                      # defensive; ~100k entries
+                raise RuntimeError("pagination did not terminate")
+        return "\n".join(chunks)
+
     def answer(self, question: str, day_asked: int) -> Answer:
         """Query the whole run so far, then read it the way the mode prescribes."""
         # Upper bound of the query must use the same time base the events were
@@ -186,16 +235,23 @@ class ChronomemBackend(Backend):
         to_ms = day_ms(day_asked) + DAY_MS
         if self.mode == "exact":
             # Structural recall: pull the raw entries. Zero server-side LLM.
-            got = self._text(self._call("mem/query", {
-                "type": self.mtype, "from": 0, "to": to_ms, "limit": self.query_limit,
-            }))
+            #
+            # Paged, because a single query is capped and the cap is silent. A
+            # one-shot `limit=500` looks fine on a 300-event trace and becomes a
+            # truncation on a longer one — and the probes that lose their
+            # evidence are the ones with the largest lag, i.e. exactly the ones
+            # the study exists to measure. The symptom is a `None` extraction
+            # recorded as "the system forgot", when the reader simply never read
+            # the line.
+            got = self._query_all(to_ms)
             return Answer(text=got, client_tokens=est_tokens(got),
                           note="raw entries (all of them)")
 
-        # Semantic recall: read the *day* summary of the day the question is
-        # about. Which day that is has to come from the question — the fact's day
-        # is not `day_asked` (that is the moment of asking), and reading the
-        # wrong window returns a neighbouring summary that looks plausible.
+        # Semantic recall: read the summary of the *level* this backend models,
+        # for the window containing the day the question is about. Which day that
+        # is has to come from the question — the fact's day is not `day_asked`
+        # (that is the moment of asking), and reading the wrong window returns a
+        # neighbouring summary that looks plausible.
         #
         # The window must be computed the way the service does: day/week windows
         # are CALENDAR-aligned in the service's timezone, not epoch-aligned. A
@@ -204,14 +260,19 @@ class ChronomemBackend(Backend):
         # summaries lose everything" rather than "the query was wrong".
         m = re.search(r"on day (\d+)", question, re.IGNORECASE)
         fact_day = int(m.group(1)) if m else day_asked
+        if self.level == "week":
+            anchor = week_window_start(fact_day)
+            note = f"week summary containing day {fact_day}"
+        else:
+            anchor = day_window_start(fact_day)
+            note = f"day summary of day {fact_day}"
         got = self._text(self._call("mem/recall", {
-            "type": self.mtype, "granularity": "day", "mode": "summary",
-            "windowStartMs": day_window_start(fact_day),
+            "type": self.mtype, "granularity": self.level, "mode": "summary",
+            "windowStartMs": anchor,
         }))
         if "尚无语义摘要" in got or "no summary" in got.lower():
             self.missing_summaries += 1
-        return Answer(text=got, client_tokens=est_tokens(got),
-                      note=f"day summary of day {fact_day}")
+        return Answer(text=got, client_tokens=est_tokens(got), note=note)
 
     def prepare(self, trace: dict) -> None:
         """Generate the summary tower before probing starts.
@@ -226,20 +287,67 @@ class ChronomemBackend(Backend):
         whatever the compression dropped at generation time — a bounded loss,
         against the unbounded decay a fixed recency window shows. Measuring that
         bounded loss is the point of including this backend.
+
+        Level order matters. The service builds a coarse summary from its finer
+        children by default, so the day level must exist before the week level is
+        requested; asking for a week first would make the service summarize the
+        week's days on demand, which is the same work in a different order but
+        makes the timing much harder to reason about.
         """
         days = sorted({e["day"] for e in trace["events"]})
-        for i, day in enumerate(days):
+
+        def summarize(granularity: str, anchor: int) -> None:
             reply = self._call("mem/summarize", {
-                "type": self.mtype, "granularity": "day",
-                "windowStartMs": day_window_start(day),
+                "type": self.mtype, "granularity": granularity,
+                "windowStartMs": anchor,
             })
             jid = JOB_ID_RE.search(json.dumps(reply))
             if jid:
                 self._wait_job(int(jid.group(1)))
             # Server-side spend: one LLM call per summarized window.
             self.server_tokens += SUMMARY_CALL_TOKENS
-            if (i + 1) % 10 == 0:
-                print(f"    summarized {i + 1}/{len(days)} days")
+
+        levels = ["day"] if self.level == "day" else ["day", "week"]
+        for level in levels:
+            if level == "day":
+                for i, day in enumerate(days):
+                    summarize("day", day_window_start(day))
+                    if (i + 1) % 10 == 0:
+                        print(f"    summarized {i + 1}/{len(days)} days")
+            else:
+                # One call per distinct week, not per day: repeating the same
+                # week anchor would hit the service's idempotence and cost a
+                # round trip each time.
+                anchors = sorted({week_window_start(d) for d in days})
+                for i, a in enumerate(anchors):
+                    summarize("week", a)
+                print(f"    summarized {len(anchors)} weeks")
+
+        # Verify the tower is actually readable before anyone scores against it.
+        # A level whose records land under a different window scores 0% and reads
+        # as total loss; this turns that into a loud failure in seconds. Measured
+        # cause once: a type whose `levels` started at 1h stored day summaries
+        # under ONE-HOUR windows, so every day-level lookup missed.
+        self._assert_readable(days)
+
+    def _assert_readable(self, days: list[int]) -> None:
+        sample = [days[0], days[len(days) // 2], days[-1]]
+        ok = 0
+        for d in sample:
+            anchor = (week_window_start(d) if self.level == "week"
+                      else day_window_start(d))
+            txt = self._text(self._call("mem/recall", {
+                "type": self.mtype, "granularity": self.level,
+                "mode": "summary", "windowStartMs": anchor,
+            }))
+            if "尚无语义摘要" not in txt:
+                ok += 1
+        if ok == 0:
+            raise RuntimeError(
+                f"{self.name}: no {self.level}-level summary readable for days "
+                f"{sample}. Refusing to score this arm as 0% — check the type's "
+                f"`levels` (the finest level sets the window a summary is stored "
+                f"under) and that prepare() produced records.")
 
     def _wait_job(self, job_id: int, timeout_s: int = 300) -> None:
         """Poll one summarization job. Each submission returns its own id."""
@@ -406,3 +514,19 @@ def day_window_start(day: int) -> int:
     """Start of the calendar day window the service would compute for `day`."""
     shifted = day_ms(day) + TZ_SHIFT_MS
     return shifted - (shifted % DAY_MS) - TZ_SHIFT_MS
+
+
+def week_window_start(day: int) -> int:
+    """Start of the Monday-anchored week window containing trace `day`.
+
+    Mirrors the service's ISO week alignment (Monday 00:00 local). The weekday
+    has to be derived from the epoch rather than shifted by a constant: adding a
+    fixed offset is only correct when the day happens to be a Thursday, and the
+    error is silent — summary lookup is an equality match on the window pair, so
+    being a few days off does not return a near match, it returns nothing.
+    """
+    shifted = day_ms(day) + TZ_SHIFT_MS
+    day_start = shifted - (shifted % DAY_MS)
+    days_since_epoch = day_start // DAY_MS
+    dow_from_monday = (days_since_epoch + 3) % 7      # 1970-01-01 was a Thursday
+    return (day_start - dow_from_monday * DAY_MS) - TZ_SHIFT_MS
