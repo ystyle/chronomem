@@ -1,0 +1,902 @@
+{
+ "pairs": 40,
+ "aggregate": {
+  "numeric": {
+   "pairs": 38,
+   "mean": 0.807885649722684,
+   "std": 0.30076376609811495
+  },
+  "symbol": {
+   "pairs": 37,
+   "mean": 0.8768768768768769,
+   "std": 0.2481913779146695
+  },
+  "causal": {
+   "pairs": 24,
+   "mean": 0.7430555555555555,
+   "std": 0.42272170430611367
+  }
+ },
+ "rows": [
+  {
+   "week": "2026-10-05",
+   "proj": "cjvs",
+   "days_in_week": 1,
+   "day_chars": 1044,
+   "week_chars": 1033,
+   "numeric": {
+    "day_n": 2,
+    "kept": 2,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 7,
+    "kept": 7,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-10-05",
+   "proj": "chan-bench",
+   "days_in_week": 1,
+   "day_chars": 911,
+   "week_chars": 589,
+   "numeric": {
+    "day_n": 9,
+    "kept": 0,
+    "rate": 0.0
+   },
+   "symbol": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-10-05",
+   "proj": "Cangjie",
+   "days_in_week": 2,
+   "day_chars": 973,
+   "week_chars": 716,
+   "numeric": {
+    "day_n": 7,
+    "kept": 6,
+    "rate": 0.8571428571428571
+   },
+   "symbol": {
+    "day_n": 2,
+    "kept": 2,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-10-05",
+   "proj": "conc-cj",
+   "days_in_week": 1,
+   "day_chars": 796,
+   "week_chars": 792,
+   "numeric": {
+    "day_n": 9,
+    "kept": 9,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   },
+   "causal": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-10-05",
+   "proj": "badger-cj",
+   "days_in_week": 1,
+   "day_chars": 1476,
+   "week_chars": 1471,
+   "numeric": {
+    "day_n": 6,
+    "kept": 6,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 2,
+    "kept": 2,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-10-05",
+   "proj": "cangjie_tools",
+   "days_in_week": 1,
+   "day_chars": 803,
+   "week_chars": 649,
+   "numeric": {
+    "day_n": 2,
+    "kept": 2,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-10-05",
+   "proj": "cjreg",
+   "days_in_week": 5,
+   "day_chars": 5011,
+   "week_chars": 4430,
+   "numeric": {
+    "day_n": 29,
+    "kept": 28,
+    "rate": 0.9655172413793104
+   },
+   "symbol": {
+    "day_n": 34,
+    "kept": 34,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 2,
+    "kept": 2,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-10-05",
+   "proj": "Cangjie-workspace",
+   "days_in_week": 1,
+   "day_chars": 638,
+   "week_chars": 633,
+   "numeric": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-10-05",
+   "proj": "cangjie_stdx",
+   "days_in_week": 1,
+   "day_chars": 938,
+   "week_chars": 938,
+   "numeric": {
+    "day_n": 3,
+    "kept": 3,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 9,
+    "kept": 9,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-10-05",
+   "proj": "guanyi",
+   "days_in_week": 1,
+   "day_chars": 1043,
+   "week_chars": 782,
+   "numeric": {
+    "day_n": 3,
+    "kept": 2,
+    "rate": 0.6666666666666666
+   },
+   "symbol": {
+    "day_n": 6,
+    "kept": 3,
+    "rate": 0.5
+   },
+   "causal": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-10-05",
+   "proj": "cjxt",
+   "days_in_week": 1,
+   "day_chars": 738,
+   "week_chars": 730,
+   "numeric": {
+    "day_n": 3,
+    "kept": 3,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-10-05",
+   "proj": "chronomem",
+   "days_in_week": 1,
+   "day_chars": 758,
+   "week_chars": 758,
+   "numeric": {
+    "day_n": 7,
+    "kept": 7,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 4,
+    "kept": 4,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-10-05",
+   "proj": "atelier",
+   "days_in_week": 1,
+   "day_chars": 1146,
+   "week_chars": 1062,
+   "numeric": {
+    "day_n": 3,
+    "kept": 3,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 16,
+    "kept": 16,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-10-05",
+   "proj": "xisp",
+   "days_in_week": 1,
+   "day_chars": 1071,
+   "week_chars": 1071,
+   "numeric": {
+    "day_n": 7,
+    "kept": 7,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-09-28",
+   "proj": "xisp",
+   "days_in_week": 2,
+   "day_chars": 2130,
+   "week_chars": 860,
+   "numeric": {
+    "day_n": 6,
+    "kept": 4,
+    "rate": 0.6666666666666666
+   },
+   "symbol": {
+    "day_n": 40,
+    "kept": 18,
+    "rate": 0.45
+   },
+   "causal": {
+    "day_n": 2,
+    "kept": 0,
+    "rate": 0.0
+   }
+  },
+  {
+   "week": "2026-09-28",
+   "proj": "llm_api",
+   "days_in_week": 1,
+   "day_chars": 575,
+   "week_chars": 570,
+   "numeric": {
+    "day_n": 2,
+    "kept": 2,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-09-28",
+   "proj": "chronomem",
+   "days_in_week": 1,
+   "day_chars": 1405,
+   "week_chars": 1132,
+   "numeric": {
+    "day_n": 4,
+    "kept": 2,
+    "rate": 0.5
+   },
+   "symbol": {
+    "day_n": 2,
+    "kept": 2,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 2,
+    "kept": 1,
+    "rate": 0.5
+   }
+  },
+  {
+   "week": "2026-09-28",
+   "proj": "jsonvalue+atelier",
+   "days_in_week": 1,
+   "day_chars": 724,
+   "week_chars": 482,
+   "numeric": {
+    "day_n": 4,
+    "kept": 2,
+    "rate": 0.5
+   },
+   "symbol": {
+    "day_n": 4,
+    "kept": 3,
+    "rate": 0.75
+   },
+   "causal": {
+    "day_n": 1,
+    "kept": 0,
+    "rate": 0.0
+   }
+  },
+  {
+   "week": "2026-09-28",
+   "proj": "依赖链发布",
+   "days_in_week": 1,
+   "day_chars": 722,
+   "week_chars": 722,
+   "numeric": {
+    "day_n": 8,
+    "kept": 8,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 3,
+    "kept": 3,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-09-28",
+   "proj": "atelier",
+   "days_in_week": 4,
+   "day_chars": 4965,
+   "week_chars": 981,
+   "numeric": {
+    "day_n": 29,
+    "kept": 6,
+    "rate": 0.20689655172413793
+   },
+   "symbol": {
+    "day_n": 36,
+    "kept": 13,
+    "rate": 0.3611111111111111
+   },
+   "causal": {
+    "day_n": 3,
+    "kept": 1,
+    "rate": 0.3333333333333333
+   }
+  },
+  {
+   "week": "2026-09-28",
+   "proj": "atelier+harbor",
+   "days_in_week": 2,
+   "day_chars": 1812,
+   "week_chars": 724,
+   "numeric": {
+    "day_n": 17,
+    "kept": 7,
+    "rate": 0.4117647058823529
+   },
+   "symbol": {
+    "day_n": 10,
+    "kept": 8,
+    "rate": 0.8
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-09-28",
+   "proj": "skills",
+   "days_in_week": 1,
+   "day_chars": 694,
+   "week_chars": 693,
+   "numeric": {
+    "day_n": 3,
+    "kept": 3,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 13,
+    "kept": 13,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 2,
+    "kept": 2,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-09-28",
+   "proj": "cjffi-export-test",
+   "days_in_week": 1,
+   "day_chars": 1134,
+   "week_chars": 1134,
+   "numeric": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 16,
+    "kept": 16,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-09-28",
+   "proj": "godot-poc",
+   "days_in_week": 1,
+   "day_chars": 727,
+   "week_chars": 706,
+   "numeric": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   },
+   "symbol": {
+    "day_n": 2,
+    "kept": 2,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-09-28",
+   "proj": "atelier-lumine",
+   "days_in_week": 1,
+   "day_chars": 925,
+   "week_chars": 925,
+   "numeric": {
+    "day_n": 3,
+    "kept": 3,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 6,
+    "kept": 6,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-09-28",
+   "proj": "atelier-yggdrasil",
+   "days_in_week": 1,
+   "day_chars": 643,
+   "week_chars": 643,
+   "numeric": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   },
+   "symbol": {
+    "day_n": 3,
+    "kept": 3,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-09-28",
+   "proj": "a2a-cj",
+   "days_in_week": 1,
+   "day_chars": 1115,
+   "week_chars": 1115,
+   "numeric": {
+    "day_n": 4,
+    "kept": 4,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-09-28",
+   "proj": "cjxt,atelier",
+   "days_in_week": 1,
+   "day_chars": 760,
+   "week_chars": 471,
+   "numeric": {
+    "day_n": 8,
+    "kept": 5,
+    "rate": 0.625
+   },
+   "symbol": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-09-21",
+   "proj": "atelier",
+   "days_in_week": 3,
+   "day_chars": 2010,
+   "week_chars": 296,
+   "numeric": {
+    "day_n": 10,
+    "kept": 2,
+    "rate": 0.2
+   },
+   "symbol": {
+    "day_n": 12,
+    "kept": 1,
+    "rate": 0.08333333333333333
+   },
+   "causal": {
+    "day_n": 2,
+    "kept": 0,
+    "rate": 0.0
+   }
+  },
+  {
+   "week": "2026-09-21",
+   "proj": "mcp-cj",
+   "days_in_week": 1,
+   "day_chars": 670,
+   "week_chars": 667,
+   "numeric": {
+    "day_n": 2,
+    "kept": 2,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-09-21",
+   "proj": "Cangjie-workspace",
+   "days_in_week": 3,
+   "day_chars": 2749,
+   "week_chars": 430,
+   "numeric": {
+    "day_n": 15,
+    "kept": 6,
+    "rate": 0.4
+   },
+   "symbol": {
+    "day_n": 2,
+    "kept": 1,
+    "rate": 0.5
+   },
+   "causal": {
+    "day_n": 1,
+    "kept": 0,
+    "rate": 0.0
+   }
+  },
+  {
+   "week": "2026-09-21",
+   "proj": "json-rpc",
+   "days_in_week": 1,
+   "day_chars": 975,
+   "week_chars": 975,
+   "numeric": {
+    "day_n": 6,
+    "kept": 6,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 5,
+    "kept": 5,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-09-21",
+   "proj": "cjreg",
+   "days_in_week": 2,
+   "day_chars": 1189,
+   "week_chars": 493,
+   "numeric": {
+    "day_n": 5,
+    "kept": 1,
+    "rate": 0.2
+   },
+   "symbol": {
+    "day_n": 4,
+    "kept": 1,
+    "rate": 0.25
+   },
+   "causal": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-09-21",
+   "proj": "cjpm-ws",
+   "days_in_week": 2,
+   "day_chars": 1861,
+   "week_chars": 1787,
+   "numeric": {
+    "day_n": 8,
+    "kept": 8,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 19,
+    "kept": 19,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-09-21",
+   "proj": "cjdep",
+   "days_in_week": 2,
+   "day_chars": 939,
+   "week_chars": 913,
+   "numeric": {
+    "day_n": 8,
+    "kept": 8,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 13,
+    "kept": 13,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-09-21",
+   "proj": "cordis-cj",
+   "days_in_week": 1,
+   "day_chars": 960,
+   "week_chars": 960,
+   "numeric": {
+    "day_n": 3,
+    "kept": 3,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 4,
+    "kept": 4,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-09-21",
+   "proj": "cjxt",
+   "days_in_week": 1,
+   "day_chars": 603,
+   "week_chars": 600,
+   "numeric": {
+    "day_n": 6,
+    "kept": 6,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-09-21",
+   "proj": "cjpminfo",
+   "days_in_week": 1,
+   "day_chars": 755,
+   "week_chars": 753,
+   "numeric": {
+    "day_n": 8,
+    "kept": 8,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 10,
+    "kept": 10,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-09-21",
+   "proj": "llm_api",
+   "days_in_week": 2,
+   "day_chars": 1482,
+   "week_chars": 832,
+   "numeric": {
+    "day_n": 6,
+    "kept": 3,
+    "rate": 0.5
+   },
+   "symbol": {
+    "day_n": 8,
+    "kept": 6,
+    "rate": 0.75
+   },
+   "causal": {
+    "day_n": 1,
+    "kept": 0,
+    "rate": 0.0
+   }
+  },
+  {
+   "week": "2026-09-21",
+   "proj": "xisp",
+   "days_in_week": 1,
+   "day_chars": 618,
+   "week_chars": 618,
+   "numeric": {
+    "day_n": 2,
+    "kept": 2,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 4,
+    "kept": 4,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  }
+ ]
+}

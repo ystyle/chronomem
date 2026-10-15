@@ -19,6 +19,8 @@ results/
 └── real-corpus/           真实语料（依赖当时的生产语料状态）
     ├── chain.json         链式存活测量（补算前，week 全 MISSING）
     ├── chain2.json        链式存活测量（补算后）
+    ├── token-survival.json  按 token 类别的存活率（早期口径，有长度偏差，留作对照）
+    ├── week-step.json       递归步的正确测量（按项目+同一周窗口），关键结果
     ├── recall-result.md   盲测报告：仅用忆时塔回答 6 个问题，6/6 全对
     └── chain-result.md    链式判定报告：35 条事实 × 3 层
 ```
