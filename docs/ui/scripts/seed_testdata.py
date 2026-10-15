@@ -52,10 +52,19 @@ def rpc(url, tool, args, rid):
 
 
 def text_of(resp):
+    """取工具返回文本；JSON-RPC 层错误（工具抛异常）转为显式失败标记。
+
+    说明：工具内抛异常时服务端回的是 error 对象而非 result，旧版这里直接
+    json.dumps(resp)[:300] 当文本返回 → 调用方把「缺少参数 type」这类错误
+    当普通文本打印，truncate 静默失败，直到后续 append 全被 out-of-order
+    拒绝才暴露（表现为「TRUNCATE 不重置水位」的假象）。
+    """
+    if "error" in resp:
+        return "ERROR: " + str(resp["error"].get("message", resp["error"]))[:300]
     try:
         return resp["result"]["content"][0]["text"]
     except Exception:
-        return json.dumps(resp)[:300]
+        return "ERROR: 无法解析响应 " + json.dumps(resp)[:300]
 
 
 def main():
@@ -95,16 +104,26 @@ def main():
     )
 
     # ---------- 1) 建类型 ----------
+    # 已存在（重跑）不算错：工具返回「类型已存在」或 JSON-RPC error 都属预期
     for name, desc, levels, group in TYPES:
         kw = {"name": name, "description": desc, "levels": levels}
         if group:
             kw["summary_group_by"] = group
-        print(call("mem/type_create", **kw))
+        r = call("mem/type_create", **kw)
+        if "已创建" not in r and "已存在" not in r and "ERROR" not in r:
+            print(f"  type_create {name}: {r}")
+        else:
+            print(f"  type_create {name}: {'已存在（跳过）' if '已存在' in r else '已创建'}")
 
     if args.reset:
-        # worklog 由服务启动时播种，同样清空以保证重跑幂等
+        # worklog 由服务启动时播种，同样清空以保证重跑幂等。
+        # 参数名是 type（不是 name）——传错会得到「缺少参数 type」而 truncate 完全不执行。
         for name in ["worklog"] + [t[0] for t in TYPES]:
-            print(f"reset {name}: " + call("mem/truncate", name=name))
+            r = call("mem/truncate", type=name)
+            if "已清空" not in r:
+                print(f"  reset {name}: 失败 → {r}")
+                sys.exit(3)
+            print(f"  reset {name}: {r}")
 
     # ---------- 2) 收集条目（全部带显式 ts），最后统一升序写 ----------
     items = []  # (ts, type, payload, tags)
@@ -175,6 +194,7 @@ def main():
     # ---------- 3) 升序写入（append 拒绝乱序） ----------
     items.sort(key=lambda x: x[0])
     ok = 0
+    fails = []
     seen_ts = {}
     for ts, tname, payload, tags in items:
         # 同 ts 会互相覆盖：给同 (类型,ts) 的第二条起 +1ms
@@ -188,14 +208,27 @@ def main():
         if r.startswith("已追加"):
             ok += 1
         else:
-            print("FAIL:", tname, r[:150])
+            fails.append((tname, ts, r[:160]))
+
     print(f"\n待写 {len(items)} 条，成功 {ok} 条")
+    if fails:
+        # 全量失败时只打印前若干条（避免刷屏），但必须让退出码非 0：
+        # 静默失败会把「脚本本身写错」误诊成「存储层缺陷」。
+        print(f"失败 {len(fails)} 条，前 5 条：")
+        for tname, ts, r in fails[:5]:
+            print(f"  {tname} ts={ts} → {r}")
 
     # ---------- 4) 核对 ----------
+    print()
+    counts = {}
     for name, *_ in TYPES:
         info = call("mem/type_info", name=name)
         line = [x for x in info.splitlines() if "条目数" in x]
-        print(f"{name}: {line[0] if line else info[:80]}")
+        counts[name] = line[0] if line else info[:80]
+        print(f"{name}: {counts[name]}")
+
+    if fails:
+        sys.exit(4)
 
 
 if __name__ == "__main__":

@@ -432,6 +432,51 @@ func handlers_truncateClearsEntries() {
     s.close()
 }
 
+// 契约锁定：TRUNCATE 必须重置写入水位，允许回填**更早**的 ts。
+// 场景：数据脚本重跑时先 truncate 再按历史 ts 重灌。水位若不重置，
+// 这些历史条目会被 out-of-order 全部拒绝，而调用方只看到条数不对。
+// （clearSeries 已按此实现，本用例防它被改成「保留水位」。）
+@Test
+func handlers_truncateResetsWatermarkAllowsBackfill() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"t\"}"))
+    // 先写到较晚的 ts（把水位抬起来）
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"n\":1},\"ts\":1792000000000}"))
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"n\":2},\"ts\":1792000600000}"))
+    @Expect(s.registry.countEntries("t"), Int64(2))
+    // 清空后回填**更早**的 ts：水位应已重置为 0，不该被乱序拒绝
+    handleTruncate(s, argsFromJson("{\"type\":\"t\"}"))
+    @Expect(s.registry.countEntries("t"), Int64(0))
+    let r = handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"n\":3},\"ts\":1791000000000}"))
+    @Expect(r.isError, false)
+    @Expect(s.registry.countEntries("t"), Int64(1))
+    // 继续升序写同样正常
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"n\":4},\"ts\":1791000600000}"))
+    @Expect(s.registry.countEntries("t"), Int64(2))
+    s.close()
+}
+
+// 契约锁定：清空后回填跨越多天的历史条目（数据脚本的真实形态）
+@Test
+func handlers_truncateAllowsFullHistoricalReplay() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"t\"}"))
+    // 第一轮：晚的时间段
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"n\":1},\"ts\":1792000000000}"))
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"n\":2},\"ts\":1792100000000}"))
+    handleTruncate(s, argsFromJson("{\"type\":\"t\"}"))
+    // 第二轮：从更早开始铺满一周（升序）
+    var i = Int64(0)
+    while (i < 7) {
+        let ts = 1791000000000 + i * 86400000
+        let r = handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"n\":${i}},\"ts\":${ts}}"))
+        @Expect(r.isError, false)
+        i += 1
+    }
+    @Expect(s.registry.countEntries("t"), Int64(7))
+    s.close()
+}
+
 @Test
 func handlers_typeDeleteEmptySucceeds() {
     let s = svc()
