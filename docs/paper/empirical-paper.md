@@ -12,7 +12,7 @@
 
 The position paper for Chronomem (忆时塔) specified an evaluation plan and reported no measurements. This paper carries it out. We evaluate a time-layered external memory service — which separates **exact recall** (reference-chain navigation to raw records, no LLM call) from **semantic recall** (reading LLM-generated window summaries) — along three axes: how recall degrades with the age of the fact, how much information the recursive summarization chain preserves, and what the system actually retained over two months of real use.
 
-Three findings. **(1) The recency baseline's failure is structural, not gradual.** A bounded recency window answers perfectly at a one-day lag and then drops to zero, and an ablation over six window sizes shows the cliff tracks capacity (20 items → 1 day; 200 items → 7 days). One-shot compaction scores zero at every lag, including the most recent. Layered exact recall holds 100% across the full 14-day span, with zero variance across seeds. A coarse-summary arm was added after we noticed that the original comparison never exercised the layer the architecture is named for; its results are reported separately (§3.4).
+Three findings. **(1) The recency baseline's failure is structural, not gradual.** A bounded recency window answers perfectly at a one-day lag and then drops to zero, and an ablation over six window sizes shows the cliff tracks capacity (20 items → 1 day; 200 items → 7 days). One-shot compaction scores zero at every lag, including the most recent. Layered exact recall holds 100% across the full 14-day span, with zero variance across seeds. A coarse-summary arm, added after we noticed the original comparison never exercised the layer the architecture is named for, shows the coarse level is not a cheaper version of the fine one: it reads *more* text per question (195 vs 88 client tokens) and answers correctly about a third as often (18.8% vs 53.1%), because compressing six days into one summary drops the pairing between an item and its value while keeping the item's name.
 
 **(2) The recursive step's fidelity depends on input diversity, not on the level.** Measuring the step correctly — same project, same 7-day window — shows that when a project has only one day of summaries in the week, the week summary is *byte-identical* to its input (measured similarity 1.0000 across 755–1112-character texts): 90% token retention with a 0.94x length ratio, i.e. no compression at all. With two or more days of input the step actually compresses (0.53x) and retention falls to 58% for quantities, 48% for causal connectives. Aggregated naively, the single-day cases inflate fidelity from 58% to 81%.
 
@@ -61,7 +61,7 @@ We also report a methodological negative result (§6). We ran independent LLM ju
 
 **Deployment corpus.** The authors' own Chronomem deployment, running continuously since 2026-08-29, single-user. At evaluation time it held 480 work-log records, 1201 agent-activity records and 63 lesson records, with 37 day-level and 6 week-level summary windows for the work log. This corpus has no ground truth, so it is used for *survival* measurements (§4, §5) rather than accuracy.
 
-### 2.2 Four backends under identical input
+### 2.2 Five backends under identical input
 
 | Backend | Mechanism |
 |---|---|
@@ -123,15 +123,34 @@ The synthetic experiments write, so their client **refuses** the production port
 
 | lag (days) | flat-recency | one-shot compaction | **chronomem exact** | **chronomem day** | **chronomem week** |
 |---|---|---|---|---|---|
-| 1 | 100% | 0% | **100%** | **100%** ±0% | *pending* |
-| **2** | **0%** | 0% | **100%** | **100%** ±0% | *pending* |
-| 3–4 | 0% | 0% | **100%** | 91.7% ±14.4 | *pending* |
-| 5–6 | 0% | 0% | **100%** | 58.3% ±38.2 | *pending* |
-| 7–13 | 0% | 0% | **100%** | 54.8% ±18.0 | *pending* |
-| 14–29 | 0% | 0% | **100%** | 77.8% ±25.5 | *pending* |
-| **overall** | 16.7% | **0.0%** | **100.0%** | **80.4%** | *pending* |
+| 1 | 100% | 0% | **100%** | 100% | 0% |
+| 2 | 0% | 0% | **100%** | 50% | 0% |
+| 3–4 | 0% | 0% | **100%** | 25% | 0% |
+| 5–6 | 0% | 0% | **100%** | 25% | 0% |
+| 7–13 | 0% | 0% | **100%** | 57.1% | 28.6% |
+| 14–29 | 0% | 0% | **100%** | 66.7% | 33.3% |
+| **overall** | 6.2% | **0.0%** | **100.0%** | **53.1%** | **18.8%** |
 
-> The `week` column is still being measured and is left as `pending` rather than estimated. Note that the `day` column was produced *before* the coarse arm existed, so it characterises the finest summary level only; whether the coarse level does better or worse on these probes is exactly what the pending column will answer, and we do not predict its direction here.
+Exact recall is 100% in every bucket, as before. The two summary arms are single runs (one seed) and their per-bucket counts are 2–14 probes, so the bucket-level figures are noisy; the totals are the more reliable reading.
+
+**(d) The coarse level is not a cheaper version of the fine one — it is a different trade.** The intuitive story would be "read the week summary, get a shorter answer". The measurement says otherwise:
+
+| arm | accuracy | client tokens/probe | server tokens/probe |
+|---|---|---|---|
+| `chronomem day` | 53.1% | **88** | 37 500 |
+| `chronomem week` | 18.8% | **195** | 43 750 |
+
+The week arm reads *more* text per question, not less, and answers correctly about a third as often. The reason is visible in a single response. Asked which option `ZR01` took on day 1, the day summary says `ZR01 (bob): 选择方案 A`; the week summary says:
+
+> Day 1 至 Day 6 期间，针对 ZT02、ZR01、ZV04、ZU03… 等项目的 … 模块，依次选定 Option A/B/C
+
+Ten reference tokens, one sentence, and **the mapping from token to option is gone**. The week text is longer than the day text (764 vs 343 characters) because it has to mention six days' worth of identifiers — but it mentions them as a list, not as answers.
+
+So the coarse level's cost profile is not "smaller output": it is a **summary of summaries whose compression drops the pairing between an item and its value**, while retaining the items' names. That is consistent with §5.2's finding on real data — identifiers outlive the quantities and mechanisms attached to them — and it means a client that needs a specific fact from a month ago is not simply paying less for a coarser answer; it is paying a similar amount for an answer that may not contain the fact at all.
+
+The layered design is still what makes month-deep recall possible — exact recall is 100% at every lag and the day level retains over half — but the gain does not come from the coarse summary being cheap. It comes from the fine levels remaining available beneath it.
+
+This is the same mechanism §4 characterises from the other direction. There, a week summary built from a *single* day's summary was byte-identical to its input (no compression, no loss); here, a week summary built from six days actively merges them and loses the item-to-value pairing. **The coarse level's fidelity is a function of how much its input varies, and its cost is a function of how much it has to name** — neither follows from the level's position in the hierarchy.
 
 Three observations, in decreasing order of how much they surprise us.
 
@@ -157,17 +176,6 @@ If (a) is a capacity effect, moving the window must move the cliff. Six window s
 | 200 | 20.0 d | ≤7 d | 93.8% |
 
 The cliff moves monotonically (0→1→2→3→5→7). Had it stayed at 2 days regardless of window size, the capacity explanation would be refuted and the difference would require an explanation in terms of the extractor or probe construction. Observed values sit slightly below predicted, for two reasons that are not defects: bucket edges are sparse (the cliff can only land on a boundary, and the intervening bucket requires *all* its probes correct), and the two errors at `top_k=200` are 29-day probes, which a 20-day window cannot cover.
-
-### 3.4 The coarse arm (measurement in progress)
-
-The five-arm run — which adds `chronomem-week`, answering each probe from the week-level summary containing the fact — is still executing at the time of writing. The day-level figures in §3.2 were measured without it and are reported as such.
-
-Two things make this arm worth waiting for rather than inferring:
-
-1. **It is the arm the architecture's claim is actually about.** A client asking about a month-old decision reads a coarse summary, not the day summary of the day the decision was made. If the coarse level answered as well as the day level, that would undercut the reason to keep the finer levels; if it answers much worse, the practical value of a month-deep hierarchy is in question. Both are informative, and neither follows from the day numbers.
-2. **Its expected behaviour is genuinely uncertain.** The day arm reads the window the fact came from, so material and question have the same extent. The week arm reads a window six days larger, so the fact competes with everything else in that week — but it also sees a *summary of summaries*, which on real data sometimes returns its input verbatim (§4). Whether that helps or hurts on these probes is an empirical question.
-
-We report the day column as final and the week column as pending rather than estimating it.
 
 ---
 
@@ -262,7 +270,13 @@ Comparing the whole day's summaries against the whole week's summaries gave the 
 
 Probes originally located their answer by (topic, day). A summary's prose conclusion frequently names several topics and several options in one sentence ("keb and vun were applied options A and C"), so a reader taking the first option letter returns another topic's answer — and the wrong answer is *plausible*, so it does not look like a bug. Every miss the layered backend showed traced to this; with per-fact opaque reference tokens the backend scored 100%.
 
-**Generalisation.** When a backend's failures cluster on one answer value, suspect the reader before the system.
+### 6.2b Trap 3 — packed segments, where the reader returns a neighbouring fact's answer
+
+A summary routinely compresses a day into one line: `- Day 1: ZT02 选方案 B (keb), ZR01 选方案 A (rix)`. A reader that takes the segment's first option answers `ZR01` with `B`. The letter is a valid option in the same segment, so the miss looks like a wrong answer rather than a reader bug — and because summaries pack facts *more* densely as the level coarsens, the artefact grows with the level being measured. It made the coarse arm score 0% at every lag up to six days while the correct options were present in the text.
+
+The fix is positional: locate the reference token and read the option *after* it (or, when the token follows its option, the nearest one before it).
+
+**Generalisation (both traps 2 and 3).** When a backend's failures cluster on one answer value, or when they appear at one level and not another with the right answer visibly present, suspect the reader before the system.
 
 ### 6.3 Negative result — LLM judges overstate loss
 
