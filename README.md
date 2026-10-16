@@ -85,6 +85,57 @@ CHRONOLOG_DIR=~/.chronolog CHRONOLOG_PORT=8900 ./target/release/bin/chronomem.cl
 
 **页面**：总览（统计/类型卡/最近条目流）· 塔视图（粒度链分层可视化 → 时间桶 → 精确下钻原始条目）· 回想（精确回想 / 语义回顾·窗口摘要双模式）· 语义总结（后台任务触发 + SummaryRecord 列表）· 记忆类型（创建/详情/清空/删除守卫）· 追加条目（worklog 模板 + 实时 JSON 预览）。
 
+### 界面一览
+
+> 以下截图取自隔离实例（独立数据目录与端口）的**测试数据**，非真实记忆内容；
+> 重新生成：`python3 docs/ui/scripts/readme_shots.py`。
+
+**总览** — 记忆类型 / 原始条目 / 语义总结规模，类型卡片直接展示粒度链与分组维度：
+
+![总览](docs/assets/console-overview.png)
+
+**塔视图** — 粒度链分层可视化（越久越粗、越久越高），点桶即下钻；完整塔身与当日时间桶：
+
+![塔视图](docs/assets/console-tower.png)
+
+<details>
+<summary>塔视图 · 下钻到原始条目</summary>
+
+右侧为引用链精确下钻的原始条目（零 LLM），长内容给「展开全文」出口：
+
+![塔视图 · 下钻](docs/assets/console-tower-drill.png)
+
+</details>
+
+**回想** — 精确回想直查原始条目；长 outcome 不再截断后无处可看，每条都带「展开全文（N 字节）」与「详情 · 全部字段」：
+
+![回想 · 精确回想](docs/assets/console-recall.png)
+
+**语义总结** — 后台异步触发窗口总结，SummaryRecord 按「决策 / 结论 / 待办 / 状态变更 / 关键词」结构化展示：
+
+![语义总结](docs/assets/console-summary.png)
+
+**记忆类型** — 类型即一条独立 series；创建时可选粒度链，销毁走「清空（TRUNCATE）→ 删除（DROP）」两步守卫：
+
+![记忆类型 · 创建](docs/assets/console-types-dialog.png)
+
+**追加条目** — worklog 模板表单 + 实时 payload 预览，宽松模式不做字段强校验：
+
+![追加条目](docs/assets/console-append.png)
+
+<details>
+<summary>更多截图（类型下拉 / 类型列表）</summary>
+
+类型下拉在深色主题下的适配（选项完整可读，不被压成单字母）：
+
+![塔视图 · 类型下拉](docs/assets/console-tower-select.png)
+
+类型列表：条目数、粒度链、分组维度、自动总结状态一览：
+
+![记忆类型](docs/assets/console-types.png)
+
+</details>
+
 ## Docker 部署
 
 > 镜像 = 产物打包：宿主工具链编译（`cjpm build`，`--static` 无 libcangjie-runtime 依赖）→ COPY 进镜像，镜像内不重编译。
