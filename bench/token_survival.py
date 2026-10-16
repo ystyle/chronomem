@@ -48,13 +48,43 @@ DAY_MS = 86_400_000
 HOUR_MS = 3_600_000
 TYPE = "worklog"
 
+# Timestamps are stripped before quantity extraction. Without this, "09-15
+# 20:49:55" yields 09, 15, 20, 49, 55 as "quantities" and "2024-01-01" yields 01
+# — measured as 11 false positives on a 47-case validation set. Dates and clock
+# times are labels, not evidence.
+TIMESTAMP_RE = re.compile(
+    r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?"
+    r"|\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?"
+    r"|\d{4}-\d{2}-\d{2}")
+
+# Quantities: fractions, ranges with an optional unit, decimals with an optional
+# multiplier or unit suffix. The original pattern required a non-word character
+# after the digits, so it dropped every unit-suffixed figure the corpus actually
+# uses (256MB, 30-60MB, 31x) and matched the year inside sha256.
+# ASCII-only lookarounds on purpose. `\w` matches CJK, so `(?!\w)` rejected
+# `1GB` in "堆上限由 256MB 提到 1GB" — the digit group is fine but the letter
+# after GB is Chinese. Restricting the guards to [A-Za-z0-9_] keeps quantities
+# that sit directly against Chinese text.
 NUMERIC_RE = re.compile(
-    r"(?<![\w.])(?:\d+/\d+|\d+(?:\.\d+)?)(?![\w])")
+    r"(?<![A-Za-z0-9_.])("
+    r"\d+/\d+"
+    r"|\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?)?(?:MB|GB|KB|MiB|GiB|KiB|ms|s|x|%)?"
+    r")(?![A-Za-z0-9_])")
+
+# Identifiers. The original pattern only covered lowercase-initial camelCase and
+# snake_case, so it missed UPPER_SNAKE_CASE, PascalCase, hyphenated names and
+# underscore-prefixed camelCase — 14 of 18 gold identifiers, a recall of 0.22 —
+# which is exactly the class the paper claims survives longest. A detector that
+# blind to identifiers cannot support that claim.
 SYMBOL_RE = re.compile(
-    r"`([^`\n]{2,40})`"
+    r"`([^`\n]{2,60})`"
     r"|(--[a-z][a-z0-9-]{2,})"
-    r"|\b([a-z][a-z0-9]*(?:[A-Z][a-z0-9]+)+)\b"
-    r"|\b([a-z][a-z0-9]{2,}_[a-z0-9_]+)\b")
+    r"|\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b"                     # UPPER_SNAKE
+    r"|\b([A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+)\b"                 # PascalCase
+    r"|\b([a-z][a-z0-9]*(?:[A-Z][a-z0-9]+)+)\b"                 # camelCase
+    r"|\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b"                     # snake_case
+    r"|\b([a-z][a-z0-9]*_[a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*)\b"      # g_runtimeStaticEnd
+    r"|\b([a-z][a-z0-9]+(?:-[a-z0-9]+){1,3})\b")                # hyphenated
 CAUSAL_MARKERS = ["因为", "由于", "根因", "导致", "因此", "所以", "退化成",
                   "原因是", "为了", "避免", "否则"]
 
@@ -68,12 +98,18 @@ def group_text(blob: str) -> dict[str, str]:
 
 def numeric_tokens(text: str) -> set[str]:
     out = set()
-    for m in NUMERIC_RE.finditer(text):
+    for m in NUMERIC_RE.finditer(TIMESTAMP_RE.sub(" ", text)):
         t = m.group(0)
         digits = re.sub(r"\D", "", t)
-        if len(digits) < 2:
+        # A single digit is normally too weak to be evidence ("有 3 个探针"), but
+        # with a unit it is a measured quantity — "1GB" against a 256MB cap is
+        # exactly the kind of comparison the corpus is full of, and dropping it
+        # because the mantissa has one digit loses real information.
+        t = t.rstrip()
+        carries_unit = bool(re.search(r"[A-Za-z%]", t))
+        if len(digits) < 2 and not carries_unit:
             continue
-        if re.fullmatch(r"20\d\d", digits):        # a year is a label
+        if re.fullmatch(r"20\d\d", digits) and not carries_unit:   # a bare year
             continue
         out.add(t)
     return out
@@ -83,8 +119,29 @@ def symbol_tokens(text: str) -> set[str]:
     out = set()
     for m in SYMBOL_RE.finditer(text):
         tok = next((g for g in m.groups() if g), None)
-        if tok and len(tok) >= 3 and not tok.isdigit():
-            out.add(tok.strip())
+        if not tok:
+            continue
+        # A backticked span may hold several identifiers separated by spaces
+        # ("`WritePipeline markFailed`"). Treating it as one token both invents a
+        # composite that never appears verbatim and hides the two real names, so
+        # split on whitespace and keep the parts that look like identifiers.
+        parts = tok.split() if m.group(1) is not None else [tok]
+        for part in parts:
+            part = part.strip().strip("*")
+            # Require an identifier to contain a letter and to have at least one
+            # character beyond punctuation. Without this, markdown emphasis
+            # (`*jsonBridge*`) and list markers (`(c)`) get counted as
+            # identifiers, which inflates symbol survival — measured on the real
+            # corpus as a jump to 1547 tokens including such fragments.
+            if len(part) < 3 or part.isdigit():
+                continue
+            if not re.search(r"[A-Za-z_]", part):
+                continue
+            if not re.search(r"[A-Za-z]", part.rstrip("-")):
+                continue
+            if part.endswith("-"):
+                continue
+            out.add(part)
     return out
 
 

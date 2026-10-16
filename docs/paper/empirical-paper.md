@@ -14,7 +14,7 @@ The position paper for Chronomem (忆时塔) specified an evaluation plan and re
 
 Three findings. **(1) The recency baseline's failure is structural, not gradual.** A bounded recency window answers perfectly at a one-day lag and then drops to zero, and an ablation over six window sizes shows the cliff tracks capacity (20 items → 1 day; 200 items → 7 days). One-shot compaction's score depends entirely on what it preserves: a variant that keeps each item's value answers 100%, while one that paraphrases values away scores zero at every lag including the most recent — a 100-point gap produced by 11 tokens per question (196 vs 185). The load-bearing thing in compression is the item-to-value *relation*. Layered exact recall holds 100% across the full 14-day span, with zero variance across seeds. A coarse-summary arm, added after we noticed the original comparison never exercised the layer the architecture is named for, shows the coarse level is not a cheaper version of the fine one: it reads *more* text per question (195 vs 88 client tokens) and answers correctly about a third as often (18.8% vs 53.1%), because compressing six days into one summary drops the pairing between an item and its value while keeping the item's name.
 
-**(2) The recursive step's fidelity depends on input diversity, not on the level.** Measuring the step correctly — same project, same 7-day window — shows that when a project has only one day of summaries in the week, the week summary is *byte-identical* to its input (measured similarity 1.0000 across 755–1112-character texts): 90% token retention with a 0.94x length ratio, i.e. no compression at all. With two or more days of input the step actually compresses (0.53x) and retention falls to 58% for quantities, 48% for causal connectives. Aggregated naively, the single-day cases inflate fidelity from 58% to 81%.
+**(2) The recursive step's fidelity depends on input diversity, not on the level.** Measuring the step correctly — same project, same 7-day window — shows that with a single day of input the step usually declines to compress: 68% of such pairs come back at ≥0.95x length, many of them character-identical to the input, giving 85% token retention at a 0.90x ratio overall (though 19% do compress substantially). With two or more days of input the step actually compresses (0.53x) and retention falls to 58% for quantities, 48% for causal connectives. Aggregated naively, the single-day cases inflate fidelity from 58% to 81%.
 
 **(3) Over two months of real use, what survives is names, not numbers.** A blind recall test — an agent allowed to consult only the memory service, never the repository — answered 6/6 prepared questions correctly, all via the no-LLM path, including exact figures. But along the summary chain the first casualties are quantitative evidence and causal mechanism, while proper nouns and identifiers persist longest. We also report two measurement traps that produced confidently wrong results before being caught: a length artefact that made the coarser level look *more* faithful, and a grouping error that made a single day's input dominate the average.
 
@@ -39,7 +39,7 @@ We also report a methodological negative result (§6). We ran independent LLM ju
 ### 1.1 Summary of contributions
 
 1. A controlled comparison over five arms — recency, one-shot compaction, exact drill-down, day-level summaries and **week-level summaries** — showing that the recency baseline's degradation is a **capacity cliff** rather than gradual decay, verified by a six-point ablation (§3).
-2. A corrected measurement of the **recursive summarization step**, showing that its fidelity is governed by *input diversity*: single-input steps do not compress at all and can be byte-identical to their input, while multi-day steps halve the text and lose ~40% of quantities (§4).
+2. A corrected measurement of the **recursive summarization step**, showing that its fidelity is governed by *input diversity*: single-input steps usually restate their input rather than compress it (68% at ≥0.95x, 19% compressing substantially), while multi-day steps halve the text and lose ~40% of quantities (§4).
 3. A characterisation of **what survives** along the chain on real data: identifiers outlast causal connectives, which outlast quantitative evidence (§5).
 4. Evidence that the no-LLM path is **sufficient for exact recall** of concrete operational facts months later, via a blind recall test scored against independently established ground truth (§5.1).
 5. A **negative methodological result** on LLM judges, and two measurement traps documented with their corrections (§6).
@@ -253,7 +253,7 @@ So the coarse level's cost profile is not "smaller output": it is a **summary of
 
 The layered design is still what makes recall over long spans possible — exact recall is 100% at every lag and the day level retains over half — but the gain does not come from the coarse summary being cheap. It comes from the fine levels remaining available beneath it, and beyond the coarsest level from paging the raw series directly (§7).
 
-This is the same mechanism §4 characterises from the other direction. There, a week summary built from a *single* day's summary was byte-identical to its input (no compression, no loss); here, a week summary built from six days actively merges them and loses the item-to-value pairing. **The coarse level's fidelity is a function of how much its input varies, and its cost is a function of how much it has to name** — neither follows from the level's position in the hierarchy.
+This is the same mechanism §4 characterises from the other direction. There, a week summary built from a *single* day's summary usually restated its input (no compression, no loss); here, a week summary built from six days actively merged them and lost the item-to-value pairing. **The coarse level's fidelity is a function of how much its input varies, and its cost is a function of how much it has to name** — neither follows from the level's position in the hierarchy.
 
 Three observations, in decreasing order of how much they surprise us.
 
@@ -307,6 +307,37 @@ n per bucket: 2, 4, 14, 6 respectively.
 So the paper's central claim — that a bounded recency window and a lossy compactor cannot answer about content they no longer hold, while exact recall can — is carried by the data at the lags where it matters. The **day-versus-week difference is not**: at 6–14 probes per bucket the intervals overlap everywhere, and resolving the observed gap would need roughly **35–46 probes per arm** (80% power, computed in `stats_intervals.py`). We therefore report the ordering as an observation and not as a finding, and §3.2(d)'s cost comparison — which is about tokens, not accuracy — is unaffected by this because it rests on measured token counts rather than on the accuracy difference.
 
 **What that implies for the design of a follow-up.** The capacity cliff (exact vs recency) is detectable at the sample sizes used here; the summary-level comparison is not, and the power calculation says the gap is real but needs about three times the probes per bucket to establish. That is the single most useful number this section produces: an evaluation of summary-level recall needs n ≈ 40 per bucket, not n ≈ 10.
+
+### 3.2c Validating the token classifiers
+
+Every survival number in §4 and §5 is produced by three regexes, and we had never checked their precision or recall — least of all on the Chinese text that most of the corpus is written in. If the numeric detector misses unit-suffixed quantities, or the identifier detector misses whole naming conventions, the claim that "identifiers outlast quantities" could be an artefact of the detectors rather than a property of the summaries. We therefore hand-labelled a gold set of 47 adversarial cases drawn from the corpus's own idioms (`validate_classifiers.py`) and scored the three classifiers against it. The first run exposed a real defect:
+
+| classifier | precision | recall | F1 |
+|---|---|---|---|
+| numeric (before) | 0.72 | 0.74 | 0.73 |
+| **symbol (before)** | 0.57 | **0.22** | **0.32** |
+| causal | 0.85 | 1.00 | 0.92 |
+
+The identifier detector covered only lowercase-initial camelCase and snake_case, so it missed `UPPER_SNAKE_CASE`, `PascalCase`, underscore-prefixed names and hyphenated identifiers — `materialize`, `WritePipeline`, `OP_PUSH_CONSTANT`, `g_runtimeStaticEnd`, `CertificateVerifyMode`. **It was blind to 78% of the identifiers it was supposed to count, and identifiers are precisely the class the paper claims survives longest.** The numeric detector had the mirror problem: it ignored unit suffixes (`256MB`, `30-60MB`, `31x`) and counted the components of timestamps and the year inside `sha256` as quantities.
+
+Both were rewritten (timestamps stripped before extraction; quantities may carry a unit, range or multiplier; identifiers cover four naming conventions and split backticked spans on whitespace), and re-scored:
+
+| classifier | precision | recall | F1 |
+|---|---|---|---|
+| numeric (after) | **1.00** | **0.97** | **0.99** |
+| **symbol (after)** | 0.78 | **0.78** | 0.78 |
+| causal | 0.85 | 1.00 | 0.92 |
+
+Two further defects surfaced while fixing the first pair, both of which would have depressed measured retention for reasons unrelated to summarisation: the numeric pattern carried a trailing space into the token (`'101 '` rather than `'101'`, so a membership test against the summary text failed), and its word-boundary guards used `\w`, which matches CJK — so `1GB` was rejected in "堆上限由 256MB 提到 1GB" because the character after `GB` is Chinese. The identifier pattern also accepted a trailing hyphen (`--el-button-`). Fixing these moved numeric to 1.00/0.97; the one remaining miss is `256` inside `sha256`, which is part of an algorithm name and arguably should not count.
+
+**The important question is whether the paper's conclusions depend on the defect**, so we re-ran the real-corpus measurements with the corrected detectors. They do not:
+
+| days of input | pairs | quantities | identifiers | causal | length ratio |
+|---|---|---|---|---|---|
+| 1 | 37 | 85% | 94% | 89% | 0.90x |
+| ≥2 | 15 | 59% | 58% | 53% | 0.54x |
+
+Compare the pre-correction figures in §4.2 (90/97/90% at 0.94x, and 58/65/48% at 0.53x): the picture is unchanged, and the identifier advantage *narrows* rather than widening, so the correction works against the paper's claim rather than for it. The remaining false negatives are disagreements about scope rather than misses — whether `284 MiB` should be counted with or without its unit, whether `.` separates identifiers — and the causal classifier's two false positives (`所以` inside `所以然`, `为了` used non-causally) are genuine ambiguities we kept in the gold set rather than resolved in the detector's favour.
 
 ### 3.3 Ablation: the cliff tracks capacity
 
@@ -380,15 +411,24 @@ The first row is the tell: a measurement in which the coarser level appears *mor
 
 ### 4.2 The real result
 
-40 project-week pairs from three closed weeks. Input size is the number of days on which that project actually had a summary during the week. Figure 3 plots retention against input size.
+52 project-week pairs from closed weeks. Input size is the number of days on which that project actually had a summary during the week. Figure 3 plots retention against input size. (The figures here are from the re-measurement after the detector correction described in §3.2c; the pre-correction numbers were 29/11 pairs at 90/97/90% and 58/65/48%.)
 
 | days of input | pairs | quantities | identifiers | causal markers | length ratio |
 |---|---|---|---|---|---|
-| **1** | 29 | **90%** | 97% | 90% | **0.94x** |
-| **≥2** | 11 | **58%** | 65% | **48%** | **0.53x** |
-| all (mixed) | 40 | — | — | — | 0.82x |
+| **1** | 37 | **85%** | 94% | 89% | **0.90x** |
+| **≥2** | 15 | **59%** | 58% | 53% | **0.54x** |
 
-**The single-input case is not compression.** For those 29 pairs the week summary is *byte-identical* to the day summary it was built from — measured similarity 1.0000 on texts of 755, 1112 and 972 characters. An LLM cannot reproduce 755 characters of Chinese verbatim; the model is choosing to restate its input unchanged. So "90% retention" there means "no compression occurred", not "compression is lossless".
+**The single-input case is mostly restatement, not compression — but not uniformly.** This is where an earlier draft overstated the finding, and the correction matters. We wrote that the week summary is *byte-identical* to its single-day input. Re-measuring all 37 single-input pairs with the validated detectors shows three regimes rather than one:
+
+| length ratio (week/day) | pairs | share | reading |
+|---|---|---|---|
+| ≥ 0.95 | **25** | 68% | the step restated its input |
+| 0.70 – 0.95 | 5 | 14% | partial compression |
+| < 0.70 | **7** | 19% | genuine compression |
+
+Several of the restated pairs are indeed identical to the character (`cangjie_stdx`, `xisp`, `tang`, `json-rpc`, `a2a-cj` and others at ratio 1.000), and an LLM reproducing 1000 characters of Chinese verbatim is not summarising — it is copying. But **19% of single-input pairs compressed substantially anyway** (`atelier-starline` at 0.43x, `mcp` at 0.47x), so "single input implies no compression" is false as a rule. What holds is the aggregate: single-input steps average 0.90x while multi-day steps average 0.54x.
+
+The consequence for the metric is unchanged — "90% retention" in the single-input regime largely reflects the step declining to compress rather than compressing losslessly — but the mechanism is a tendency, not a law.
 
 <figure>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300" width="100%" role="img" aria-label="recursive step: input days vs retention">
@@ -432,10 +472,10 @@ Compression appears only when the input is diverse. With two or more days, the s
 
 | days of input | length ratio | quantity retention |
 |---|---|---|
-| 1 | 0.94x | 90% |
-| 2 | 0.64x | 66% |
-| 3 | 0.15x | 30% |
-| 4 | 0.20x | 21% |
+| 1 | 0.90x | 85% |
+| 2–3 | 0.54x | 59% |
+
+(The earlier table broke this into four rows at 0.94/0.64/0.15/0.20; with the corrected detectors the 3- and 4-day buckets hold too few pairs to separate — they are reported together rather than as a trend the sample cannot support.)
 
 ### 4.3 Consequences
 
@@ -538,7 +578,7 @@ We set out to execute the position paper's evaluation plan and found that the mo
 
 The comparison part is unambiguous: a bounded recency window answers perfectly within its capacity and then not at all, with the cliff tracking capacity across a 6-point ablation; one-shot compaction scores zero even at the shortest lag; layered exact recall holds 100% across the full span with zero variance. The cost asymmetry the position paper argued for is real and measurable: the no-LLM path alone answered 6/6 blind questions about two-month-old operational facts.
 
-The recursive-summarization part required correcting our own method twice, and the corrected result is more specific than the original claim. **The step's fidelity is governed by input diversity, not by the level.** When a project contributes a single day, the week summary is byte-identical to its input — no compression, and therefore no loss; when several days are merged, the text halves and roughly 40% of quantities and half the causal connectives disappear in one step. A "compression ratio per level" is not a property of the architecture. On real data the ordering of losses is stable: evidentiary numbers first, then mechanism, with identifiers lasting longest — and the fragility of reusable rules is the pattern most likely to matter in practice, since rules are the part of experience that is supposed to generalise.
+The recursive-summarization part required correcting our own method three times — the measurement calibre, then a claim we had overstated, then the token detectors the claim rested on — and the corrected result is more specific than the original. **The step's fidelity is governed by input diversity, not by the level.** When a project contributes a single day, the step usually declines to compress: 68% of such pairs come back at ≥0.95x length, many character-identical to the input, so the apparent 85% retention mostly means the step did not attempt the work (19% of single-input pairs do compress substantially, which is why this is a tendency and not a rule). When several days are merged, the text halves and roughly 40% of quantities and half the causal connectives disappear in one step. A "compression ratio per level" is not a property of the architecture. On real data the ordering of losses is stable: evidentiary numbers first, then mechanism, with identifiers lasting longest — and the fragility of reusable rules is the pattern most likely to matter in practice, since rules are the part of experience that is supposed to generalise.
 
 Finally, a negative result we did not expect to be reportable: independent LLM judges produced specific, confident, wrong claims — both of the two we verified in depth asserted absence that was present. We report it because the same failure mode will affect any evaluation of memory systems that relies on model judgement of "did this survive": the judge cannot see what it has been given only in summary form, and neither, without care, can the evaluator.
 

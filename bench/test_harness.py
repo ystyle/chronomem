@@ -24,6 +24,7 @@ import unittest
 import backends
 import gen_trace
 import run_eval
+from token_survival import numeric_tokens, symbol_tokens
 from backends import (ChronomemBackend, FlatBackend, CompactionBackend,
                       BASE_MS, TZ_SHIFT_MS, DAY_MS, HOUR_MS)
 
@@ -410,3 +411,47 @@ class TestConservativeCompaction(unittest.TestCase):
         joined = " ".join(b.pairs)
         self.assertNotIn("trade-offs", joined, "context should be dropped")
         self.assertIn("ZR01", joined, "the pair must survive")
+
+class TestTokenClassifiers(unittest.TestCase):
+    """The classifiers the survival numbers rest on.
+
+    Validated against a hand-labelled gold set after the reviewer asked whether
+    anyone had checked them. The first check found the identifier detector at
+    0.22 recall — blind to UPPER_SNAKE_CASE, PascalCase and hyphenated names,
+    i.e. to most of the class the paper claims survives longest.
+    """
+
+    def test_upper_snake_and_pascal_case_are_identifiers(self):
+        for tok in ("OP_PUSH_CONSTANT", "WritePipeline", "CertificateVerifyMode",
+                    "g_runtimeStaticEnd", "MRT_REPORT"):
+            self.assertIn(tok, symbol_tokens(f"提到 {tok} 的实现"), tok)
+
+    def test_hyphenated_flag_is_an_identifier(self):
+        self.assertIn("--sleep-idle-seconds",
+                      symbol_tokens("用 --sleep-idle-seconds 900"))
+
+    def test_backticked_span_splits_into_separate_names(self):
+        got = symbol_tokens("`WritePipeline markFailed` 抛异常")
+        self.assertIn("WritePipeline", got)
+        self.assertIn("markFailed", got)
+
+    def test_markdown_noise_is_not_an_identifier(self):
+        got = symbol_tokens("*jsonBridge* 和 (c) 以及 --el-button-")
+        self.assertIn("jsonBridge", got)
+        self.assertNotIn("(c)", got)
+        self.assertNotIn("--el-button-", got)
+
+    def test_timestamps_are_not_quantities(self):
+        # 09-15 20:49:55 used to yield 09, 15, 20, 49, 55 as "quantities".
+        for text in ("09-15 20:49:55 写路径失败", "2024-01-01 发布",
+                     "2026-10-16T05:12:45 materialize"):
+            self.assertEqual(numeric_tokens(text), set(), text)
+
+    def test_unit_suffixed_quantities_are_kept(self):
+        for text, want in (("堆上限由 256MB 提到 1GB", {"256MB", "1GB"}),
+                           ("存活量仅 30-60MB", {"30-60MB"}),
+                           ("5.1x vs 31x", {"5.1x", "31x"})):
+            self.assertEqual(numeric_tokens(text), want, text)
+
+    def test_bare_years_remain_excluded(self):
+        self.assertEqual(numeric_tokens("2026 年的部署"), set())

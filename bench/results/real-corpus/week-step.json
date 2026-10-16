@@ -1,20 +1,20 @@
 {
- "pairs": 40,
+ "pairs": 52,
  "aggregate": {
   "numeric": {
-   "pairs": 38,
-   "mean": 0.807885649722684,
-   "std": 0.30076376609811495
+   "pairs": 47,
+   "mean": 0.768171419765102,
+   "std": 0.3194467712435653
   },
   "symbol": {
-   "pairs": 37,
-   "mean": 0.8768768768768769,
-   "std": 0.2481913779146695
+   "pairs": 52,
+   "mean": 0.8356857394382894,
+   "std": 0.2771304775989114
   },
   "causal": {
-   "pairs": 24,
-   "mean": 0.7430555555555555,
-   "std": 0.42272170430611367
+   "pairs": 31,
+   "mean": 0.7526881720430108,
+   "std": 0.41021892922252273
   }
  },
  "rows": [
@@ -25,13 +25,13 @@
    "day_chars": 1044,
    "week_chars": 1033,
    "numeric": {
-    "day_n": 2,
-    "kept": 2,
+    "day_n": 3,
+    "kept": 3,
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 7,
-    "kept": 7,
+    "day_n": 13,
+    "kept": 13,
     "rate": 1.0
    },
    "causal": {
@@ -52,9 +52,9 @@
     "rate": 0.0
    },
    "symbol": {
-    "day_n": 1,
-    "kept": 1,
-    "rate": 1.0
+    "day_n": 7,
+    "kept": 6,
+    "rate": 0.8571428571428571
    },
    "causal": {
     "day_n": 0,
@@ -74,9 +74,9 @@
     "rate": 0.8571428571428571
    },
    "symbol": {
-    "day_n": 2,
+    "day_n": 3,
     "kept": 2,
-    "rate": 1.0
+    "rate": 0.6666666666666666
    },
    "causal": {
     "day_n": 0,
@@ -91,14 +91,14 @@
    "day_chars": 796,
    "week_chars": 792,
    "numeric": {
-    "day_n": 9,
-    "kept": 9,
+    "day_n": 6,
+    "kept": 6,
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 0,
-    "kept": 0,
-    "rate": null
+    "day_n": 3,
+    "kept": 3,
+    "rate": 1.0
    },
    "causal": {
     "day_n": 1,
@@ -113,13 +113,13 @@
    "day_chars": 1476,
    "week_chars": 1471,
    "numeric": {
-    "day_n": 6,
-    "kept": 6,
+    "day_n": 8,
+    "kept": 8,
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 1,
-    "kept": 1,
+    "day_n": 10,
+    "kept": 10,
     "rate": 1.0
    },
    "causal": {
@@ -140,9 +140,9 @@
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 1,
-    "kept": 1,
-    "rate": 1.0
+    "day_n": 8,
+    "kept": 5,
+    "rate": 0.625
    },
    "causal": {
     "day_n": 1,
@@ -157,13 +157,13 @@
    "day_chars": 5011,
    "week_chars": 4430,
    "numeric": {
-    "day_n": 29,
-    "kept": 28,
-    "rate": 0.9655172413793104
+    "day_n": 31,
+    "kept": 30,
+    "rate": 0.967741935483871
    },
    "symbol": {
-    "day_n": 34,
-    "kept": 34,
+    "day_n": 42,
+    "kept": 42,
     "rate": 1.0
    },
    "causal": {
@@ -184,9 +184,9 @@
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 0,
-    "kept": 0,
-    "rate": null
+    "day_n": 2,
+    "kept": 2,
+    "rate": 1.0
    },
    "causal": {
     "day_n": 0,
@@ -206,8 +206,8 @@
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 9,
-    "kept": 9,
+    "day_n": 16,
+    "kept": 16,
     "rate": 1.0
    },
    "causal": {
@@ -223,14 +223,14 @@
    "day_chars": 1043,
    "week_chars": 782,
    "numeric": {
-    "day_n": 3,
-    "kept": 2,
-    "rate": 0.6666666666666666
+    "day_n": 4,
+    "kept": 3,
+    "rate": 0.75
    },
    "symbol": {
-    "day_n": 6,
-    "kept": 3,
-    "rate": 0.5
+    "day_n": 11,
+    "kept": 6,
+    "rate": 0.5454545454545454
    },
    "causal": {
     "day_n": 1,
@@ -245,13 +245,13 @@
    "day_chars": 738,
    "week_chars": 730,
    "numeric": {
-    "day_n": 3,
-    "kept": 3,
+    "day_n": 1,
+    "kept": 1,
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 1,
-    "kept": 1,
+    "day_n": 5,
+    "kept": 5,
     "rate": 1.0
    },
    "causal": {
@@ -267,13 +267,13 @@
    "day_chars": 758,
    "week_chars": 758,
    "numeric": {
-    "day_n": 7,
-    "kept": 7,
+    "day_n": 6,
+    "kept": 6,
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 4,
-    "kept": 4,
+    "day_n": 5,
+    "kept": 5,
     "rate": 1.0
    },
    "causal": {
@@ -294,9 +294,9 @@
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 16,
-    "kept": 16,
-    "rate": 1.0
+    "day_n": 19,
+    "kept": 18,
+    "rate": 0.9473684210526315
    },
    "causal": {
     "day_n": 0,
@@ -316,8 +316,8 @@
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 1,
-    "kept": 1,
+    "day_n": 7,
+    "kept": 7,
     "rate": 1.0
    },
    "causal": {
@@ -338,9 +338,9 @@
     "rate": 0.6666666666666666
    },
    "symbol": {
-    "day_n": 40,
-    "kept": 18,
-    "rate": 0.45
+    "day_n": 35,
+    "kept": 17,
+    "rate": 0.4857142857142857
    },
    "causal": {
     "day_n": 2,
@@ -360,8 +360,8 @@
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 1,
-    "kept": 1,
+    "day_n": 5,
+    "kept": 5,
     "rate": 1.0
    },
    "causal": {
@@ -382,8 +382,8 @@
     "rate": 0.5
    },
    "symbol": {
-    "day_n": 2,
-    "kept": 2,
+    "day_n": 4,
+    "kept": 4,
     "rate": 1.0
    },
    "causal": {
@@ -404,9 +404,9 @@
     "rate": 0.5
    },
    "symbol": {
-    "day_n": 4,
-    "kept": 3,
-    "rate": 0.75
+    "day_n": 5,
+    "kept": 4,
+    "rate": 0.8
    },
    "causal": {
     "day_n": 1,
@@ -426,8 +426,8 @@
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 3,
-    "kept": 3,
+    "day_n": 6,
+    "kept": 6,
     "rate": 1.0
    },
    "causal": {
@@ -443,14 +443,14 @@
    "day_chars": 4965,
    "week_chars": 981,
    "numeric": {
-    "day_n": 29,
-    "kept": 6,
-    "rate": 0.20689655172413793
+    "day_n": 28,
+    "kept": 5,
+    "rate": 0.17857142857142858
    },
    "symbol": {
-    "day_n": 36,
-    "kept": 13,
-    "rate": 0.3611111111111111
+    "day_n": 53,
+    "kept": 16,
+    "rate": 0.3018867924528302
    },
    "causal": {
     "day_n": 3,
@@ -470,9 +470,9 @@
     "rate": 0.4117647058823529
    },
    "symbol": {
-    "day_n": 10,
-    "kept": 8,
-    "rate": 0.8
+    "day_n": 12,
+    "kept": 9,
+    "rate": 0.75
    },
    "causal": {
     "day_n": 0,
@@ -487,13 +487,13 @@
    "day_chars": 694,
    "week_chars": 693,
    "numeric": {
-    "day_n": 3,
-    "kept": 3,
+    "day_n": 4,
+    "kept": 4,
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 13,
-    "kept": 13,
+    "day_n": 12,
+    "kept": 12,
     "rate": 1.0
    },
    "causal": {
@@ -536,8 +536,8 @@
     "rate": null
    },
    "symbol": {
-    "day_n": 2,
-    "kept": 2,
+    "day_n": 5,
+    "kept": 5,
     "rate": 1.0
    },
    "causal": {
@@ -558,8 +558,8 @@
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 6,
-    "kept": 6,
+    "day_n": 10,
+    "kept": 10,
     "rate": 1.0
    },
    "causal": {
@@ -580,8 +580,8 @@
     "rate": null
    },
    "symbol": {
-    "day_n": 3,
-    "kept": 3,
+    "day_n": 4,
+    "kept": 4,
     "rate": 1.0
    },
    "causal": {
@@ -602,8 +602,8 @@
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 1,
-    "kept": 1,
+    "day_n": 7,
+    "kept": 7,
     "rate": 1.0
    },
    "causal": {
@@ -624,9 +624,9 @@
     "rate": 0.625
    },
    "symbol": {
-    "day_n": 0,
-    "kept": 0,
-    "rate": null
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
    },
    "causal": {
     "day_n": 0,
@@ -641,14 +641,14 @@
    "day_chars": 2010,
    "week_chars": 296,
    "numeric": {
-    "day_n": 10,
+    "day_n": 13,
     "kept": 2,
-    "rate": 0.2
+    "rate": 0.15384615384615385
    },
    "symbol": {
-    "day_n": 12,
-    "kept": 1,
-    "rate": 0.08333333333333333
+    "day_n": 16,
+    "kept": 2,
+    "rate": 0.125
    },
    "causal": {
     "day_n": 2,
@@ -663,13 +663,13 @@
    "day_chars": 670,
    "week_chars": 667,
    "numeric": {
-    "day_n": 2,
-    "kept": 2,
+    "day_n": 4,
+    "kept": 4,
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 1,
-    "kept": 1,
+    "day_n": 6,
+    "kept": 6,
     "rate": 1.0
    },
    "causal": {
@@ -690,9 +690,9 @@
     "rate": 0.4
    },
    "symbol": {
-    "day_n": 2,
-    "kept": 1,
-    "rate": 0.5
+    "day_n": 16,
+    "kept": 2,
+    "rate": 0.125
    },
    "causal": {
     "day_n": 1,
@@ -712,8 +712,8 @@
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 5,
-    "kept": 5,
+    "day_n": 9,
+    "kept": 9,
     "rate": 1.0
    },
    "causal": {
@@ -734,9 +734,9 @@
     "rate": 0.2
    },
    "symbol": {
-    "day_n": 4,
-    "kept": 1,
-    "rate": 0.25
+    "day_n": 13,
+    "kept": 2,
+    "rate": 0.15384615384615385
    },
    "causal": {
     "day_n": 1,
@@ -756,8 +756,8 @@
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 19,
-    "kept": 19,
+    "day_n": 30,
+    "kept": 30,
     "rate": 1.0
    },
    "causal": {
@@ -778,8 +778,8 @@
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 13,
-    "kept": 13,
+    "day_n": 20,
+    "kept": 20,
     "rate": 1.0
    },
    "causal": {
@@ -800,8 +800,8 @@
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 4,
-    "kept": 4,
+    "day_n": 8,
+    "kept": 8,
     "rate": 1.0
    },
    "causal": {
@@ -822,8 +822,8 @@
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 1,
-    "kept": 1,
+    "day_n": 2,
+    "kept": 2,
     "rate": 1.0
    },
    "causal": {
@@ -844,8 +844,8 @@
     "rate": 1.0
    },
    "symbol": {
-    "day_n": 10,
-    "kept": 10,
+    "day_n": 12,
+    "kept": 12,
     "rate": 1.0
    },
    "causal": {
@@ -866,9 +866,9 @@
     "rate": 0.5
    },
    "symbol": {
-    "day_n": 8,
-    "kept": 6,
-    "rate": 0.75
+    "day_n": 12,
+    "kept": 10,
+    "rate": 0.8333333333333334
    },
    "causal": {
     "day_n": 1,
@@ -883,8 +883,30 @@
    "day_chars": 618,
    "week_chars": 618,
    "numeric": {
-    "day_n": 2,
-    "kept": 2,
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   },
+   "symbol": {
+    "day_n": 5,
+    "kept": 5,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-09-14",
+   "proj": "atelier",
+   "days_in_week": 1,
+   "day_chars": 908,
+   "week_chars": 904,
+   "numeric": {
+    "day_n": 1,
+    "kept": 1,
     "rate": 1.0
    },
    "symbol": {
@@ -896,6 +918,248 @@
     "day_n": 0,
     "kept": 0,
     "rate": null
+   }
+  },
+  {
+   "week": "2026-09-14",
+   "proj": "atelier-lumine",
+   "days_in_week": 1,
+   "day_chars": 907,
+   "week_chars": 896,
+   "numeric": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   },
+   "symbol": {
+    "day_n": 13,
+    "kept": 13,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 2,
+    "kept": 2,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-09-14",
+   "proj": "cjreg",
+   "days_in_week": 3,
+   "day_chars": 3456,
+   "week_chars": 2245,
+   "numeric": {
+    "day_n": 15,
+    "kept": 12,
+    "rate": 0.8
+   },
+   "symbol": {
+    "day_n": 28,
+    "kept": 23,
+    "rate": 0.8214285714285714
+   },
+   "causal": {
+    "day_n": 4,
+    "kept": 4,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-09-14",
+   "proj": "liveboard",
+   "days_in_week": 1,
+   "day_chars": 1174,
+   "week_chars": 801,
+   "numeric": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   },
+   "symbol": {
+    "day_n": 6,
+    "kept": 6,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-09-14",
+   "proj": "atelier-starline",
+   "days_in_week": 1,
+   "day_chars": 1740,
+   "week_chars": 742,
+   "numeric": {
+    "day_n": 3,
+    "kept": 0,
+    "rate": 0.0
+   },
+   "symbol": {
+    "day_n": 17,
+    "kept": 10,
+    "rate": 0.5882352941176471
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-09-14",
+   "proj": "workspace",
+   "days_in_week": 2,
+   "day_chars": 2850,
+   "week_chars": 1177,
+   "numeric": {
+    "day_n": 6,
+    "kept": 5,
+    "rate": 0.8333333333333334
+   },
+   "symbol": {
+    "day_n": 11,
+    "kept": 6,
+    "rate": 0.5454545454545454
+   },
+   "causal": {
+    "day_n": 3,
+    "kept": 0,
+    "rate": 0.0
+   }
+  },
+  {
+   "week": "2026-09-14",
+   "proj": "atelier-yggdrasil",
+   "days_in_week": 1,
+   "day_chars": 1064,
+   "week_chars": 712,
+   "numeric": {
+    "day_n": 3,
+    "kept": 2,
+    "rate": 0.6666666666666666
+   },
+   "symbol": {
+    "day_n": 14,
+    "kept": 13,
+    "rate": 0.9285714285714286
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-09-14",
+   "proj": "cjxt",
+   "days_in_week": 2,
+   "day_chars": 1168,
+   "week_chars": 437,
+   "numeric": {
+    "day_n": 8,
+    "kept": 1,
+    "rate": 0.125
+   },
+   "symbol": {
+    "day_n": 5,
+    "kept": 0,
+    "rate": 0.0
+   },
+   "causal": {
+    "day_n": 0,
+    "kept": 0,
+    "rate": null
+   }
+  },
+  {
+   "week": "2026-09-14",
+   "proj": "badgercj",
+   "days_in_week": 1,
+   "day_chars": 1677,
+   "week_chars": 1450,
+   "numeric": {
+    "day_n": 14,
+    "kept": 11,
+    "rate": 0.7857142857142857
+   },
+   "symbol": {
+    "day_n": 8,
+    "kept": 8,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-09-14",
+   "proj": "mcp",
+   "days_in_week": 1,
+   "day_chars": 1483,
+   "week_chars": 695,
+   "numeric": {
+    "day_n": 10,
+    "kept": 4,
+    "rate": 0.4
+   },
+   "symbol": {
+    "day_n": 15,
+    "kept": 7,
+    "rate": 0.4666666666666667
+   },
+   "causal": {
+    "day_n": 2,
+    "kept": 1,
+    "rate": 0.5
+   }
+  },
+  {
+   "week": "2026-09-14",
+   "proj": "chronomem",
+   "days_in_week": 2,
+   "day_chars": 1920,
+   "week_chars": 1577,
+   "numeric": {
+    "day_n": 23,
+    "kept": 18,
+    "rate": 0.782608695652174
+   },
+   "symbol": {
+    "day_n": 9,
+    "kept": 8,
+    "rate": 0.8888888888888888
+   },
+   "causal": {
+    "day_n": 3,
+    "kept": 3,
+    "rate": 1.0
+   }
+  },
+  {
+   "week": "2026-09-14",
+   "proj": "tang",
+   "days_in_week": 1,
+   "day_chars": 1110,
+   "week_chars": 1110,
+   "numeric": {
+    "day_n": 9,
+    "kept": 9,
+    "rate": 1.0
+   },
+   "symbol": {
+    "day_n": 3,
+    "kept": 3,
+    "rate": 1.0
+   },
+   "causal": {
+    "day_n": 1,
+    "kept": 1,
+    "rate": 1.0
    }
   }
  ]

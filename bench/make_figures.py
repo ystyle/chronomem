@@ -189,9 +189,13 @@ def figure_ablation(rows: list[dict], lang: str = "en") -> str:
 def figure_week_step(rows: list[dict], lang: str = "en") -> str:
     """Recursive step: input days vs quantity retention and length ratio."""
     import statistics
+    # Bucket to 1 / 2 / >=3. The raw per-day buckets above 2 hold 1-3 pairs each,
+    # which is too few to plot as separate points without implying a trend the
+    # sample cannot support; the paper's own table reports them together.
     by: dict[int, list[dict]] = {}
     for r in rows:
-        by.setdefault(r["days_in_week"], []).append(r)
+        k = r["days_in_week"]
+        by.setdefault(k if k <= 2 else 3, []).append(r)
 
     W, H = 480, 300
     L, R, T, B = 74, 40, 26, 52
