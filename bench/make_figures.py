@@ -32,12 +32,36 @@ RESULTS = os.path.join(HERE, "results")
 # Palette: distinguishable in print and on screen, and legible in greyscale
 # (the solid-vs-dashed distinction carries the signal if colour is lost).
 ARMS = [
-    ("exact", "#166534", "", "chronomem exact"),
-    ("day", "#2563eb", "", "chronomem day"),
-    ("week", "#7c3aed", "", "chronomem week"),
-    ("flat", "#b45309", "6 4", "flat recency"),
-    ("compaction", "#991b1b", "2 3", "one-shot compaction"),
+    ("exact", "#166534", "", "chronomem exact", "精确回想"),
+    ("day", "#2563eb", "", "chronomem day", "天级摘要"),
+    ("week", "#7c3aed", "", "chronomem week", "周级摘要"),
+    ("flat", "#b45309", "6 4", "flat recency", "近因窗口"),
+    ("compaction", "#991b1b", "2 3", "one-shot compaction", "一次性压缩"),
 ]
+
+# Axis and legend wording per language. The figures are shared by both language
+# versions of the paper, and a Chinese caption under an English axis reads as an
+# oversight; the labels are part of the artefact, not of the prose.
+L10N = {
+    "en": {
+        "x_lag": "days since the fact (bucket)",
+        "x_topk": "recency window (top_k, log scale)",
+        "x_days": "days of input merged into the week summary",
+        "y_cliff": "observed cliff",
+        "y_pred": "predicted (window / 10 events/day)",
+        "y_ret": "quantity retention",
+        "y_ret_note": "quantity retention  (* = single project, not joined)",
+    },
+    "zh": {
+        "x_lag": "距事实的天数（分桶）",
+        "x_topk": "近因窗口 top_k（对数刻度）",
+        "x_days": "合并进该项目周摘要的输入天数",
+        "y_cliff": "实测断崖",
+        "y_pred": "预测（窗口 ÷ 10 事件/天）",
+        "y_ret": "数量保留率",
+        "y_ret_note": "数量保留率（* = 仅一个项目，不连线）",
+    },
+}
 
 
 def _esc(s: str) -> str:
@@ -60,7 +84,7 @@ def _svg_open(w: int, h: int, label: str) -> list[str]:
     ]
 
 
-def figure_retention(data: dict) -> str:
+def figure_retention(data: dict, lang: str = "en") -> str:
     """Recall retention across five arms, by lag bucket."""
     W, H = 760, 330
     L, R, T, B = 58, 250, 26, 52
@@ -69,7 +93,7 @@ def figure_retention(data: dict) -> str:
     buckets = [1, 2, 3, 5, 7, 14]
     labels = {1: "1", 2: "2", 3: "3–4", 5: "5–6", 7: "7–13", 14: "14–29"}
     series = {}
-    for key, _c, _d, _n in ARMS:
+    for key, _c, _d, _n, _z in ARMS:
         src = ("chronomem-summary-week" if key == "week"
                else "chronomem-summary" if key == "day"
                else "chronomem-exact" if key == "exact"
@@ -96,9 +120,9 @@ def figure_retention(data: dict) -> str:
         out.append(f'<text class="lb" x="{x_of(i):.1f}" y="{T+ph+18}" '
                    f'text-anchor="middle">{labels[b]}</text>')
     out.append(f'<text class="lb" x="{L+pw/2:.0f}" y="{T+ph+40}" '
-               f'text-anchor="middle">days since the fact (bucket)</text>')
+               f'text-anchor="middle">{_esc(L10N[lang]["x_lag"])}</text>')
 
-    for key, colour, dash, name in ARMS:
+    for key, colour, dash, name, zh in ARMS:
         pts = [(x_of(i), y_of(series[key].get(b, 0.0)))
                for i, b in enumerate(buckets)]
         d = "M " + " L ".join(f"{x:.1f} {y:.1f}" for x, y in pts)
@@ -108,18 +132,19 @@ def figure_retention(data: dict) -> str:
             out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3" fill="{colour}"/>')
 
     # legend
-    for i, (key, colour, dash, name) in enumerate(ARMS):
+    for i, (key, colour, dash, name, zh) in enumerate(ARMS):
         ly = T + 8 + i * 21
         da = f' stroke-dasharray="{dash}"' if dash else ""
         out.append(f'<line class="ln" x1="{L+pw+18}" y1="{ly}" '
                    f'x2="{L+pw+44}" y2="{ly}" stroke="{colour}"{da}/>')
-        out.append(f'<text class="lb" x="{L+pw+50}" y="{ly+4}">{_esc(name)}</text>')
+        out.append(f'<text class="lb" x="{L+pw+50}" y="{ly+4}">'
+                   f'{_esc(zh if lang == "zh" else name)}</text>')
 
     out.append("</svg>")
     return "\n".join(out)
 
 
-def figure_ablation(rows: list[dict]) -> str:
+def figure_ablation(rows: list[dict], lang: str = "en") -> str:
     """Window size against the observed cliff."""
     W, H = 460, 300
     L, R, T, B = 58, 24, 26, 52
@@ -143,7 +168,7 @@ def figure_ablation(rows: list[dict]) -> str:
     d = "M " + " L ".join(f"{x:.1f} {y:.1f}" for x, y in ident)
     out.append(f'<path class="ln" d="{d}" stroke="#9aa3ad" stroke-dasharray="4 3"/>')
     out.append(f'<text class="lb" x="{ident[-1][0]-4:.0f}" y="{ident[-1][1]-8:.0f}" '
-               f'text-anchor="end">predicted (window / 10 events/day)</text>')
+               f'text-anchor="end">{_esc(L10N[lang]["y_pred"])}</text>')
 
     obs = [(L + pw * (math.log10(r["top_k"]) / math.log10(max_k)),
             T + ph * (1 - min(r["observed_cliff_days"], max_c) / max_c))
@@ -155,13 +180,13 @@ def figure_ablation(rows: list[dict]) -> str:
         out.append(f'<text class="lb" x="{x:.1f}" y="{T+ph+18}" '
                    f'text-anchor="middle">{r["top_k"]}</text>')
     out.append(f'<text class="lb" x="{L+pw/2:.0f}" y="{T+ph+40}" '
-               f'text-anchor="middle">recency window (top_k, log scale)</text>')
-    out.append(f'<text class="tt" x="{L}" y="{T-10}">observed cliff</text>')
+               f'text-anchor="middle">{_esc(L10N[lang]["x_topk"])}</text>')
+    out.append(f'<text class="tt" x="{L}" y="{T-10}">{_esc(L10N[lang]["y_cliff"])}</text>')
     out.append("</svg>")
     return "\n".join(out)
 
 
-def figure_week_step(rows: list[dict]) -> str:
+def figure_week_step(rows: list[dict], lang: str = "en") -> str:
     """Recursive step: input days vs quantity retention and length ratio."""
     import statistics
     by: dict[int, list[dict]] = {}
@@ -216,7 +241,7 @@ def figure_week_step(rows: list[dict]) -> str:
                    f'text-anchor="middle">{k}</text>')
     out.append(f'<text class="lb" x="{L+pw/2:.0f}" y="{T+ph+40}" text-anchor="middle">'
                f'days of input merged into the week summary</text>')
-    out.append(f'<text class="tt" x="{L}" y="{T-10}">quantity retention  (* = single project, not joined)</text>')
+    out.append(f'<text class="tt" x="{L}" y="{T-10}">{_esc(L10N[lang]["y_ret_note"])}</text>')
     out.append("</svg>")
     return "\n".join(out)
 
@@ -226,6 +251,10 @@ def main() -> int:
     ap.add_argument("--out", help="directory to write fig1.svg … fig3.svg")
     ap.add_argument("--stdout", choices=["fig1", "fig2", "fig3"],
                     help="print one figure to stdout")
+    ap.add_argument("--lang", default="en", choices=["en", "zh"],
+                    help="axis and legend language")
+    ap.add_argument("--suffix", default="",
+                    help="filename suffix, e.g. '.zh' for the Chinese set")
     args = ap.parse_args()
 
     with open(os.path.join(RESULTS, "retention", "five-arm-seed7.json"),
@@ -239,9 +268,9 @@ def main() -> int:
         step = json.load(fh)
 
     figs = {
-        "fig1": figure_retention(five),
-        "fig2": figure_ablation(abl["rows"]),
-        "fig3": figure_week_step(step["rows"]),
+        "fig1": figure_retention(five, args.lang),
+        "fig2": figure_ablation(abl["rows"], args.lang),
+        "fig3": figure_week_step(step["rows"], args.lang),
     }
 
     # Validate before anyone embeds them: a malformed inline SVG renders as a
@@ -261,7 +290,7 @@ def main() -> int:
         ap.error("--out or --stdout is required")
     os.makedirs(args.out, exist_ok=True)
     for name, svg in figs.items():
-        p = os.path.join(args.out, f"{name}.svg")
+        p = os.path.join(args.out, f"{name}{args.suffix}.svg")
         with open(p, "w", encoding="utf-8") as fh:
             fh.write(svg)
         print(f"wrote {p} ({len(svg)} bytes, valid XML)")
