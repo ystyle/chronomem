@@ -45,6 +45,13 @@ public class ChronomemConfig {
     public let summaryReadTimeoutSeconds: Int64
     // 调度器护栏：同一窗口连续失败多少次后停止自动重试（10 分钟一轮无限重试会白烧 LLM）
     public let summaryMaxAttempts: Int64
+    // 堆水位 dump 钩子：堆占用超过该百分比时主动 dumpHeapData（0 = 关闭）。
+    // 存在的理由：生产上观察到的是「堆贴顶摆动」而非溢出——cjHeapDumpOnOOM 不会触发，
+    // 于是内存泄漏最需要证据时反而没有 dump。此钩子按水位主动取证。
+    public let heapDumpThresholdPct: Int64
+    // dump 检查间隔（秒）与冷却（秒）：冷却避免连续 dump 把磁盘写满
+    public let heapDumpCheckSeconds: Int64
+    public let heapDumpCooldownSeconds: Int64
 
     public init(dir: String, addr: String, port: UInt16, llmBaseUrl: String,
         llmApiKey: String, llmModel: String, llmProvider: String,
@@ -55,7 +62,9 @@ public class ChronomemConfig {
         summaryMaxTokens!: Int64 = 4096, summaryContextTokens!: Int64 = 32768,
         summarySafetyTokens!: Int64 = 1024, summaryBytesPerToken!: Int64 = 2,
         summaryMaxCalls!: Int64 = 8, summaryMaxAttempts!: Int64 = 3,
-        summaryCallTokens!: Int64 = 40000, summaryReadTimeoutSeconds!: Int64 = 300) {
+        summaryCallTokens!: Int64 = 40000, summaryReadTimeoutSeconds!: Int64 = 300,
+        heapDumpThresholdPct!: Int64 = 0, heapDumpCheckSeconds!: Int64 = 60,
+        heapDumpCooldownSeconds!: Int64 = 3600) {
         this.dir = dir
         this.addr = addr
         this.port = port
@@ -82,6 +91,9 @@ public class ChronomemConfig {
         this.summaryMaxAttempts = summaryMaxAttempts
         this.summaryCallTokens = summaryCallTokens
         this.summaryReadTimeoutSeconds = summaryReadTimeoutSeconds
+        this.heapDumpThresholdPct = heapDumpThresholdPct
+        this.heapDumpCheckSeconds = heapDumpCheckSeconds
+        this.heapDumpCooldownSeconds = heapDumpCooldownSeconds
     }
 
     // 从进程环境变量构造（测试可通过 setVariable/removeVariable 控制）
@@ -118,7 +130,10 @@ public class ChronomemConfig {
             summaryMaxCalls: envIntOr("CHRONOLOG_SUMMARY_MAX_CALLS", 8),
             summaryMaxAttempts: envIntOr("CHRONOLOG_SUMMARY_MAX_ATTEMPTS", 3),
             summaryCallTokens: envIntOr("CHRONOLOG_SUMMARY_CALL_TOKENS", 40000),
-            summaryReadTimeoutSeconds: envIntOr("CHRONOLOG_SUMMARY_READ_TIMEOUT", 300))
+            summaryReadTimeoutSeconds: envIntOr("CHRONOLOG_SUMMARY_READ_TIMEOUT", 300),
+            heapDumpThresholdPct: envIntOr("CHRONOLOG_HEAP_DUMP_THRESHOLD_PCT", 0),
+            heapDumpCheckSeconds: envIntOr("CHRONOLOG_HEAP_DUMP_CHECK_SECONDS", 60),
+            heapDumpCooldownSeconds: envIntOr("CHRONOLOG_HEAP_DUMP_COOLDOWN_SECONDS", 3600))
     }
 
     // 语义总结可用性：未配置 baseURL/model 时 summarize 应报错（其余工具不依赖 LLM）
