@@ -58,6 +58,57 @@ private func servePage(ctx, p, routeParams): Unit {
 **验证**：`grep -rn "\.cleanup()" cjxt/src cjxt/examples` → **零调用点**。
 `SessionManager(300000)` 的 5 分钟 TTL 形同虚设。
 
+### 断开检测其实有 —— 缺的是「断开之后的回收」
+
+一个自然的疑问：**WS 断开难道检测不到吗？** 检测得到，但没用来回收会话：
+
+```cangjie
+private func listenLoop(sink, state, session): Unit {
+    try {
+        while (true) {
+            let frame = ws.read()          // 对端断开 → 抛 ConnectionException
+            ...
+        }
+    } finally {
+        ws.closeConn()                     // ✅ 连接有兜底关闭（防 CLOSE_WAIT）
+    }
+    // 断开后：
+    this.cleanupUpload(session)
+    session.wsState = WsState.Disconnected
+    session.sink = None
+    session.tree = this.renderPageTree(...)   // 甚至还重渲了一棵树
+    // ❌ 没有 sessions.remove(session.id)
+}
+```
+
+**两条断开路径的清理语义不对称**：
+
+| 路径 | 断点处理 |
+|---|---|
+| `listenLoop`（WS 断开）| 关连接、清上传、置 Disconnected —— **不回收会话** |
+| `closeDetachedSession`（宿主绑定通道关闭）| 同上 + **`sessions.remove(sid)`** ✅ |
+
+### 为什么断开点「不立刻删」是有意的
+
+前端 `public/js/cangjie-ui.js:40`：`ws.onclose` 后 **每 3s 自动重连**，且复用同一
+`sessionId`（sessionId 由服务端渲染时嵌入 HTML）。短暂断线（网络抖动）需要保留会话以
+延续页面状态 —— 断开即删会打断正常重连。
+
+**但「保留」必须配「过期」**：客户端关页面/刷新后再也不回来（刷新会 `GET /` 拿新 sid，
+旧 sid 永久作废），而代码里**没有任何回收**，于是这些会话永久驻留。
+真正的缺口不是「检测不到断开」，而是**断开后没有任何过期回收**。
+
+### 巡检判据：按连接状态分档（不能按时间）
+
+第一版修复用「曾连接 → 比 `lastActiveAt`」，这会**误杀活跃会话**：`lastActiveAt`
+只在收到 WS 消息时更新，用户开着页面只读不动 10 分钟就会被回收。改按 `wsState`：
+
+| 状态 | 判据 | 理由 |
+|---|---|---|
+| `Connected` | **永不回收** | 仍连着 = 有人在用；按时间判必误杀（只读不进消息） |
+| `Disconnected` | `ttlMillis`（5 分钟）| 3s 重连宽限期；超期未回来（关页面/刷新）才回收 |
+| `Connecting` | `detachedTtlMillis`（60s）| 从未连接的一次性请求（健康检查），不走 WS 关闭路径 |
+
 ### 为什么健康检查是主要触发源
 
 - `curl /`（无 WS）→ `sessions.create()` 建会话 → 该连接不会走 WS 关闭路径 → **永不 remove**
