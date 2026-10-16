@@ -105,6 +105,21 @@ For each level we report the fraction of the finer level's tokens still present.
 
 `absent` (the level exists but omits the fact) and `missing` (no summary exists for that window) are counted separately throughout. Conflating them reports non-generation as information loss — a mistake made twice during development, once here and once in an earlier drift study.
 
+**We attempted the complementary semantic metric and report that it failed.** The reviewer's objection to token counting is that it confuses lexical with semantic preservation: a fact restated in different words scores as lost, and a fact whose tokens remain but whose meaning is inverted scores as kept. The natural fix is an embedding-based measure — similarity of a level's text to the fact, against a control fact from another window — and `semantic_survival.py` implements exactly that. It does not work here, and the reason is worth stating rather than hiding:
+
+| probe | cosine similarity |
+|---|---|
+| identical texts | 1.0000 |
+| semantically close | 0.9772 |
+| topically related | 0.9901 |
+| **completely unrelated** ("time-series database stores timestamped data" vs "I had tomatoes and eggs for lunch") | **0.9758** |
+
+Unrelated texts score 0.9758 while close ones score 0.9772 — a range of 0.0014 across the entire semantic spectrum, against 1.0 for identity. Consequently the margin of a fact against its own window and against a control window is ~0 for every fact measured (+0.001 at day level, +0.002 at week level), and the metric can neither support nor refute anything.
+
+**Diagnosis:** the embedding server runs with `--pooling cls`, whereas Qwen3-Embedding requires `--pooling last`; applying the model's documented query-instruction prefix made separation *worse* (identical texts fell to 0.798), which is consistent with a pooling misconfiguration rather than a misuse. We did not change the endpoint's configuration — it is shared infrastructure, and re-tuning it to make one paper's metric work would mean measuring a different system than the one that runs.
+
+**What this does and does not mean for the results.** It does not mean the token metric is validated; its stated limitation stands unaddressed. It does mean the limitation cannot be closed by the obvious route on this deployment, and that a semantic replication needs a correctly configured embedding model. We note one asymmetry from the failed attempt that is at least suggestive: of 17 facts, 11 were scored kept by the token metric and lost by the semantic one, and none the other way — the direction the reviewer predicted, though on a metric we have just shown to be uninformative, so we do not treat it as evidence.
+
 ### 2.6 Summarizer configuration
 
 Reported because the reviewer asked for it explicitly, and because the variance above is only interpretable against it:

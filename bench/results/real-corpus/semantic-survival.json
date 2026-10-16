@@ -1,0 +1,291 @@
+{
+ "model": "qwen3-embed",
+ "summary": {
+  "n_facts": 17,
+  "n_disagree_week": 11,
+  "token_only_kept": 11,
+  "semantic_only_kept": 0,
+  "mean_margin_day": 0.001417561103559297,
+  "mean_margin_week": 0.001983211759256028
+ },
+ "disagreements": [
+  {
+   "day": "2026-10-11",
+   "token_says_kept": true,
+   "semantic_says_kept": false,
+   "marker_ratio_week": 1.0,
+   "margin_week": -0.004949198438973457
+  },
+  {
+   "day": "2026-10-10",
+   "token_says_kept": true,
+   "semantic_says_kept": false,
+   "marker_ratio_week": 0.8333333333333334,
+   "margin_week": 0.0
+  },
+  {
+   "day": "2026-10-10",
+   "token_says_kept": true,
+   "semantic_says_kept": false,
+   "marker_ratio_week": 1.0,
+   "margin_week": -0.04309898821994307
+  },
+  {
+   "day": "2026-10-09",
+   "token_says_kept": true,
+   "semantic_says_kept": false,
+   "marker_ratio_week": 0.6666666666666666,
+   "margin_week": 0.020236609147551543
+  },
+  {
+   "day": "2026-10-09",
+   "token_says_kept": true,
+   "semantic_says_kept": false,
+   "marker_ratio_week": 0.6666666666666666,
+   "margin_week": 0.0
+  },
+  {
+   "day": "2026-10-08",
+   "token_says_kept": true,
+   "semantic_says_kept": false,
+   "marker_ratio_week": 1.0,
+   "margin_week": 0.0
+  },
+  {
+   "day": "2026-10-08",
+   "token_says_kept": true,
+   "semantic_says_kept": false,
+   "marker_ratio_week": 0.5,
+   "margin_week": 0.018661353750084264
+  },
+  {
+   "day": "2026-10-06",
+   "token_says_kept": true,
+   "semantic_says_kept": false,
+   "marker_ratio_week": 1.0,
+   "margin_week": 0.0
+  },
+  {
+   "day": "2026-10-02",
+   "token_says_kept": true,
+   "semantic_says_kept": false,
+   "marker_ratio_week": 1.0,
+   "margin_week": 5.8308385897376525e-09
+  },
+  {
+   "day": "2026-10-02",
+   "token_says_kept": true,
+   "semantic_says_kept": false,
+   "marker_ratio_week": 0.8333333333333334,
+   "margin_week": 0.0
+  },
+  {
+   "day": "2026-10-02",
+   "token_says_kept": true,
+   "semantic_says_kept": false,
+   "marker_ratio_week": 0.8333333333333334,
+   "margin_week": 0.027577407129216525
+  }
+ ],
+ "rows": [
+  {
+   "day": "2026-10-11",
+   "marker_ratio_day": 1.0,
+   "marker_ratio_week": 1.0,
+   "sim_day": 0.95965289083008,
+   "sim_week": 0.9718544231047286,
+   "ctrl_day_max": 0.9655767388214802,
+   "ctrl_week_max": 0.976803621543702,
+   "margin_day": -0.005923847991400222,
+   "margin_week": -0.004949198438973457
+  },
+  {
+   "day": "2026-10-11",
+   "marker_ratio_day": 0.0,
+   "marker_ratio_week": 0.0,
+   "sim_day": 0.95965289083008,
+   "sim_week": 0.9718544231047286,
+   "ctrl_day_max": 0.9655767388214802,
+   "ctrl_week_max": 0.976803621543702,
+   "margin_day": -0.005923847991400222,
+   "margin_week": -0.004949198438973457
+  },
+  {
+   "day": "2026-10-11",
+   "marker_ratio_day": 0.0,
+   "marker_ratio_week": 0.16666666666666666,
+   "sim_day": 0.95965289083008,
+   "sim_week": 0.9718544231047286,
+   "ctrl_day_max": 0.9655767388214802,
+   "ctrl_week_max": 0.976803621543702,
+   "margin_day": -0.005923847991400222,
+   "margin_week": -0.004949198438973457
+  },
+  {
+   "day": "2026-10-10",
+   "marker_ratio_day": 0.0,
+   "marker_ratio_week": 0.0,
+   "sim_day": 0.9850692176170415,
+   "sim_week": 0.976803621543702,
+   "ctrl_day_max": 0.9759264300170841,
+   "ctrl_week_max": 0.9718544231047286,
+   "margin_day": 0.009142787599957347,
+   "margin_week": 0.004949198438973457
+  },
+  {
+   "day": "2026-10-10",
+   "marker_ratio_day": 0.8333333333333334,
+   "marker_ratio_week": 0.8333333333333334,
+   "sim_day": 0.9759264300170841,
+   "sim_week": 0.9718544231047286,
+   "ctrl_day_max": 0.9759264300170841,
+   "ctrl_week_max": 0.9718544231047286,
+   "margin_day": 0.0,
+   "margin_week": 0.0
+  },
+  {
+   "day": "2026-10-10",
+   "marker_ratio_day": 1.0,
+   "marker_ratio_week": 1.0,
+   "sim_day": 0.9025123051747674,
+   "sim_week": 0.9287554348847855,
+   "ctrl_day_max": 0.9759264300170841,
+   "ctrl_week_max": 0.9718544231047286,
+   "margin_day": -0.07341412484231669,
+   "margin_week": -0.04309898821994307
+  },
+  {
+   "day": "2026-10-09",
+   "marker_ratio_day": 0.6666666666666666,
+   "marker_ratio_week": 0.6666666666666666,
+   "sim_day": 0.9887204422926834,
+   "sim_week": 0.9920910322522801,
+   "ctrl_day_max": 0.9621861215694928,
+   "ctrl_week_max": 0.9718544231047286,
+   "margin_day": 0.02653432072319062,
+   "margin_week": 0.020236609147551543
+  },
+  {
+   "day": "2026-10-09",
+   "marker_ratio_day": 0.6666666666666666,
+   "marker_ratio_week": 0.6666666666666666,
+   "sim_day": 0.9621861215694928,
+   "sim_week": 0.9718544231047286,
+   "ctrl_day_max": 0.9621861215694928,
+   "ctrl_week_max": 0.9718544231047286,
+   "margin_day": 0.0,
+   "margin_week": 0.0
+  },
+  {
+   "day": "2026-10-09",
+   "marker_ratio_day": 0.3333333333333333,
+   "marker_ratio_week": 0.3333333333333333,
+   "sim_day": 0.9887204422926834,
+   "sim_week": 0.9920910322522801,
+   "ctrl_day_max": 0.9621861215694928,
+   "ctrl_week_max": 0.9718544231047286,
+   "margin_day": 0.02653432072319062,
+   "margin_week": 0.020236609147551543
+  },
+  {
+   "day": "2026-10-08",
+   "marker_ratio_day": 0.8,
+   "marker_ratio_week": 1.0,
+   "sim_day": 0.9571034354692154,
+   "sim_week": 0.9718544231047286,
+   "ctrl_day_max": 0.9571034354692154,
+   "ctrl_week_max": 0.9718544231047286,
+   "margin_day": 0.0,
+   "margin_week": 0.0
+  },
+  {
+   "day": "2026-10-08",
+   "marker_ratio_day": 0.5,
+   "marker_ratio_week": 0.5,
+   "sim_day": 0.9871904507195396,
+   "sim_week": 0.9905157768548128,
+   "ctrl_day_max": 0.9571034354692154,
+   "ctrl_week_max": 0.9718544231047286,
+   "margin_day": 0.0300870152503242,
+   "margin_week": 0.018661353750084264
+  },
+  {
+   "day": "2026-10-06",
+   "marker_ratio_day": 1.0,
+   "marker_ratio_week": 1.0,
+   "sim_day": 0.974724279364832,
+   "sim_week": 0.9718544231047286,
+   "ctrl_day_max": 0.974724279364832,
+   "ctrl_week_max": 0.9718544231047286,
+   "margin_day": 0.0,
+   "margin_week": 0.0
+  },
+  {
+   "day": "2026-10-06",
+   "marker_ratio_day": 0.16666666666666666,
+   "marker_ratio_week": 0.16666666666666666,
+   "sim_day": 0.974724279364832,
+   "sim_week": 0.9718544231047286,
+   "ctrl_day_max": 0.974724279364832,
+   "ctrl_week_max": 0.9718544231047286,
+   "margin_day": 0.0,
+   "margin_week": 0.0
+  },
+  {
+   "day": "2026-10-06",
+   "marker_ratio_day": 0.0,
+   "marker_ratio_week": 0.0,
+   "sim_day": 0.974724279364832,
+   "sim_week": 0.9718544231047286,
+   "ctrl_day_max": 0.974724279364832,
+   "ctrl_week_max": 0.9718544231047286,
+   "margin_day": 0.0,
+   "margin_week": 0.0
+  },
+  {
+   "day": "2026-10-02",
+   "marker_ratio_day": 0.8333333333333334,
+   "marker_ratio_week": 1.0,
+   "sim_day": 0.9722958771180655,
+   "sim_week": 0.9660843531899851,
+   "ctrl_day_max": 0.9722958695318019,
+   "ctrl_week_max": 0.9660843473591465,
+   "margin_day": 7.586263617298528e-09,
+   "margin_week": 5.8308385897376525e-09
+  },
+  {
+   "day": "2026-10-02",
+   "marker_ratio_day": 0.8333333333333334,
+   "marker_ratio_week": 0.8333333333333334,
+   "sim_day": 0.9722958695318019,
+   "sim_week": 0.9660843473591465,
+   "ctrl_day_max": 0.9722958695318019,
+   "ctrl_week_max": 0.9660843473591465,
+   "margin_day": 0.0,
+   "margin_week": 0.0
+  },
+  {
+   "day": "2026-10-02",
+   "marker_ratio_day": 0.8333333333333334,
+   "marker_ratio_week": 0.8333333333333334,
+   "sim_day": 0.9952816252259009,
+   "sim_week": 0.993661754488363,
+   "ctrl_day_max": 0.9722958695318019,
+   "ctrl_week_max": 0.9660843473591465,
+   "margin_day": 0.022985755694098997,
+   "margin_week": 0.027577407129216525
+  }
+ ],
+ "validity": {
+  "verdict": "metric unusable on this deployment",
+  "reason": "the endpoint's embedding model has near-zero discriminative range",
+  "probe": {
+   "identical_texts": 1.0,
+   "semantically_close": 0.9772,
+   "topically_related": 0.9901,
+   "completely_unrelated": 0.9758
+  },
+  "diagnosis": "the embedding server runs with --pooling cls; Qwen3-Embedding requires --pooling last. Adding the model's documented query instruction prefix made separation worse (identical texts fell to 0.798), confirming a pooling misconfiguration rather than a usage error.",
+  "consequence": "the margin between a fact's similarity to its own window and to a control window is ~0 for every fact (+0.001 day, +0.002 week), so the metric cannot support or refute semantic survival. Reported as a negative result; the token metric's stated limitation stands unaddressed by this route."
+ }
+}
