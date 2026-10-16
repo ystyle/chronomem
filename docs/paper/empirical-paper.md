@@ -485,6 +485,25 @@ Compression appears only when the input is diverse. With two or more days, the s
 
 **(c) The chain is not a fixed-point compressor.** Fidelity is governed by what the step is asked to merge, so claims of the form "each level compresses by a factor k" do not hold. What holds is: the chain never loses information it was not given, and it compresses in proportion to input diversity.
 
+
+### 4.4 An independent lexical measure reproduces the ordering
+
+The reviewer asked whether we had tried n-gram overlap, ROUGE or edit distance instead of the token metric, after the embedding route failed. We have, and the framing matters: **these are still lexical measures.** They compare surface sequences, so they do not close the gap the reviewer identified — a fact restated in different words scores low on ROUGE exactly as it scores low on token survival. What they can test is different and narrower: whether the *specific choices* inside the token metric (which classes count, how membership is tested) bias the day-versus-week ordering. If measures that share none of those choices reproduce it, the ordering is not an artefact of the token design.
+
+Measured on the same 52 pairs as §4.2, with character bigrams for ROUGE-L because the corpus is Chinese and has no word delimiters:
+
+| measure | 1-day input | ≥2-day input | gap | P(single > multi) |
+|---|---|---|---|---|
+| length ratio | 0.898 | 0.539 | +0.359 | — |
+| ROUGE-L F1 | 0.909 | 0.593 | +0.316 | 0.881 |
+| edit similarity | 0.890 | 0.376 | +0.513 | **0.935** |
+| token: quantities | 0.851 | 0.592 | +0.259 | 0.773 |
+| token: identifiers | 0.939 | 0.580 | +0.360 | 0.831 |
+| token: causal markers | 0.895 | 0.528 | +0.367 | 0.695 |
+
+Every measure separates the two regimes in the same direction, and the sequence-based ones separate them at least as sharply as the token metric — the edit-distance measure, which uses none of the token logic, is the most discriminative of the six. So the day-versus-week difference is not produced by the token metric's design.
+
+**What this does not do** is validate the metric's semantics. A high ROUGE-L between a day text and its week section means the surfaces resemble each other; it cannot distinguish a fact that survived verbatim from one that survived paraphrased, and it is if anything more sensitive to surface form than token survival is. The reviewer's underlying concern therefore remains open, and closing it needs a working semantic measure — which §2.5 documents we could not obtain on this deployment.
 ---
 
 ## 5. What survives on the real corpus
