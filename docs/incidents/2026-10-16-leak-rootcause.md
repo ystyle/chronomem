@@ -176,9 +176,34 @@ private func listenLoop(sink, state, session): Unit {
 > 修复正确性主要由**单测 + 变异验证**支撑（那部分是可判定的）。
 > 教训：验证这类泄漏必须以**生产同量级数据**跑，否则对照组与实验组都无信号。
 
-## 六、遗留
+## 六、发版与部署（已完成）
 
-- 生产需重新部署才能生效（cjxt 修复 + 健康检查改动）。
-- 已合并但未部署的另一项：堆水位主动 dump 钩子
-  （`CHRONOLOG_HEAP_DUMP_THRESHOLD_PCT`，默认关闭）+ tsdb 0.3.5。
+### cjxt v1.2.1 发版（2026-10-16）
+
+按 `cangjie-publish` skill 流程走完：
+
+| 环节 | 结果 |
+|---|---|
+| 准入判据 | ✅ 判据 1（`src/*.cj` 有实质改动）—— 与已发布 1.2.0 制品逐文件 sha256 比对：`app.cj`/`session.cj`/`cjpm.toml` 内容变化，新增 1 个测试文件 |
+| 私有仓预演 | ✅ `publish success`，制品 sha 与本地 bundle 一致，152 文件解包核对无异常 |
+| 发版闸门 | ✅ `local-publish.sh check` 确认目标（`cjpm publish` 无 `--registry`，目标只能来自配置）|
+| 中心仓 | ✅ `publish success` + `409 artifact already exists` 确认已登记 |
+| 索引同步 | ✅ 稍后确认：索引含 1.2.1、制品 HTTP 200（251,281 字节）|
+| 制品核对 | ✅ 中心仓制品与本地 bundle **逐文件内容零差异**（152/152），未含 `docs/`/`examples/`/`tests/`/`AGENTS.md` |
+| 消费者解析 | ✅ 独立工程以 `cjxt = "1.2.1"` 编译通过，新 API（`startSessionSweeper` 等 public）可用 |
+
+### 生产部署（image 含 cjxt 1.2.1）
+
+- chronomem 依赖 `cjxt 1.1.1 → 1.2.1`，`cjpm test 185/185`。
+- 备份数据（328MB）+ 旧镜像标签 `pre-cjxt121-20261016`；优雅停止 **0.411s / ExitCode=0**。
+- 部署后 `healthy`、`Restarts=0`、数据完整（worklog 483 / dsh/activity 1275 / dsh/lesson 66）。
+- **修复实测生效**：对生产发 200 次 `GET /`（模拟探活），内存 `61.8 → 429.2 MB`，
+  随后巡检回收：`+30s 146.9 → +60s 125.1 → +180s 241.3 MB`（回到 GC 摆动区间）。
+  对比修复前：只增不减，约 17 小时爬到 1GB 并持续 OOM。
+
+## 七、遗留
+
+- 堆水位主动 dump 钩子（`CHRONOLOG_HEAP_DUMP_THRESHOLD_PCT`，**默认关闭**）已合入但未启用；
+  若再遇内存异常，设该值（如 85）可自动取证。
+- `cjxt` 制品里未包含 `docs/`（按约定），故本仓 `AGENTS.md` 的完整复盘只在仓库内可见。
 
