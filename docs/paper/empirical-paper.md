@@ -268,6 +268,31 @@ Two runs of the same window agree on only about a quarter of their text. The dif
 
 **A correction worth recording.** An earlier draft of this section reported "237 vs 453 characters" as evidence of sampling variance. That number came from reading `mem/recall` after two `recompute` calls and comparing the two replies — but `recall` returns *all* stored versions concatenated, newest first, so the second reply was the first version plus a second one, not a second sample. The figure measured accumulation, not variance. The numbers above come from re-running properly and reading one version at a time.
 
+### 3.2b Statistical power: which claims the sample size can carry
+
+Bucket accuracies rest on 2–14 probes and were reported as bare percentages, which is exactly the reporting the reviewer objected to. Table with 95% **Wilson** intervals (the right interval for a small-n binomial proportion; the normal approximation can leave [0,1] at these sizes):
+
+| lag | exact | flat recency | day summary | week summary |
+|---|---|---|---|---|
+| 1 | 100% [34,100] | 100% [34,100] | 100% [34,100] | 0% [0,66] |
+| 3–4 | 100% [51,100] | 0% [0,49] | 25% [5,70] | 0% [0,49] |
+| 7–13 | 100% [79,100] | 0% [0,22] | 57% [33,79] | 29% [12,55] |
+| 14–29 | 100% [61,100] | 0% [0,39] | 67% [30,90] | 33% [10,70] |
+
+n per bucket: 2, 4, 14, 6 respectively.
+
+**What survives, and what does not.** Taking disjoint intervals as the conservative test:
+
+| comparison | lag 1 | 7–13 | 14–29 |
+|---|---|---|---|
+| exact vs flat recency | overlap | **disjoint** | **disjoint** |
+| exact vs one-shot compaction | overlap | **disjoint** | **disjoint** |
+| day vs week summary | overlap | **overlap** | **overlap** |
+
+So the paper's central claim — that a bounded recency window and a lossy compactor cannot answer about content they no longer hold, while exact recall can — is carried by the data at the lags where it matters. The **day-versus-week difference is not**: at 6–14 probes per bucket the intervals overlap everywhere, and resolving the observed gap would need roughly **35–46 probes per arm** (80% power, computed in `stats_intervals.py`). We therefore report the ordering as an observation and not as a finding, and §3.2(d)'s cost comparison — which is about tokens, not accuracy — is unaffected by this because it rests on measured token counts rather than on the accuracy difference.
+
+**What that implies for the design of a follow-up.** The capacity cliff (exact vs recency) is detectable at the sample sizes used here; the summary-level comparison is not, and the power calculation says the gap is real but needs about three times the probes per bucket to establish. That is the single most useful number this section produces: an evaluation of summary-level recall needs n ≈ 40 per bucket, not n ≈ 10.
+
 ### 3.3 Ablation: the cliff tracks capacity
 
 If (a) is a capacity effect, moving the window must move the cliff. Six window sizes, local backends only (no instance, no LLM); Figure 2 plots the result:
