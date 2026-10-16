@@ -12,7 +12,7 @@
 
 The position paper for Chronomem (忆时塔) specified an evaluation plan and reported no measurements. This paper carries it out. We evaluate a time-layered external memory service — which separates **exact recall** (reference-chain navigation to raw records, no LLM call) from **semantic recall** (reading LLM-generated window summaries) — along three axes: how recall degrades with the age of the fact, how much information the recursive summarization chain preserves, and what the system actually retained over two months of real use.
 
-Three findings. **(1) The recency baseline's failure is structural, not gradual.** A bounded recency window answers perfectly at a one-day lag and then drops to zero, and an ablation over six window sizes shows the cliff tracks capacity (20 items → 1 day; 200 items → 7 days). One-shot compaction scores zero at every lag, including the most recent. Layered exact recall holds 100% across the full 14-day span, with zero variance across seeds. A coarse-summary arm, added after we noticed the original comparison never exercised the layer the architecture is named for, shows the coarse level is not a cheaper version of the fine one: it reads *more* text per question (195 vs 88 client tokens) and answers correctly about a third as often (18.8% vs 53.1%), because compressing six days into one summary drops the pairing between an item and its value while keeping the item's name.
+Three findings. **(1) The recency baseline's failure is structural, not gradual.** A bounded recency window answers perfectly at a one-day lag and then drops to zero, and an ablation over six window sizes shows the cliff tracks capacity (20 items → 1 day; 200 items → 7 days). One-shot compaction's score depends entirely on what it preserves: a variant that keeps each item's value answers 100%, while one that paraphrases values away scores zero at every lag including the most recent — a 100-point gap produced by 11 tokens per question (196 vs 185). The load-bearing thing in compression is the item-to-value *relation*. Layered exact recall holds 100% across the full 14-day span, with zero variance across seeds. A coarse-summary arm, added after we noticed the original comparison never exercised the layer the architecture is named for, shows the coarse level is not a cheaper version of the fine one: it reads *more* text per question (195 vs 88 client tokens) and answers correctly about a third as often (18.8% vs 53.1%), because compressing six days into one summary drops the pairing between an item and its value while keeping the item's name.
 
 **(2) The recursive step's fidelity depends on input diversity, not on the level.** Measuring the step correctly — same project, same 7-day window — shows that when a project has only one day of summaries in the week, the week summary is *byte-identical* to its input (measured similarity 1.0000 across 755–1112-character texts): 90% token retention with a 0.94x length ratio, i.e. no compression at all. With two or more days of input the step actually compresses (0.53x) and retention falls to 58% for quantities, 48% for causal connectives. Aggregated naively, the single-day cases inflate fidelity from 58% to 81%.
 
@@ -121,15 +121,15 @@ The synthetic experiments write, so their client **refuses** the production port
 
 ### 3.2 Results
 
-| lag (days) | flat-recency | one-shot compaction | **chronomem exact** | **chronomem day** | **chronomem week** |
-|---|---|---|---|---|---|
-| 1 | 100% | 0% | **100%** | 100% | 0% |
-| 2 | 0% | 0% | **100%** | 50% | 0% |
-| 3–4 | 0% | 0% | **100%** | 25% | 0% |
-| 5–6 | 0% | 0% | **100%** | 25% | 0% |
-| 7–13 | 0% | 0% | **100%** | 57.1% | 28.6% |
-| 14–29 | 0% | 0% | **100%** | 66.7% | 33.3% |
-| **overall** | 6.2% | **0.0%** | **100.0%** | **53.1%** | **18.8%** |
+| lag (days) | flat-recency | one-shot compaction (destructive) | one-shot compaction (conservative) | **chronomem exact** | **chronomem day** | **chronomem week** |
+|---|---|---|---|---|---|---|
+| 1 | 100% | 0% | 100% | **100%** | 100% | 0% |
+| 2 | 0% | 0% | 100% | **100%** | 50% | 0% |
+| 3–4 | 0% | 0% | 100% | **100%** | 25% | 0% |
+| 5–6 | 0% | 0% | 100% | **100%** | 25% | 0% |
+| 7–13 | 0% | 0% | 100% | **100%** | 57.1% | 28.6% |
+| 14–29 | 0% | 0% | 100% | **100%** | 66.7% | 33.3% |
+| **overall** | 6.2% | **0.0%** | **100.0%** | **100.0%** | **53.1%** | **18.8%** |
 
 Exact recall is 100% in every bucket, as before. The two summary arms are single runs (one seed) and their per-bucket counts are 2–14 probes, so the bucket-level figures are noisy; the totals are the more reliable reading.
 
@@ -227,7 +227,16 @@ Three observations, in decreasing order of how much they surprise us.
 
 **(a) The recency baseline's drop is a cliff, not a decay.** It is perfect at lag 1 and zero from lag 2 onward. The window holds 20 items and the trace emits ~10 events/day, so the boundary falls at ~2 days. Nothing about the *content* changes across that boundary — the information is simply absent from the target text.
 
-**(b) One-shot compaction scores zero everywhere, including lag 1.** This is the strongest single result against destructive compaction: not only does it lose old detail, it loses the *most recent* detail too. In our implementation the compaction pass rewrites each window into a paraphrase ("a decision was made about X"), so the option letters never appear in the material at lag 1 either. The implementation is deliberately destructive, since fidelity is the property under test — an earlier version that preserved decision lines verbatim scored 100% and was, on inspection, not compressing at all but merely dropping filler.
+**(b) One-shot compaction scores zero everywhere, including lag 1 — and that zero is a property of the compressor, not of compaction.** This was the sharpest objection to our first draft, and it is correct as stated: we wrote the compactor to paraphrase values away, so its zero is partly our doing. To separate the two, we added a **conservative compaction arm** that compacts on the same schedule but preserves every token-to-value pair, dropping only context and prose:
+
+| compaction variant | accuracy | client tokens/probe | server tokens/probe |
+|---|---|---|---|
+| destructive (rewrites values into paraphrase) | **0.0%** | 185 | 120 |
+| **conservative (keeps token→value pairs)** | **100.0%** | **196** | 120 |
+
+Two things follow, and both matter. First, the objection stands: a compactor that keeps the pair loses nothing here, so "compaction cannot answer" is too strong as a general claim. Second, the two variants differ by **11 client tokens per probe (196 vs 185)** — under 6% — while differing by 100 points of accuracy. The failure is therefore not caused by compaction being aggressive; it is caused by the compression **dropping the pairing between an item and its value**, which is the one thing a probe asks for. That is the same mechanism §4 finds in real summaries (identifiers survive, the values attached to them do not) and it sharpens rather than weakens the structural claim: what a compressor must preserve is the *relation*, and paraphrasing is what destroys it.
+
+We report the conservative arm in the main comparison from here on.
 
 **(c) The layered store's loss is compression loss, not temporal decay.** Exact recall holds 100% at every lag with **zero variance across seeds** (all six buckets, std 0.0). Summary recall does not decline monotonically with lag — 78% at 14–29 days is *higher* than 55% at 7–13 days — because a summary is produced once and does not change as it ages. What it loses is what compression dropped at generation time; time is not the variable.
 

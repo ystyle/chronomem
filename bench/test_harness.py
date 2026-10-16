@@ -369,3 +369,44 @@ class TestPackedSegments(unittest.TestCase):
         # A token that appears solely in a keyword list carries no answer for it.
         text = "关键词：ZR01, ZT02, keb"
         self.assertIsNone(extract_answer(text, "What option was chosen for ref ZR01 on day 1?"))
+
+class TestConservativeCompaction(unittest.TestCase):
+    """The reviewer-facing control for the destructive-compaction baseline.
+
+    The strongest objection to that baseline is that we wrote it to be
+    destructive, so its zero scores might say nothing about compaction as a
+    strategy. This arm compacts on the same schedule but keeps every
+    token-to-value pair, which separates "compaction is destructive" from "our
+    compactor was".
+    """
+
+    def test_keeps_token_value_pairs(self):
+        b = backends.ConservativeCompactionBackend(compact_every_days=1)
+        b.write(1, 0, "[vun] (ref ZR01) alice decided to go with option A for the vun work.")
+        b.write(1, 1, "(ref ZT02) Applied option B in the keb module.")
+        b._compact()
+        joined = "\n".join(b.pairs)
+        self.assertIn("ZR01", joined)
+        self.assertIn("option A", joined)
+        self.assertIn("ZT02", joined)
+        self.assertIn("option B", joined)
+
+    def test_answers_with_the_same_reader_as_other_arms(self):
+        # The pairs must be readable by the shared extractor. An earlier version
+        # emitted "ZR01=A", which nothing could parse, and the arm scored 0% for a
+        # formatting reason rather than a retention one.
+        b = backends.ConservativeCompactionBackend(compact_every_days=1)
+        b.write(1, 0, "[vun] (ref ZR01) alice decided to go with option A for the vun work.")
+        b._compact()
+        ans = b.answer("What option was chosen for ref ZR01 on day 1?", day_asked=1)
+        self.assertEqual(extract_answer(ans.text, "What option was chosen for ref ZR01 on day 1?"), "A")
+
+    def test_drops_context_but_not_the_pair(self):
+        b = backends.ConservativeCompactionBackend(compact_every_days=1)
+        long_text = ("[vun] (ref ZR01) alice decided to go with option A for the vun work "
+                     "after a long discussion of trade-offs and timings on day 1.")
+        b.write(1, 0, long_text)
+        b._compact()
+        joined = " ".join(b.pairs)
+        self.assertNotIn("trade-offs", joined, "context should be dropped")
+        self.assertIn("ZR01", joined, "the pair must survive")

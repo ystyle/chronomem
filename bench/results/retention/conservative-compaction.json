@@ -1,0 +1,26 @@
+{
+ "note": "seed 7, 30-day trace, 32 probes. The conservative arm answers the reviewer's objection that the destructive baseline's zero is an artefact of how we wrote it.",
+ "backends": {
+  "flat-recency": {
+   "accuracy": 0.0625,
+   "client_tokens_per_probe": 264.3125,
+   "server_tokens_per_probe": 0.0
+  },
+  "compaction-destructive": {
+   "accuracy": 0.0,
+   "client_tokens_per_probe": 184.625,
+   "server_tokens_per_probe": 120.3125
+  },
+  "compaction-conservative": {
+   "accuracy": 1.0,
+   "client_tokens_per_probe": 195.5,
+   "server_tokens_per_probe": 120.3125
+  },
+  "chronomem-exact": {
+   "accuracy": 1.0,
+   "client_tokens_per_probe": 4397,
+   "server_tokens_per_probe": 0,
+   "note": "run separately after truncating leftover series"
+  }
+ }
+}

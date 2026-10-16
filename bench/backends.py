@@ -377,6 +377,78 @@ class ChronomemBackend(Backend):
                 raise
 
 
+# --- 1b. Chronomem with conservative (lossless-key) compaction --------------
+
+class ConservativeCompactionBackend(Backend):
+    """One-shot compaction that *keeps* the item-to-value pairing.
+
+    Added to answer the strongest objection to the destructive baseline: its zero
+    scores might be an artefact of our implementing it to paraphrase decision
+    lines away, in which case they say nothing about compaction in general.
+
+    So this variant compacts on the same schedule but preserves, for every fact,
+    both its reference token and its option letter — i.e. it drops context,
+    timestamps and prose while keeping exactly the pair a probe asks about. It is
+    the most compaction-friendly baseline the evaluation can construct: if a
+    system that keeps every question's answer still fails, the failure cannot be
+    blamed on an unkind compressor.
+
+    The comparison it enables is therefore:
+      destructive compaction (paraphrases values away)  → 0%
+      conservative compaction (keeps value pairs)       → ?
+    and the gap between them is precisely how much of the destructive baseline's
+    failure is attributable to the compressor's choices rather than to
+    compaction as a strategy.
+    """
+
+    def __init__(self, compact_every_days: int = 2):
+        super().__init__(name="conservative-compaction")
+        self.pairs: list[str] = []          # "ref ZQ01 -> A" style lines
+        self.buffer: list[str] = []
+        self.every = compact_every_days
+        self.last_compact_day = 0
+        self.reports_by_day: dict[int, list[str]] = {}
+
+    def write(self, day: int, seq: int, text: str, tags: dict | None = None) -> None:
+        self.buffer.append(text)
+        self.events_seen += 1
+        self.stored_chars += len(text)
+        if day - self.last_compact_day >= self.every:
+            self._compact()
+            self.last_compact_day = day
+            self.reports_by_day[day] = list(self.pairs)
+
+    # A fact-bearing line looks like "[vun] (ref ZR01) bob decided to go with
+    # option A ..." or "(ref ZR01) Applied option A in the vun module (...)".
+    REF_RE = re.compile(r"ref\s+(Z[A-Z]\d{2})", re.IGNORECASE)
+    OPT_RE = re.compile(r"option\s+([A-D])", re.IGNORECASE)
+
+    def _compact(self) -> None:
+        """Rewrite the buffer keeping only (token, value) pairs."""
+        self.server_tokens += est_tokens("\n".join(self.buffer))
+        for t in self.buffer:
+            mref = self.REF_RE.search(t)
+            mopt = self.OPT_RE.search(t)
+            if mref and mopt:
+                # Natural-language phrasing, matching the other arms, so the same
+                # extractor reads every backend. An earlier version wrote these as
+                # "ZR01=A", which the reader cannot parse — the arm then scored 0%
+                # and looked like a compaction failure when it was a format the
+                # measurement could not read.
+                line = (f"ref {mref.group(1).upper()} chose "
+                        f"option {mopt.group(1).upper()}")
+                if line not in self.pairs:
+                    self.pairs.append(line)
+        self.buffer = []
+
+    def answer(self, question: str, day_asked: int) -> Answer:
+        past = [d for d in self.reports_by_day if d <= day_asked]
+        lines = self.reports_by_day[max(past)] if past else []
+        got = "\n".join(lines)
+        return Answer(text=got, client_tokens=est_tokens(got),
+                      note="conservative running report")
+
+
 # --- 2. Flat recency --------------------------------------------------------
 
 class FlatBackend(Backend):

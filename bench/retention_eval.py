@@ -36,7 +36,8 @@ import os
 import sys
 from collections import defaultdict
 
-from backends import ChronomemBackend, CompactionBackend, FlatBackend
+from backends import (ChronomemBackend, CompactionBackend,
+                      ConservativeCompactionBackend, FlatBackend)
 from run_eval import extract_answer, run_backend
 
 # Lag buckets, as *lower* edges. A probe falls in the largest edge <= its lag,
@@ -133,6 +134,12 @@ def _run(args) -> int:
         todo.append(FlatBackend())
     if "compaction" in picked:
         todo.append(CompactionBackend())
+    # The reviewer's strongest objection: the destructive baseline's zero scores
+    # could come from how we wrote it. This arm compacts on the same schedule but
+    # keeps every token-to-value pair, so the two together separate "compaction is
+    # destructive" from "our compactor was".
+    if "conservative" in picked:
+        todo.append(ConservativeCompactionBackend())
     if "chronomem-exact" in picked:
         todo.append(ChronomemBackend(url=args.url, mode="exact"))
     if "chronomem-summary" in picked:

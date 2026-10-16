@@ -50,6 +50,14 @@ EDIT_RE = re.compile(
     re.IGNORECASE)
 # Chinese renderings of the option.
 ZH_OPTION_RE = re.compile(r"(?:选项|方案|选择了?|采用)\s*([A-D])")
+# The plainest possible phrasing, "option A". Needed because the two structured
+# patterns above both require extra context (a bracketed topic and a day number,
+# or "in the X module"), so a baseline that states the pairing without that
+# scaffolding — "ref ZR01 chose option A" — matched nothing and scored 0% for a
+# formatting reason rather than a retention one. Safe to include here because the
+# caller has already located the specific reference token; this only reads the
+# option next to it.
+PLAIN_OPTION_RE = re.compile(r"option\s+([A-D])", re.IGNORECASE)
 DAY_RE = re.compile(r"(?:day\s*(\d+)|第\s*(\d+)\s*[天日])", re.IGNORECASE)
 
 # Topic vocabulary, used only to judge how many topics a sentence mentions.
@@ -98,6 +106,9 @@ def _option_in(segment: str) -> str | None:
         if mm:
             return mm.group("choice").upper()
     mm = ZH_OPTION_RE.search(segment)
+    if mm:
+        return mm.group(1).upper()
+    mm = PLAIN_OPTION_RE.search(segment)
     if mm:
         return mm.group(1).upper()
     return None
