@@ -31,7 +31,18 @@ EXPOSE 8900
 # 优雅关闭：SIGTERM → 停后台执行器 → flush memtable 落盘 → exit(0)
 # （服务侧 registerSignalShutdown 已实现；compose 里配 stop_grace_period 给落盘留时间）
 STOPSIGNAL SIGTERM
+# 健康检查探 /mcp 而非 /：
+# ① `/` 是 UI 路径，每次请求都会创建一个 UI 会话（持有一整棵渲染树）。
+#    Docker 默认 30s 一次探活 → 每 30s 泄漏一个会话，长期运行撑爆堆
+#    （2026-10-16 生产 OOM 事故：1756 个会话 = 608MB，占堆 57%）。
+# ② 更关键的是判据本身：/ 与 /mcp 是两条独立路径，实际出现过
+#    「/ 正常但 /mcp 不可用」的故障，探 / 会持续误报 healthy。
+# 用 JSON-RPC 的 tools/list（最轻：只列工具名、不读写数据、不走 UI 会话路径）。
+# 注意：不能用 GET /mcp —— 那是 SSE 长连接端点，会挂住直到超时。
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8900/ >/dev/null || exit 1
+    CMD curl -fsS -m 4 -X POST http://127.0.0.1:8900/mcp \
+        -H 'Content-Type: application/json' \
+        -H 'Accept: application/json, text/event-stream' \
+        -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' >/dev/null || exit 1
 
 CMD ["/app/chronomem.cli", "serve"]
