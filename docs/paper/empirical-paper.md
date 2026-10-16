@@ -671,7 +671,7 @@ Finally, a negative result we did not expect to be reportable: independent LLM j
 4. Position paper: *Chronomem (忆时塔): Time-Layered External Memory as an MCP Service for Agent Recall and Summarization.* AiraXiv 2610.0035.
 5. Evaluation harness and archived results: `chronomem/bench/` and `chronomem/bench/results/` in the implementation repository (`https://atomgit.com/ystyle/chronomem`). The scripts named in this paper — `retention_eval.py`, `week_step.py`, `gen_trace.py`, `stats_intervals.py`, `validate_classifiers.py`, `semantic_survival.py`, `rouge_survival.py`, `variance_bench.py` — and their outputs under `bench/results/` are what every quantitative claim resolves to.
 6. Consolidated evaluation documents: `chronomem/docs/evaluation-retention.md`, `chronomem/docs/evaluation-real-corpus.md`, `chronomem/docs/evaluation-baseline.md`.
-7. Incident records for the two failures reported here: `chronomem/docs/incidents/2026-10-16-mcp-unresponsive.md` (the service failure in §6.3) and `chronomem/docs/incidents/2026-10-16-embedding-pooling-mismatch.md` (the serving misconfiguration in §3.5).
+7. Incident records. The serving misconfiguration in §3.5: `chronomem/docs/incidents/2026-10-16-embedding-pooling-mismatch.md`. The scheduler failure in §6.3 — compact entries pushing a grouped prompt past the endpoint's 32768-token context, giving HTTP 400 and an unbounded retry — is recorded as a lesson in the deployment's own memory rather than as a file: retrieve it with `mem/query {type: "dsh/lesson", tag: "topic=llm-context-budget"}` on the running service. We cite it this way deliberately, since a memory system holding the record of its own failure is the §6.3 point.
 
 ---
 

@@ -739,7 +739,7 @@ token 存活更敏感。所以评审的根本关切**依然开放**，弥合它�
 4. Position 论文：*Chronomem (忆时塔): Time-Layered External Memory as an MCP Service for Agent Recall and Summarization.* AiraXiv 2610.0035.
 5. 评估工具与结果归档：实现仓库中的 `chronomem/bench/` 与 `chronomem/bench/results/`（`https://atomgit.com/ystyle/chronomem`）。本文点名的脚本——`retention_eval.py`、`week_step.py`、`gen_trace.py`、`stats_intervals.py`、`validate_classifiers.py`、`semantic_survival.py`、`rouge_survival.py`、`variance_bench.py`——及其在 `bench/results/` 下的输出，是每一条量化主张的归宿。
 6. 综合评估文档：`chronomem/docs/evaluation-retention.md`、`chronomem/docs/evaluation-real-corpus.md`、`chronomem/docs/evaluation-baseline.md`。
-7. 本文报告的两起故障记录：`chronomem/docs/incidents/2026-10-16-mcp-unresponsive.md`（§6.3 的服务故障）与 `chronomem/docs/incidents/2026-10-16-embedding-pooling-mismatch.md`（§3.5 的服务配置缺陷）。
+7. 故障记录。§3.5 的服务配置缺陷：`chronomem/docs/incidents/2026-10-16-embedding-pooling-mismatch.md`。§6.3 的调度器失败——compact 条目把分组 prompt 推过端点的 32768 token 上下文，得到 HTTP 400 与无限重试——记录在**部署自身的记忆里**而非文件里：在运行中的服务上以 `mem/query {type: "dsh/lesson", tag: "topic=llm-context-budget"}` 取回。我们特意这样引用，因为**一个记忆系统持有自身故障的记录**正是 §6.3 的论点。
 
 ---
 
