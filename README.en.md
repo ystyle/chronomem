@@ -86,6 +86,57 @@ CHRONOLOG_DIR=~/.chronolog CHRONOLOG_PORT=8900 ./target/release/bin/chronomem.cl
 
 **Pages**: Overview (stats / type cards / recent entries) · Tower (granularity layers → time buckets → exact drill-down) · Recall (exact / semantic window summary) · Summarize (trigger jobs, list `SummaryRecord`s) · Types (create / detail / truncate / delete guard) · Append (worklog template + live JSON preview).
 
+### Screenshots
+
+> Captured from an isolated instance (separate data dir and port) filled with **synthetic test data**,
+> never real memories. Regenerate with `python3 docs/ui/scripts/readme_shots.py`.
+
+**Overview** — scale of types / entries / summaries, with each type card showing its granularity chain and grouping dimension:
+
+![Overview](docs/assets/console-overview.png)
+
+**Tower** — the granularity chain rendered as a tower (older = coarser and higher); click a bucket to drill down. The full tower and today's buckets:
+
+![Tower](docs/assets/console-tower.png)
+
+<details>
+<summary>Tower · drilling into raw entries</summary>
+
+On the right: raw entries reached through the reference chain (zero LLM), with an "expand full text" outlet for long content:
+
+![Tower · drill-down](docs/assets/console-tower-drill.png)
+
+</details>
+
+**Recall** — exact recall reads raw entries directly; long outcomes are no longer truncated with nowhere to look, each row offers "expand full text (N bytes)" and "detail · all fields":
+
+![Recall · exact](docs/assets/console-recall.png)
+
+**Summarize** — async window summarization, `SummaryRecord`s rendered as decisions / conclusions / todos / status changes / keywords:
+
+![Summarize](docs/assets/console-summary.png)
+
+**Types** — a type is one independent series; creation lets you pick the granularity chain, destruction is a two-step guard (truncate → drop):
+
+![Types · create](docs/assets/console-types-dialog.png)
+
+**Append** — worklog template form with live JSON payload preview; loose mode, no strict field validation:
+
+![Append](docs/assets/console-append.png)
+
+<details>
+<summary>More screenshots (type dropdown / type list)</summary>
+
+The type dropdown under the dark theme (options fully readable, not squeezed into single letters):
+
+![Tower · type dropdown](docs/assets/console-tower-select.png)
+
+Type list: entry count, granularity chain, grouping dimension and auto-summarize state at a glance:
+
+![Types](docs/assets/console-types.png)
+
+</details>
+
 ## Docker
 
 > The image **packages a host-built binary**: compile with the host toolchain (`cjpm build`), then `COPY` the result in — nothing is rebuilt inside the image (there is no Rust-style in-image toolchain, and no need for one).
