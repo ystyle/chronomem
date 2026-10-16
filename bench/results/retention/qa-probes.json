@@ -1,0 +1,562 @@
+{
+ "n_probes": 21,
+ "days": [
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10
+ ],
+ "rows": [
+  {
+   "level": "exact",
+   "qid": "q02",
+   "day": 1,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "exact",
+   "qid": "q03",
+   "day": 2,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "exact",
+   "qid": "q04",
+   "day": 2,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "exact",
+   "qid": "q05",
+   "day": 3,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "exact",
+   "qid": "q06",
+   "day": 3,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "exact",
+   "qid": "q07",
+   "day": 4,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "exact",
+   "qid": "q08",
+   "day": 4,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "exact",
+   "qid": "q09",
+   "day": 5,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "exact",
+   "qid": "q10",
+   "day": 5,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "exact",
+   "qid": "q11",
+   "day": 6,
+   "expected": "A",
+   "got": "B",
+   "correct": false
+  },
+  {
+   "level": "exact",
+   "qid": "q12",
+   "day": 6,
+   "expected": "A",
+   "got": "B",
+   "correct": false
+  },
+  {
+   "level": "exact",
+   "qid": "q13",
+   "day": 7,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "exact",
+   "qid": "q14",
+   "day": 7,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "exact",
+   "qid": "q15",
+   "day": 8,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "exact",
+   "qid": "q16",
+   "day": 8,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "exact",
+   "qid": "q17",
+   "day": 9,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "exact",
+   "qid": "q18",
+   "day": 9,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "exact",
+   "qid": "q19",
+   "day": 10,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "exact",
+   "qid": "q20",
+   "day": 10,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "exact",
+   "qid": "q_long1",
+   "day": 1,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "exact",
+   "qid": "q_long2",
+   "day": 1,
+   "expected": "B",
+   "got": "B",
+   "correct": true
+  },
+  {
+   "level": "day-summary",
+   "qid": "q02",
+   "day": 1,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "day-summary",
+   "qid": "q03",
+   "day": 2,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "day-summary",
+   "qid": "q04",
+   "day": 2,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "day-summary",
+   "qid": "q05",
+   "day": 3,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "day-summary",
+   "qid": "q06",
+   "day": 3,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "day-summary",
+   "qid": "q07",
+   "day": 4,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "day-summary",
+   "qid": "q08",
+   "day": 4,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "day-summary",
+   "qid": "q09",
+   "day": 5,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "day-summary",
+   "qid": "q10",
+   "day": 5,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "day-summary",
+   "qid": "q11",
+   "day": 6,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "day-summary",
+   "qid": "q12",
+   "day": 6,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "day-summary",
+   "qid": "q13",
+   "day": 7,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "day-summary",
+   "qid": "q14",
+   "day": 7,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "day-summary",
+   "qid": "q15",
+   "day": 8,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "day-summary",
+   "qid": "q16",
+   "day": 8,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "day-summary",
+   "qid": "q17",
+   "day": 9,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "day-summary",
+   "qid": "q18",
+   "day": 9,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "day-summary",
+   "qid": "q19",
+   "day": 10,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "day-summary",
+   "qid": "q20",
+   "day": 10,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "day-summary",
+   "qid": "q_long1",
+   "day": 1,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "day-summary",
+   "qid": "q_long2",
+   "day": 1,
+   "expected": "B",
+   "got": "B",
+   "correct": true
+  },
+  {
+   "level": "week-summary",
+   "qid": "q02",
+   "day": 1,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "week-summary",
+   "qid": "q03",
+   "day": 2,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "week-summary",
+   "qid": "q04",
+   "day": 2,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "week-summary",
+   "qid": "q05",
+   "day": 3,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "week-summary",
+   "qid": "q06",
+   "day": 3,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "week-summary",
+   "qid": "q07",
+   "day": 4,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "week-summary",
+   "qid": "q08",
+   "day": 4,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "week-summary",
+   "qid": "q09",
+   "day": 5,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "week-summary",
+   "qid": "q10",
+   "day": 5,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "week-summary",
+   "qid": "q11",
+   "day": 6,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "week-summary",
+   "qid": "q12",
+   "day": 6,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "week-summary",
+   "qid": "q13",
+   "day": 7,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "week-summary",
+   "qid": "q14",
+   "day": 7,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "week-summary",
+   "qid": "q15",
+   "day": 8,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "week-summary",
+   "qid": "q16",
+   "day": 8,
+   "expected": "A",
+   "got": "UNKNOWN",
+   "correct": false
+  },
+  {
+   "level": "week-summary",
+   "qid": "q17",
+   "day": 9,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "week-summary",
+   "qid": "q18",
+   "day": 9,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "week-summary",
+   "qid": "q19",
+   "day": 10,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "week-summary",
+   "qid": "q20",
+   "day": 10,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "week-summary",
+   "qid": "q_long1",
+   "day": 1,
+   "expected": "A",
+   "got": "A",
+   "correct": true
+  },
+  {
+   "level": "week-summary",
+   "qid": "q_long2",
+   "day": 1,
+   "expected": "B",
+   "got": "B",
+   "correct": true
+  }
+ ],
+ "by_level": {
+  "exact": {
+   "correct": 19,
+   "total": 21,
+   "accuracy": 0.9047619047619048,
+   "unknown": 0
+  },
+  "day-summary": {
+   "correct": 13,
+   "total": 21,
+   "accuracy": 0.6190476190476191,
+   "unknown": 8
+  },
+  "week-summary": {
+   "correct": 7,
+   "total": 21,
+   "accuracy": 0.3333333333333333,
+   "unknown": 14
+  }
+ },
+ "interpretation": {
+  "headline": "Asking a question instead of comparing similarity gives a cleaner and lower answer: exact 90.5%, day summary 61.9%, week summary 33.3% on the same 21 probes.",
+  "the_discriminating_number": {
+   "exact": {
+    "unknown": 0,
+    "answered_wrongly": 2
+   },
+   "day-summary": {
+    "unknown": 8,
+    "answered_wrongly": 0
+   },
+   "week-summary": {
+    "unknown": 14,
+    "answered_wrongly": 0
+   }
+  },
+  "why_that_split_matters": "The two failure modes are different in kind. At the summary levels every failure is UNKNOWN — the model was told to say UNKNOWN when the context lacks the answer, and it did — so those are information losses in the summary itself. At the exact level there are zero UNKNOWNs and two wrong answers: the answer is present in the retrieved text, consistently ('option A' appears twice for the probe that was answered B), so that is a reader limitation, not a memory one. Conflating the two would misattribute a model error to the store.",
+  "against_the_token_metric": "Token survival reports 85% quantity retention at the day level; QA reports 61.9% answerability on the same period. The lexical metric therefore OVERSTATES what survives, not understates it — the opposite of the direction the reviewer anticipated when warning that lexical counting might miss paraphrase-preserved facts. A bound worth stating: these probes ask for a single letter, which token survival happens to describe well, so the gap is a lower bound on the divergence rather than a general law.",
+  "limits": "21 probes, one seed, one reader (qwen3.5-4b at temperature 0). The reader is the same model family that wrote the summaries, which could flatter them; an independent reader would be the fair test. The exact-level reader errors show the reader is not merely echoing the summary.",
+  "separability_check": "The embedding separability guard added in semantic_survival.py applies to that script; these probes do not use embeddings at all, so a misconfigured endpoint cannot affect them."
+ }
+}

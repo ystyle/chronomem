@@ -472,6 +472,83 @@ class ConservativeCompactionBackend(Backend):
                       note="conservative running report")
 
 
+# --- 1c. Structured key-value memory -----------------------------------------
+
+class KeyValueBackend(Backend):
+    """Extract (key, value) pairs into head memory; never compress text.
+
+    The review's first recommendation, and the cheapest way to answer its first
+    objection: our comparison omitted any system whose structural bet is explicit
+    relation preservation (MAGMA, LiCoMemory). This is the minimal form of that
+    bet — parse each fact line into (topic, day) -> value and answer lookups from
+    the index — with no summarisation and no lossy step at all.
+
+    It differs from `ConservativeCompactionBackend` in what it is *for*. That arm
+    compacts on a schedule and keeps the pairing as a policy choice, so it tests
+    "what if a compactor preserves relations". This one never discards anything
+    and holds an explicit index, so it tests the ceiling: **if a system that
+    literally stores every item-to-value pair cannot answer, the probes are
+    measuring something other than relation preservation.**
+
+    It is also the baseline against which a mitigation (§ mitigation experiment)
+    can be judged: a structured micro-summary that appends a KEY:VALUE block is,
+    in effect, an attempt to recover this arm's behaviour inside a summary.
+    """
+
+    TOPIC_RE = re.compile(r"\[([a-z]+)\]")
+    DAY_RE = re.compile(r"day\s+(\d+)")
+    OPT_RE = re.compile(r"option\s+([A-D])", re.IGNORECASE)
+    REF_RE = re.compile(r"ref\s+(Z[A-Z]\d{2})", re.IGNORECASE)
+
+    def __init__(self):
+        super().__init__(name="key-value-memory")
+        # Two views of the same fact, exactly as the review described the
+        # structure-preserving designs: (topic, day) -> value (the entity view)
+        # and ref-token -> value (the anchor view). A trace carries either the
+        # token or the topic, never both, so indexing one only would make this
+        # arm unable to answer half our probes and look like a failure of
+        # relation preservation when it is a failure to index.
+        self.by_topic: dict[tuple[str, int], str] = {}
+        self.by_ref: dict[str, str] = {}
+        self.indexed_lines = 0
+
+    def write(self, day: int, seq: int, text: str, tags: dict | None = None) -> None:
+        self.events_seen += 1
+        self.stored_chars += len(text)
+        mopt = self.OPT_RE.search(text)
+        if not mopt:
+            return
+        val = mopt.group(1).upper()
+        mday = self.DAY_RE.search(text)
+        mtop = self.TOPIC_RE.search(text)
+        mref = self.REF_RE.search(text)
+        if mtop and mday:
+            self.by_topic[(mtop.group(1).lower(), int(mday.group(1)))] = val
+        if mref:
+            self.by_ref[mref.group(1).upper()] = val
+        self.indexed_lines += 1
+
+    def answer(self, question: str, day_asked: int) -> Answer:
+        """Parse the probe into (topic, day) and look it up."""
+        m_plain = re.search(r"for ([a-z]+) on day (\d+)", question, re.IGNORECASE)
+        m_ref = re.search(r"for ref (Z[A-Z]\d{2}) on day (\d+)", question, re.IGNORECASE)
+        if m_plain:
+            key = (m_plain.group(1).lower(), int(m_plain.group(2)))
+            val = self.by_topic.get(key)
+            got = (f"{key[0]} on day {key[1]} chose option {val}"
+                   if val else f"{key[0]} on day {key[1]}: not indexed")
+        elif m_ref:
+            key_ref = m_ref.group(1).upper()
+            day = int(m_ref.group(2))
+            val = self.by_ref.get(key_ref)
+            got = (f"ref {key_ref} on day {day} chose option {val}"
+                   if val else f"ref {key_ref}: not indexed")
+        else:
+            got = "(unparseable probe)"
+        return Answer(text=got, client_tokens=est_tokens(got),
+                      note="kv lookup")
+
+
 # --- 2. Flat recency --------------------------------------------------------
 
 class FlatBackend(Backend):

@@ -155,6 +155,22 @@ A control that resembles the window *more* than the fact does cannot serve as a 
 
 **What would fix it,** and what we did not do: control facts from a different genre and period, a fact expressed in the summary's own register, or a QA-style probe (ask a question answerable only from the fact and score the answer) rather than a similarity margin. The last is the most promising, since a question and a summary are comparable in register in a way that a record field and a summary are not.
 
+### 3.5b QA probes: asking instead of comparing
+
+§3.5 reported a semantic design that failed. The review's third recommendation, and the route our own text pointed at, is to stop comparing texts and **ask a question with a known answer**: a fact restated in different words can still be answered, while a fact that was dropped cannot be faked by sounding similar. `qa_probes.py` does that — for each fact, one question answerable only from it, put to the same reader against each level's text, with the reader instructed to reply `UNKNOWN` when the context does not contain the answer. Scoring is exact match on a single letter; temperature 0.
+
+| level | accuracy | UNKNOWN | answered wrongly |
+|---|---|---|---|
+| exact | **90.5%** (19/21) | 0 | **2** |
+| day summary | **61.9%** (13/21) | **8** | 0 |
+| week summary | **33.3%** (7/21) | **14** | 0 |
+
+**The two failure modes are different in kind, and separating them is the point.** At both summary levels every failure is `UNKNOWN`: the answer was not in the text, and the reader said so rather than guessing. At the exact level there are **zero** `UNKNOWN`s and two wrong answers — the letter is present in the retrieved records, consistently (for the probe answered B, "option A" appears twice), so that is a reader limitation and not a memory one. Conflating the two would attribute a model error to the store.
+
+**This also settles the direction of the lexical metric's error, opposite to what the review anticipated.** The review warned that token counting might miss paraphrase-preserved facts, i.e. understate survival. On the same period, token survival reports 85% quantity retention at the day level while QA reports **61.9% answerability** — so the lexical metric **overstates** what survives. A bound on that claim: these probes ask for a single letter, which is exactly the kind of content token survival describes well, so the gap is a lower bound on the divergence rather than a general law. Both measures are reported together for that reason.
+
+**Limits.** 21 probes, one seed, and a reader from the same model family that wrote the summaries — which could flatter them, though the exact-level reader errors show it is not merely echoing. An independent reader is the fair test. These probes use no embeddings, so the serving misconfiguration of §3.5 cannot affect them.
+
 ### 3.6 Summarizer configuration
 
 Reported because the reviewer asked for it explicitly, and because the variance above is only interpretable against it:
@@ -304,6 +320,18 @@ Three observations, in decreasing order of how much they surprise us.
 Two things follow, and both matter. First, the objection stands: a compactor that keeps the pair loses nothing here, so "compaction cannot answer" is too strong as a general claim. Second, the two variants differ by **11 client tokens per probe (196 vs 185)** — under 6% — while differing by 100 points of accuracy. The failure is therefore not caused by compaction being aggressive; it is caused by the compression **dropping the pairing between an item and its value**, which is the one thing a probe asks for. That is the same mechanism §5 finds in real summaries (identifiers survive, the values attached to them do not) and it sharpens rather than weakens the structural claim: what a compressor must preserve is the *relation*, and paraphrasing is what destroys it.
 
 We report the conservative arm in the main comparison from here on.
+
+**A structure-preserving baseline, as the review recommended.** The review's first objection was that the comparison omitted any system whose structural bet is explicit relation preservation — MAGMA, LiCoMemory and their kin. Running those systems would mean measuring their retrieval stacks on probes built around a token format their inputs do not have, so we built the minimal form of their bet instead: an index that parses each fact into `(topic, day) -> value` and `ref-token -> value` and answers lookups from it, with no summarisation and no lossy step at all (`KeyValueBackend`). It differs from the conservative compactor in what it tests — that arm compacts on a schedule and preserves pairings as a policy choice, this one never discards anything and holds an explicit index, i.e. the **ceiling** for relation preservation.
+
+| arm | accuracy | client tokens/probe |
+|---|---|---|
+| key-value index | **100%** | **8** |
+| conservative compaction | 100% | 196 |
+| destructive compaction | 0% | 185 |
+| chronomem exact | 100% | 4397 |
+| flat recency | 0% | 264 |
+
+The index answers every probe at 100% for **8 client tokens** — roughly 1/500 of what exact drill-down costs, because it retrieves the pair rather than the records. Two consequences follow. First, the claim that the item-to-value relation is load-bearing now has a ceiling behind it rather than only a floor: a system that stores the relation and nothing else is sufficient for every probe here, and one that stores everything but paraphrases the relation away is sufficient for none. Second, it sharpens what the layered store is for. The index is not a replacement for it — it cannot answer a question whose topic or day you do not already know, which is what summaries are for, and it has no notion of a window. What the comparison shows is that **the two failure modes we measured are both about relation preservation**, one losing it by design (destructive compaction) and one paying heavily to avoid losing it (raw drill-down).
 
 **(c) The layered store's loss is compression loss, not temporal decay.** Exact recall holds 100% at every lag with **zero variance across seeds** (all six buckets, std 0.0). Summary recall does not decline monotonically with lag — 78% at 14–29 days is *higher* than 55% at 7–13 days — because a summary is produced once and does not change as it ages. What it loses is what compression dropped at generation time; time is not the variable.
 
@@ -560,6 +588,23 @@ Every measure separates the two regimes in the same direction, and the sequence-
 ---
 
 ---
+
+### 5.5 Structured summaries recover the loss, at a measurable cost
+
+§5.2 establishes that the recursive step drops the pairing between an item and its value. The review asked what follows from that — whether a measurement can be turned into guidance. It can, and the experiment is small enough to state plainly.
+
+We summarise the same ten day-windows twice with the deployment's own summariser: once with its existing prompt, once with the prompt extended by one instruction to keep the item-to-value pairing explicit, item by item. Same probes, same reader.
+
+| variant | accuracy | mean characters |
+|---|---|---|
+| free-text (as deployed) | **52.4%** (11/21) | 439 |
+| instructed to preserve pairings | **100%** (21/21) | 1484 |
+
+**Asking the summariser to keep the pairing recovers all of the lost answerability**, at 3.4x the characters per window.
+
+**What this does not show, and we checked.** The obvious reading is that a machine-parsable `REF: VALUE` block is the mechanism. It is not: only 3 of the 10 windows emitted such a block at all, while accuracy was 100% regardless. The gain comes from the instruction changing *how the summary is written overall* — the unmodified prompt compresses several topics into one prose sentence ("keb and vun were applied options A and C"), which is the shape the reader cannot resolve, whereas the instructed version lists decisions item by item ("carol 选择 rix 模块的选项 A, alice 选择 keb 模块的选项 B"). The block is one way to ask for that; the item-by-item prose is what carried the gain. An earlier framing of this experiment as "the block recovers the loss" would have been wrong, and the check that caught it was reading the outputs rather than the scores.
+
+The actionable recommendation is therefore narrower and more useful than "add a block": **instruct the summariser to preserve each item's value individually**, and budget for roughly 3x the summary length. We did not run the two prompts separately, so the exact contribution of the block remains unmeasured, and we say so rather than implying the cleaner story.
 
 ## 6. What survives on the real corpus
 

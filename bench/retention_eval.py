@@ -37,7 +37,8 @@ import sys
 from collections import defaultdict
 
 from backends import (ChronomemBackend, CompactionBackend,
-                      ConservativeCompactionBackend, FlatBackend)
+                      ConservativeCompactionBackend, FlatBackend,
+                      KeyValueBackend)
 from run_eval import extract_answer, run_backend
 
 # Lag buckets, as *lower* edges. A probe falls in the largest edge <= its lag,
@@ -140,6 +141,11 @@ def _run(args) -> int:
     # destructive" from "our compactor was".
     if "conservative" in picked:
         todo.append(ConservativeCompactionBackend())
+    # The review's first recommendation: a system whose structural bet is explicit
+    # relation preservation, with no lossy step. It is the ceiling against which
+    # "the pairing is load-bearing" can be tested rather than asserted.
+    if "kv" in picked:
+        todo.append(KeyValueBackend())
     if "chronomem-exact" in picked:
         todo.append(ChronomemBackend(url=args.url, mode="exact"))
     if "chronomem-summary" in picked:

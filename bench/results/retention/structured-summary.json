@@ -1,0 +1,47 @@
+{
+ "days": [
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10
+ ],
+ "n_probes": 21,
+ "variants": {
+  "free-text/prose": {
+   "correct": 11,
+   "total": 21,
+   "accuracy": 0.5238095238095238,
+   "mean_chars": 439.2,
+   "mean_tokens": 109.4
+  },
+  "structured/prose": {
+   "correct": 21,
+   "total": 21,
+   "accuracy": 1.0,
+   "mean_chars": 1483.6,
+   "mean_tokens": 370.4
+  },
+  "structured/block": {
+   "correct": 21,
+   "total": 21,
+   "accuracy": 1.0,
+   "mean_chars": 1483.6,
+   "mean_tokens": 370.4
+  }
+ },
+ "validity": {
+  "what_the_experiment_shows": "Requiring the summariser to preserve item→value pairing raises probe accuracy from 52.4% to 100% on the same 21 probes, at 3.4x the characters (439 -> 1484).",
+  "what_it_does_NOT_show": "That the KEY:VALUE block is the mechanism. Only 3 of 10 windows emitted a block at all (days 1, 3, 9) and accuracy was 100% regardless, so the gain does not come from the block.",
+  "actual_mechanism": "The instruction changes how the summary is written overall. The free-text control compresses several topics into one prose sentence ('keb and vun were applied options A and C'), which is the shape the reader cannot resolve; the instructed variant lists decisions item by item ('carol 选择 rix 模块的选项 A, alice 选择 keb 模块的选项 B, ...'). The block instruction is one way to ask for that, but the item-by-item prose is what carried the gain.",
+  "measurement_caveat": "The 'structured/block' surface falls back to the prose reader whenever a window emitted no block, so it is near-identical to 'structured/prose' by construction and should not be read as an independent condition. It is reported for completeness, not as evidence about blocks.",
+  "consequence_for_the_paper": "The actionable recommendation is 'ask the summariser to keep the item-to-value pairing explicitly, item by item' — not 'append a parsable block'. A better experiment would separate those two prompts, which we did not run.",
+  "cost": "3.4x characters per window summary. At the deployment's ~39 day windows and 6 week windows this is a real but bounded cost, and it buys back half the probe accuracy lost to compression.",
+  "n": "21 probes over 10 day windows, one seed, one run per variant."
+ }
+}

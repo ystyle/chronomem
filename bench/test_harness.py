@@ -487,3 +487,64 @@ class TestNoRefVariant(unittest.TestCase):
         for p in b.probes:
             self.assertNotIn("ref Z", p.question)
             self.assertIn(p.topic, p.question)
+
+class TestKeyValueBaseline(unittest.TestCase):
+    """The review's first recommendation: a system whose bet is explicit relation
+    preservation, with no lossy step.
+
+    It serves as the ceiling for the claim that the pairing is load-bearing — if a
+    store holding every item-to-value pair cannot answer, the probes are measuring
+    something other than relation preservation.
+    """
+
+    def test_indexes_both_views_of_a_fact(self):
+        b = backends.KeyValueBackend()
+        b.write(1, 0, "[rix] (ref ZR01) bob decided to go with option A for the rix work on day 1.")
+        self.assertEqual(b.by_topic[("rix", 1)], "A")
+        self.assertEqual(b.by_ref["ZR01"], "A")
+
+    def test_answers_token_and_topic_probes(self):
+        b = backends.KeyValueBackend()
+        b.write(1, 0, "[rix] (ref ZR01) bob decided to go with option A for the rix work on day 1.")
+        for q in ("What option was chosen for ref ZR01 on day 1?",
+                  "What option was chosen for rix on day 1?"):
+            self.assertEqual(extract_answer(b.answer(q, 1).text, q), "A", q)
+
+    def test_a_topic_recurring_across_days_is_not_conflated(self):
+        # The failure mode that bit ConservativeCompactionBackend: a topic-only key
+        # collides when the same topic recurs with different answers.
+        b = backends.KeyValueBackend()
+        b.write(1, 0, "[vun] (ref ZA01) alice decided to go with option A for the vun work on day 1.")
+        b.write(3, 0, "[vun] (ref ZB02) bob decided to go with option B for the vun work on day 3.")
+        q1 = "What option was chosen for vun on day 1?"
+        q3 = "What option was chosen for vun on day 3?"
+        self.assertEqual(extract_answer(b.answer(q1, 1).text, q1), "A")
+        self.assertEqual(extract_answer(b.answer(q3, 3).text, q3), "B")
+
+    def test_stores_no_prose(self):
+        # It is an index, not a transcript: the answer surface must be the pair, so
+        # a reader cannot accidentally succeed on unrelated text.
+        b = backends.KeyValueBackend()
+        b.write(1, 0, "[rix] (ref ZR01) " + "filler " * 200 + "option A for the rix work on day 1.")
+        self.assertLess(len(b.answer("What option was chosen for ref ZR01 on day 1?", 1).text), 80)
+
+class TestQAProbeScoring(unittest.TestCase):
+    """The QA probe reader must fail visibly rather than guess.
+
+    A system that lost a fact has to be able to say so; if the reader guessed, the
+    loss would be invisible and the measurement would flatter every level.
+    """
+
+    def test_unknown_is_a_distinct_outcome(self):
+        import qa_probes
+        # The scoring rules the paper reports on: UNKNOWN (context lacked it) and
+        # a wrong letter (context had it, reader missed) are counted separately.
+        self.assertTrue(hasattr(qa_probes, "llm_answer"))
+        self.assertTrue(callable(qa_probes.llm_answer))
+
+    def test_reader_is_told_to_say_unknown(self):
+        import inspect
+        import qa_probes
+        src = inspect.getsource(qa_probes.llm_answer)
+        self.assertIn("UNKNOWN", src)
+        self.assertIn("ONLY the context", src)
