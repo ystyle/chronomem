@@ -34,23 +34,39 @@ This paper reports those results. The plan had three parts, and we address each:
 
 Two things distinguish this evaluation from a synthetic benchmark exercise. First, part (iii) runs on a deployment that has been accumulating real records for roughly two months, so the corpus is not invented. Second, in carrying out (ii) we found that the *obvious* way to measure it is wrong in a way that inverts the conclusion, and we report the correction in detail — the measurement method is part of the result.
 
-We also report a methodological negative result (§6). We ran independent LLM judges over the same material; of the two specific claims we verified in depth, **both were wrong**, both overstating information loss. This is not a claim that judges are useless — they pointed at two real phenomena worth investigating — but it does mean their counts cannot be cited, and it motivates our reliance on mechanical measurement throughout.
+We also report a methodological negative result (§7). We ran independent LLM judges over the same material; of the two specific claims we verified in depth, **both were wrong**, both overstating information loss. This is not a claim that judges are useless — they pointed at two real phenomena worth investigating — but it does mean their counts cannot be cited, and it motivates our reliance on mechanical measurement throughout.
 
 ### 1.1 Summary of contributions
 
-1. A controlled comparison over five arms — recency, one-shot compaction, exact drill-down, day-level summaries and **week-level summaries** — showing that the recency baseline's degradation is a **capacity cliff** rather than gradual decay, verified by a six-point ablation (§3).
-2. A corrected measurement of the **recursive summarization step**, showing that its fidelity is governed by *input diversity*: single-input steps usually restate their input rather than compress it (68% at ≥0.95x, 19% compressing substantially), while multi-day steps halve the text and lose ~40% of quantities (§4).
-3. A characterisation of **what survives** along the chain on real data: identifiers outlast causal connectives, which outlast quantitative evidence (§5).
-4. Evidence that the no-LLM path is **sufficient for exact recall** of concrete operational facts months later, via a blind recall test scored against independently established ground truth (§5.1).
-5. A **negative methodological result** on LLM judges, and two measurement traps documented with their corrections (§6).
+1. A controlled comparison over five arms — recency, one-shot compaction, exact drill-down, day-level summaries and **week-level summaries** — showing that the recency baseline's degradation is a **capacity cliff** rather than gradual decay, verified by a six-point ablation (§4).
+2. A corrected measurement of the **recursive summarization step**, showing that its fidelity is governed by *input diversity*: single-input steps usually restate their input rather than compress it (68% at ≥0.95x, 19% compressing substantially), while multi-day steps halve the text and lose ~40% of quantities (§5).
+3. A characterisation of **what survives** along the chain on real data: identifiers outlast causal connectives, which outlast quantitative evidence (§6).
+4. Evidence that the no-LLM path is **sufficient for exact recall** of concrete operational facts months later, via a blind recall test scored against independently established ground truth (§6.1).
+5. A **negative methodological result** on LLM judges, and two measurement traps documented with their corrections (§7); and an explicit position of these measurements against prior work on recursive summarisation and structure-preserving memory (§2).
 
 <!-- Sections 2-8 to follow. -->
 
 ---
 
-## 2. Method
+## 2. Relation to prior work
 
-### 2.1 Two corpora, deliberately different
+The position paper positioned the *design*; this section positions the *measurements*, because the review's clearest gap was that our findings were not set against what is already known.
+
+**Recursive summarisation is not new, and its drift is known.** Wang et al. (Neurocomputing 2025 / arXiv:2308.15022) propose exactly the mechanism our §4 measures — generate a memory by recursively summarising previous memory plus new context — and show it improves long-horizon dialogue consistency. What that line reports is *that recursive summarisation helps*; what we add is a measurement of *what it costs*, conditioned on input diversity: the step's losses depend far more on how many distinct inputs it is asked to merge than on its position in the hierarchy. The single-input regime in which it declines to compress at all (68% of our pairs at ≥0.95x length) is, as far as we can tell, not previously reported, and it matters because it inflates aggregate fidelity estimates — an evaluation that mixes such pairs into an average reports the step as far more faithful than it is when doing real work. This is the finding we would defend as new; the general phenomenon of summarisation drift is not.
+
+**The capacity cliff is a known property measured differently.** That bounded retrieval degrades past its window is central to RAG and to retrieval-based memory (MemGPT, Mem0, A-MEM, and the retrieval literature generally). Our contribution is not the observation but the shape and its ablation: perfect inside the window, zero outside, with the boundary tracking capacity across six window sizes. Reporting it as a cliff rather than a decay changes what follows — it means more capacity moves the boundary rather than softening it, which an alphabetically-motivated "bigger window helps a bit" reading would miss.
+
+**Item-to-value pairing under compression.** Graph- and structure-preserving memory designs make the same bet from the design side: MAGMA (Jiang et al., ACL 2026) keeps semantic, temporal, causal and entity graphs precisely so that relations are not flattened, and LiCoMemory (Huang et al., Findings of ACL 2026) builds a hierarchical graph over entities and relations for the same reason. Our conservative-compaction arm is, in effect, a minimal test of that bet in the summarisation setting, and the result is quantitative in their favour: keeping the pairing answers 100%, paraphrasing it away answers 0%, and the two differ by 11 tokens per question. We read this as empirical support for the structural choice those systems make, arrived at from the opposite direction.
+
+**What we do not compare against.** The review is right that we benchmark against simple baselines (a bounded window and our own compactor) rather than against published memory architectures. Running MAGMA or LiCoMemory would require reproducing their retrieval stacks and would measure their *systems* against our probes, which are built around a token-and-option format their inputs do not have. The honest statement is that this paper characterises a mechanism — what a layered store's coarse level preserves and loses — and not the relative quality of competing architectures. A comparison on their own benchmarks (LoCoMo, LongMemEval) is the follow-up that would settle it, and is outside what this harness can do.
+
+**Claims we are not making.** We are not claiming that layered memory beats flat retrieval, only that a bounded window cannot answer about content it no longer holds while exact drill-down can. We are not claiming summarisation is a net loss — §5.1 shows the no-LLM path recovering concrete facts months later, and §3.2(d) shows the day level retaining over half. And we are not claiming the position paper's cost asymmetry (exact recall is free of LLM cost) implies accuracy superiority in general; our probes are fact-lookup probes, which is the regime where the asymmetry is largest.
+
+---
+
+## 3. Method
+
+### 3.1 Two corpora, deliberately different
 
 **Synthetic trace.** A seeded generator (`bench/gen_trace.py`) emits N simulated days of agent activity: each day produces a small number of *facts* (a decision with a recorded outcome) plus filler activity, and a probe set asks about facts from earlier days. Constraints established by measurement during development:
 
@@ -59,9 +75,9 @@ We also report a methodological negative result (§6). We ran independent LLM ju
 - **Probes always look backwards, and the lag grows with the run.** Same-day probes are answered by any recency window (a 20-item window scored 7/9); a fixed short lag is likewise answered by any bounded window (a 20-item window still scored 90.6% on a 30-day trace with a 1-day lag). The lag therefore grows with the day, which is the axis a layered store should win on.
 - Each fact carries an **opaque reference token** (`ref ZQ01`) inside the text. Summaries reproduce it verbatim, which makes extraction unambiguous — keying on (topic, day) is unreliable because a summary's prose conclusion routinely names several topics and several options in one sentence.
 
-**Deployment corpus.** The authors' own Chronomem deployment, running continuously since 2026-08-29, single-user. At evaluation time it held 480 work-log records, 1201 agent-activity records and 63 lesson records, with 37 day-level and 6 week-level summary windows for the work log. This corpus has no ground truth, so it is used for *survival* measurements (§4, §5) rather than accuracy.
+**Deployment corpus.** The authors' own Chronomem deployment, running continuously since 2026-08-29, single-user. At evaluation time it held 480 work-log records, 1201 agent-activity records and 63 lesson records, with 37 day-level and 6 week-level summary windows for the work log. This corpus has no ground truth, so it is used for *survival* measurements (§5, §6) rather than accuracy.
 
-### 2.2 Five backends under identical input
+### 3.2 Five backends under identical input
 
 | Backend | Mechanism |
 |---|---|
@@ -79,11 +95,11 @@ The two summary arms are not two granularities of the same measurement. A day ar
 
 The runner ingests the whole trace before asking anything (so that summary-generating backends can do off-line work), which means bounded backends must filter by the day being asked about. Without that filter the recency baseline answers day 5's question from day 30's most recent events and scores as well as a system that actually remembers.
 
-### 2.3 What "lag" means, and why buckets are ranges
+### 3.3 What "lag" means, and why buckets are ranges
 
 Probes are bucketed by lag (days between the fact and the moment of asking). Bucket edges are 0/1/2/3/5/7/14/30/60, so a bucket labelled 7 holds lags 7–13, and on a 30-day trace the top bucket contains 29-day probes. Tables report the true span (`7-13`, `14-29`): reporting the lower edge as if it were the lag invited a capacity conclusion the data did not support.
 
-### 2.4 Measuring the chain: three attempts, two wrong
+### 3.4 Measuring the chain: three attempts, two wrong
 
 This is worth stating explicitly because the wrong versions produced confident, publishable-looking numbers.
 
@@ -91,9 +107,9 @@ This is worth stating explicitly because the wrong versions produced confident, 
 
 **Attempt 2 — one day vs the week's matching project section.** Still unequal: the week section covers the whole week.
 
-**Attempt 3 (used).** Restrict *both* sides to the same project and the same 7-day window — which is what the recursion actually transforms, since the summarizer aggregates a project's child summaries by group key. Only then does the effect of interest appear (§4).
+**Attempt 3 (used).** Restrict *both* sides to the same project and the same 7-day window — which is what the recursion actually transforms, since the summarizer aggregates a project's child summaries by group key. Only then does the effect of interest appear (§5).
 
-### 2.5 Mechanical token survival
+### 3.5 Mechanical token survival
 
 To avoid judging prose, survival is measured over **tokens classified by kind**:
 
@@ -139,7 +155,7 @@ A control that resembles the window *more* than the fact does cannot serve as a 
 
 **What would fix it,** and what we did not do: control facts from a different genre and period, a fact expressed in the summary's own register, or a QA-style probe (ask a question answerable only from the fact and score the answer) rather than a similarity margin. The last is the most promising, since a question and a summary are comparable in register in a way that a record field and a summary are not.
 
-### 2.6 Summarizer configuration
+### 3.6 Summarizer configuration
 
 Reported because the reviewer asked for it explicitly, and because the variance above is only interpretable against it:
 
@@ -156,7 +172,7 @@ Reported because the reviewer asked for it explicitly, and because the variance 
 
 The client does not request deterministic decoding, so every summarization is a fresh sample from a 0.7-temperature distribution. We did not attempt to lower it: the deployment's summaries are generated by a scheduler that runs unattended, and freezing the temperature would make the reported retention numbers describe a configuration the deployment does not use. The variance is therefore reported as a property of the system as operated, and it is the reason the day/week arms are read as distributions rather than point estimates.
 
-### 2.7 Isolation
+### 3.7 Isolation
 
 The synthetic experiments write, so their client **refuses** the production port at construction. The real-corpus readers default *to* production — the real corpus exists nowhere else — and therefore allow only read-only tools, enforced in code rather than documented. During development a default pointing at production caused a synthetic trace to be written into the live store; it was removed and the guard added.
 
@@ -164,13 +180,13 @@ The synthetic experiments write, so their client **refuses** the production port
 
 ---
 
-## 3. Recall retention: the baseline fails structurally
+## 4. Recall retention: the baseline fails structurally
 
-### 3.1 Setup
+### 4.1 Setup
 
 30-day synthetic trace, 300 events, 32 probes, three seeds (7/11/23). Accuracy per lag bucket, averaged over seeds; `±` is the standard deviation across seeds. Figure 1 plots the shape; the tables give the numbers.
 
-### 3.2 Results
+### 4.2 Results
 
 | lag (days) | flat-recency | one-shot compaction (destructive) | one-shot compaction (conservative) | **chronomem exact** | **chronomem day** | **chronomem week** |
 |---|---|---|---|---|---|---|
@@ -251,7 +267,7 @@ Exact recall is 100% in every bucket, as before. The two summary arms are single
 <line class="ln" x1="528" y1="118" x2="554" y2="118" stroke="#991b1b" stroke-dasharray="2 3"/>
 <text class="lb" x="560" y="122">one-shot compaction</text>
 </svg>
-<figcaption><b>Figure 1.</b> Recall retention by lag, five arms (seed 7). Exact recall is flat at 100% — it does not decay with age. The recency baseline is perfect at one day and zero from two days on, a cliff rather than a slope. One-shot compaction is zero everywhere, including the most recent window. The two summary arms lose information but not monotonically, because a summary is written once and does not change as it ages (§3.2c). Dashed styles distinguish the arms if colour is lost.</figcaption>
+<figcaption><b>Figure 1.</b> Recall retention by lag, five arms (seed 7). Exact recall is flat at 100% — it does not decay with age. The recency baseline is perfect at one day and zero from two days on, a cliff rather than a slope. One-shot compaction is zero everywhere, including the most recent window. The two summary arms lose information but not monotonically, because a summary is written once and does not change as it ages (§4.2c). Dashed styles distinguish the arms if colour is lost.</figcaption>
 </figure>
 
 
@@ -268,11 +284,11 @@ The week arm reads *more* text per question, not less, and answers correctly abo
 
 Ten reference tokens, one sentence, and **the mapping from token to option is gone**. The week text is longer than the day text (764 vs 343 characters) because it has to mention six days' worth of identifiers — but it mentions them as a list, not as answers.
 
-So the coarse level's cost profile is not "smaller output": it is a **summary of summaries whose compression drops the pairing between an item and its value**, while retaining the items' names. That is consistent with §5.2's finding on real data — identifiers outlive the quantities and mechanisms attached to them — and it means a client that needs a specific fact from a month ago is not simply paying less for a coarser answer; it is paying a similar amount for an answer that may not contain the fact at all.
+So the coarse level's cost profile is not "smaller output": it is a **summary of summaries whose compression drops the pairing between an item and its value**, while retaining the items' names. That is consistent with §6.2's finding on real data — identifiers outlive the quantities and mechanisms attached to them — and it means a client that needs a specific fact from a month ago is not simply paying less for a coarser answer; it is paying a similar amount for an answer that may not contain the fact at all.
 
-The layered design is still what makes recall over long spans possible — exact recall is 100% at every lag and the day level retains over half — but the gain does not come from the coarse summary being cheap. It comes from the fine levels remaining available beneath it, and beyond the coarsest level from paging the raw series directly (§7).
+The layered design is still what makes recall over long spans possible — exact recall is 100% at every lag and the day level retains over half — but the gain does not come from the coarse summary being cheap. It comes from the fine levels remaining available beneath it, and beyond the coarsest level from paging the raw series directly (§8).
 
-This is the same mechanism §4 characterises from the other direction. There, a week summary built from a *single* day's summary usually restated its input (no compression, no loss); here, a week summary built from six days actively merged them and lost the item-to-value pairing. **The coarse level's fidelity is a function of how much its input varies, and its cost is a function of how much it has to name** — neither follows from the level's position in the hierarchy.
+This is the same mechanism §5 characterises from the other direction. There, a week summary built from a *single* day's summary usually restated its input (no compression, no loss); here, a week summary built from six days actively merged them and lost the item-to-value pairing. **The coarse level's fidelity is a function of how much its input varies, and its cost is a function of how much it has to name** — neither follows from the level's position in the hierarchy.
 
 Three observations, in decreasing order of how much they surprise us.
 
@@ -285,7 +301,7 @@ Three observations, in decreasing order of how much they surprise us.
 | destructive (rewrites values into paraphrase) | **0.0%** | 185 | 120 |
 | **conservative (keeps token→value pairs)** | **100.0%** | **196** | 120 |
 
-Two things follow, and both matter. First, the objection stands: a compactor that keeps the pair loses nothing here, so "compaction cannot answer" is too strong as a general claim. Second, the two variants differ by **11 client tokens per probe (196 vs 185)** — under 6% — while differing by 100 points of accuracy. The failure is therefore not caused by compaction being aggressive; it is caused by the compression **dropping the pairing between an item and its value**, which is the one thing a probe asks for. That is the same mechanism §4 finds in real summaries (identifiers survive, the values attached to them do not) and it sharpens rather than weakens the structural claim: what a compressor must preserve is the *relation*, and paraphrasing is what destroys it.
+Two things follow, and both matter. First, the objection stands: a compactor that keeps the pair loses nothing here, so "compaction cannot answer" is too strong as a general claim. Second, the two variants differ by **11 client tokens per probe (196 vs 185)** — under 6% — while differing by 100 points of accuracy. The failure is therefore not caused by compaction being aggressive; it is caused by the compression **dropping the pairing between an item and its value**, which is the one thing a probe asks for. That is the same mechanism §5 finds in real summaries (identifiers survive, the values attached to them do not) and it sharpens rather than weakens the structural claim: what a compressor must preserve is the *relation*, and paraphrasing is what destroys it.
 
 We report the conservative arm in the main comparison from here on.
 
@@ -302,7 +318,7 @@ Two runs of the same window agree on only about a quarter of their text. The dif
 
 **A correction worth recording.** An earlier draft of this section reported "237 vs 453 characters" as evidence of sampling variance. That number came from reading `mem/recall` after two `recompute` calls and comparing the two replies — but `recall` returns *all* stored versions concatenated, newest first, so the second reply was the first version plus a second one, not a second sample. The figure measured accumulation, not variance. The numbers above come from re-running properly and reading one version at a time.
 
-### 3.2b Statistical power: which claims the sample size can carry
+### 4.2b Statistical power: which claims the sample size can carry
 
 Bucket accuracies rest on 2–14 probes and were reported as bare percentages, which is exactly the reporting the reviewer objected to. Table with 95% **Wilson** intervals (the right interval for a small-n binomial proportion; the normal approximation can leave [0,1] at these sizes):
 
@@ -323,13 +339,13 @@ n per bucket: 2, 4, 14, 6 respectively.
 | exact vs one-shot compaction | overlap | **disjoint** | **disjoint** |
 | day vs week summary | overlap | **overlap** | **overlap** |
 
-So the paper's central claim — that a bounded recency window and a lossy compactor cannot answer about content they no longer hold, while exact recall can — is carried by the data at the lags where it matters. The **day-versus-week difference is not**: at 6–14 probes per bucket the intervals overlap everywhere, and resolving the observed gap would need roughly **35–46 probes per arm** (80% power, computed in `stats_intervals.py`). We therefore report the ordering as an observation and not as a finding, and §3.2(d)'s cost comparison — which is about tokens, not accuracy — is unaffected by this because it rests on measured token counts rather than on the accuracy difference.
+So the paper's central claim — that a bounded recency window and a lossy compactor cannot answer about content they no longer hold, while exact recall can — is carried by the data at the lags where it matters. The **day-versus-week difference is not**: at 6–14 probes per bucket the intervals overlap everywhere, and resolving the observed gap would need roughly **35–46 probes per arm** (80% power, computed in `stats_intervals.py`). We therefore report the ordering as an observation and not as a finding, and §4.2(d)'s cost comparison — which is about tokens, not accuracy — is unaffected by this because it rests on measured token counts rather than on the accuracy difference.
 
 **What that implies for the design of a follow-up.** The capacity cliff (exact vs recency) is detectable at the sample sizes used here; the summary-level comparison is not, and the power calculation says the gap is real but needs about three times the probes per bucket to establish. That is the single most useful number this section produces: an evaluation of summary-level recall needs n ≈ 40 per bucket, not n ≈ 10.
 
-### 3.2c Validating the token classifiers
+### 4.2c Validating the token classifiers
 
-Every survival number in §4 and §5 is produced by three regexes, and we had never checked their precision or recall — least of all on the Chinese text that most of the corpus is written in. If the numeric detector misses unit-suffixed quantities, or the identifier detector misses whole naming conventions, the claim that "identifiers outlast quantities" could be an artefact of the detectors rather than a property of the summaries. We therefore hand-labelled a gold set of 47 adversarial cases drawn from the corpus's own idioms (`validate_classifiers.py`) and scored the three classifiers against it. The first run exposed a real defect:
+Every survival number in §5 and §6 is produced by three regexes, and we had never checked their precision or recall — least of all on the Chinese text that most of the corpus is written in. If the numeric detector misses unit-suffixed quantities, or the identifier detector misses whole naming conventions, the claim that "identifiers outlast quantities" could be an artefact of the detectors rather than a property of the summaries. We therefore hand-labelled a gold set of 47 adversarial cases drawn from the corpus's own idioms (`validate_classifiers.py`) and scored the three classifiers against it. The first run exposed a real defect:
 
 | classifier | precision | recall | F1 |
 |---|---|---|---|
@@ -356,9 +372,9 @@ Two further defects surfaced while fixing the first pair, both of which would ha
 | 1 | 37 | 85% | 94% | 89% | 0.90x |
 | ≥2 | 15 | 59% | 58% | 53% | 0.54x |
 
-Compare the pre-correction figures in §4.2 (90/97/90% at 0.94x, and 58/65/48% at 0.53x): the picture is unchanged, and the identifier advantage *narrows* rather than widening, so the correction works against the paper's claim rather than for it. The remaining false negatives are disagreements about scope rather than misses — whether `284 MiB` should be counted with or without its unit, whether `.` separates identifiers — and the causal classifier's two false positives (`所以` inside `所以然`, `为了` used non-causally) are genuine ambiguities we kept in the gold set rather than resolved in the detector's favour.
+Compare the pre-correction figures in §5.2 (90/97/90% at 0.94x, and 58/65/48% at 0.53x): the picture is unchanged, and the identifier advantage *narrows* rather than widening, so the correction works against the paper's claim rather than for it. The remaining false negatives are disagreements about scope rather than misses — whether `284 MiB` should be counted with or without its unit, whether `.` separates identifiers — and the causal classifier's two false positives (`所以` inside `所以然`, `为了` used non-causally) are genuine ambiguities we kept in the gold set rather than resolved in the detector's favour.
 
-### 3.2d Does the reference token make exact recall too easy?
+### 4.2d Does the reference token make exact recall too easy?
 
 The reviewer raised a concern we had not considered from that angle: the synthetic trace embeds an opaque reference token (`(ref ZR01)`) in every fact, and summaries reproduce it verbatim, so exact drill-down might be *trivially* extractable — overstating the no-LLM path. We built the variant: two traces differing in exactly that one respect (same seed, same 390 events, same 32 probes, same topics/answers/lag schedule; without the token, probes ask by (topic, day) and the reader must disambiguate by day).
 
@@ -376,7 +392,7 @@ The reviewer raised a concern we had not considered from that angle: the synthet
 
 **The honest reading** is that this trace cannot separate the token's effect from the reader's structural limits. A cleaner ablation would vary the *reader* — a paraphrase-tolerant one — rather than the token, and that is the follow-up we would run first. We report the negative result about our own hypothesis rather than only the finding that answers the reviewer, because the second is what we expected and the first is what happened.
 
-### 3.3 Ablation: the cliff tracks capacity
+### 4.3 Ablation: the cliff tracks capacity
 
 If (a) is a capacity effect, moving the window must move the cliff. Six window sizes, local backends only (no instance, no LLM); Figure 2 plots the result:
 
@@ -430,9 +446,9 @@ The cliff moves monotonically (0→1→2→3→5→7). Had it stayed at 2 days r
 
 ---
 
-## 4. The recursive step: fidelity depends on input diversity
+## 5. The recursive step: fidelity depends on input diversity
 
-### 4.1 Why the obvious measurement is wrong
+### 5.1 Why the obvious measurement is wrong
 
 The step we want to characterise is: *a project's summaries for a week → that project's week summary*. Measuring it as *a day's summaries → the week's summaries* is invalid because the week covers five to seven days and is ~3.4x longer, so retention is inflated by the target simply being bigger.
 
@@ -446,9 +462,9 @@ Measured both ways on the same 24-day sample:
 
 The first row is the tell: a measurement in which the coarser level appears *more* faithful than the finer one is measuring text length, not compression.
 
-### 4.2 The real result
+### 5.2 The real result
 
-52 project-week pairs from closed weeks. Input size is the number of days on which that project actually had a summary during the week. Figure 3 plots retention against input size. (The figures here are from the re-measurement after the detector correction described in §3.2c; the pre-correction numbers were 29/11 pairs at 90/97/90% and 58/65/48%.)
+52 project-week pairs from closed weeks. Input size is the number of days on which that project actually had a summary during the week. Figure 3 plots retention against input size. (The figures here are from the re-measurement after the detector correction described in §4.2c; the pre-correction numbers were 29/11 pairs at 90/97/90% and 58/65/48%.)
 
 | days of input | pairs | quantities | identifiers | causal markers | length ratio |
 |---|---|---|---|---|---|
@@ -514,7 +530,7 @@ Compression appears only when the input is diverse. With two or more days, the s
 
 (The earlier table broke this into four rows at 0.94/0.64/0.15/0.20; with the corrected detectors the 3- and 4-day buckets hold too few pairs to separate — they are reported together rather than as a trend the sample cannot support.)
 
-### 4.3 Consequences
+### 5.3 Consequences
 
 **(a) Aggregating across input sizes inflates fidelity.** Mixing the 29 single-input pairs into the average moves the length ratio from 0.53x to 0.82x and raises apparent fidelity substantially. Any evaluation of a recursive summarizer must condition on input diversity, or it will report the no-op cases as successes.
 
@@ -523,11 +539,11 @@ Compression appears only when the input is diverse. With two or more days, the s
 **(c) The chain is not a fixed-point compressor.** Fidelity is governed by what the step is asked to merge, so claims of the form "each level compresses by a factor k" do not hold. What holds is: the chain never loses information it was not given, and it compresses in proportion to input diversity.
 
 
-### 4.4 An independent lexical measure reproduces the ordering
+### 5.4 An independent lexical measure reproduces the ordering
 
-The reviewer asked whether we had tried n-gram overlap, ROUGE or edit distance instead of the token metric, alongside the semantic route (§2.5). We have, and the framing matters: **these are still lexical measures.** They compare surface sequences, so they do not close the gap the reviewer identified — a fact restated in different words scores low on ROUGE exactly as it scores low on token survival. What they can test is different and narrower: whether the *specific choices* inside the token metric (which classes count, how membership is tested) bias the day-versus-week ordering. If measures that share none of those choices reproduce it, the ordering is not an artefact of the token design.
+The reviewer asked whether we had tried n-gram overlap, ROUGE or edit distance instead of the token metric, alongside the semantic route (§3.5). We have, and the framing matters: **these are still lexical measures.** They compare surface sequences, so they do not close the gap the reviewer identified — a fact restated in different words scores low on ROUGE exactly as it scores low on token survival. What they can test is different and narrower: whether the *specific choices* inside the token metric (which classes count, how membership is tested) bias the day-versus-week ordering. If measures that share none of those choices reproduce it, the ordering is not an artefact of the token design.
 
-Measured on the same 52 pairs as §4.2, with character bigrams for ROUGE-L because the corpus is Chinese and has no word delimiters:
+Measured on the same 52 pairs as §5.2, with character bigrams for ROUGE-L because the corpus is Chinese and has no word delimiters:
 
 | measure | 1-day input | ≥2-day input | gap | P(single > multi) |
 |---|---|---|---|---|
@@ -540,12 +556,14 @@ Measured on the same 52 pairs as §4.2, with character bigrams for ROUGE-L becau
 
 Every measure separates the two regimes in the same direction, and the sequence-based ones separate them at least as sharply as the token metric — the edit-distance measure, which uses none of the token logic, is the most discriminative of the six. So the day-versus-week difference is not produced by the token metric's design.
 
-**What this does not do** is validate the metric's semantics. A high ROUGE-L between a day text and its week section means the surfaces resemble each other; it cannot distinguish a fact that survived verbatim from one that survived paraphrased, and it is if anything more sensitive to surface form than token survival is. The reviewer's underlying concern therefore remains open, and closing it needs a working semantic measure — which §2.5 documents we could not obtain on this deployment.
+**What this does not do** is validate the metric's semantics. A high ROUGE-L between a day text and its week section means the surfaces resemble each other; it cannot distinguish a fact that survived verbatim from one that survived paraphrased, and it is if anything more sensitive to surface form than token survival is. The reviewer's underlying concern therefore remains open, and closing it needs a working semantic measure — which §3.5 shows we obtained only after fixing a serving misconfiguration, and which the margin design we then built on it failed to use validly.
 ---
 
-## 5. What survives on the real corpus
+---
 
-### 5.1 Blind recall: the no-LLM path is sufficient for exact facts
+## 6. What survives on the real corpus
+
+### 6.1 Blind recall: the no-LLM path is sufficient for exact facts
 
 **Design.** We first read six facts out of the work log ourselves (an OOM incident's root cause and the two fixes; a retry/backoff policy change and its rationale; a product renaming and what was deliberately left unchanged; a documentation correction about the relationship between two components; the root cause of three days of missing summaries; and a model A/B comparison with prefill throughput). We then spawned an agent whose **only** information source was the memory service over MCP — no repository access, no network, no prior knowledge — and asked it those six questions.
 
@@ -555,7 +573,7 @@ This is the claim the position paper made about cost asymmetry, now measured rat
 
 A narrower test of the same kind, on a 36-hour synthetic trace, gave 3/6 from the summary path where exact gave 6/6, i.e. summaries lose facts that raw entries retain.
 
-### 5.2 What the chain drops, and in what order
+### 6.2 What the chain drops, and in what order
 
 Along the same corpus the first losses are **quantitative evidence** and **causal mechanism**; proper nouns and identifiers persist longest. Representative cases, each verified by retrieving the three levels and searching for the fact's terms:
 
@@ -563,9 +581,9 @@ Along the same corpus the first losses are **quantitative evidence** and **causa
 - *Mechanism.* "The sort comparator used a label containing `@version` as the primary key, so version ordering degraded to lexicographic" becomes, at both coarser levels, only the word **"sorting"**. The identifiers `pkgLabel`, `@version` and the term `lexicographic` are all gone.
 - *Rules are the most fragile of all.* Reusable rules ("check the API docs before changing a builtin's semantics") almost never survive as rules; they leave a trace only inside an unrelated todo ("sync docs-site").
 
-Two qualifications. First, quantities that are **used to state a conclusion** are dropped, while quantities that function as **status or acceptance criteria** often survive — so it is not "numbers are lost" but "evidentiary numbers are lost". Second, this ordering holds only where compression actually happens (§4): in the single-input case nothing is dropped because nothing is compressed.
+Two qualifications. First, quantities that are **used to state a conclusion** are dropped, while quantities that function as **status or acceptance criteria** often survive — so it is not "numbers are lost" but "evidentiary numbers are lost". Second, this ordering holds only where compression actually happens (§5): in the single-input case nothing is dropped because nothing is compressed.
 
-### 5.3 An operational finding: a summary failure left a lasting gap
+### 6.3 An operational finding: a summary failure left a lasting gap
 
 The deployment's week summaries covered 4 of 6 closed weeks. The two missing weeks (09-07 and 09-14) were not randomly absent: a scheduler bug in the same period (compact entries exceeding the endpoint's 32768-token context → HTTP 400 → failed → unbounded retry) meant that for two days the summarizer produced **zero** records, while the work-log path was unaffected. Normal weeks are generated at Monday 00:10–00:20; those two never appear at that cadence.
 
@@ -575,19 +593,19 @@ We report this because it is the kind of evidence a synthetic benchmark cannot p
 
 ---
 
-## 6. Methodology: two traps and a negative result
+## 7. Methodology: two traps and a negative result
 
-### 6.1 Trap 1 — a length artefact that inverted the conclusion
+### 7.1 Trap 1 — a length artefact that inverted the conclusion
 
-Comparing the whole day's summaries against the whole week's summaries gave the week level *higher* retention than the day level (42% vs 29% for quantities). A coarser level being more faithful than its input is impossible as a compression claim, and the cause was arithmetic: the week bundle is ~3.4x longer and covers six more days, so a token is likelier to appear there by coincidence. Restricting both sides to the same project and window reversed the ordering (§4).
+Comparing the whole day's summaries against the whole week's summaries gave the week level *higher* retention than the day level (42% vs 29% for quantities). A coarser level being more faithful than its input is impossible as a compression claim, and the cause was arithmetic: the week bundle is ~3.4x longer and covers six more days, so a token is likelier to appear there by coincidence. Restricting both sides to the same project and window reversed the ordering (§5).
 
 **Generalisation.** Any retention metric computed over texts of different sizes and scopes is suspect. The tell is an ordering that contradicts the mechanism.
 
-### 6.2 Trap 2 — an extraction ambiguity that manufactured failures
+### 7.2 Trap 2 — an extraction ambiguity that manufactured failures
 
 Probes originally located their answer by (topic, day). A summary's prose conclusion frequently names several topics and several options in one sentence ("keb and vun were applied options A and C"), so a reader taking the first option letter returns another topic's answer — and the wrong answer is *plausible*, so it does not look like a bug. Every miss the layered backend showed traced to this; with per-fact opaque reference tokens the backend scored 100%.
 
-### 6.2b Trap 3 — packed segments, where the reader returns a neighbouring fact's answer
+### 7.2b Trap 3 — packed segments, where the reader returns a neighbouring fact's answer
 
 A summary routinely compresses a day into one line: `- Day 1: ZT02 选方案 B (keb), ZR01 选方案 A (rix)`. A reader that takes the segment's first option answers `ZR01` with `B`. The letter is a valid option in the same segment, so the miss looks like a wrong answer rather than a reader bug — and because summaries pack facts *more* densely as the level coarsens, the artefact grows with the level being measured. It made the coarse arm score 0% at every lag up to six days while the correct options were present in the text.
 
@@ -595,7 +613,7 @@ The fix is positional: locate the reference token and read the option *after* it
 
 **Generalisation (both traps 2 and 3).** When a backend's failures cluster on one answer value, or when they appear at one level and not another with the right answer visibly present, suspect the reader before the system.
 
-### 6.3 Negative result — LLM judges overstate loss
+### 7.3 Negative result — LLM judges overstate loss
 
 Judging whether a fact "survived" is not mechanically defined, so we ran independent LLM judges over the same material. Their outputs are confident and detailed. Of the specific claims we verified in depth, **two of two were wrong**:
 
@@ -607,20 +625,20 @@ Judging whether a fact "survived" is not mechanically defined, so we ran indepen
 
 Both refuted claims erred in the same direction: asserting absence that was not there. The judge's *counts* (intact / partial / absent distributions) are likewise not citable for this reason.
 
-Judges remain useful for one thing: they **pointed at the right phenomena** — the byte-identical week output was real, and finding it led to the per-input-size analysis of §4. But the direction and the numbers had to come from mechanical re-measurement.
+Judges remain useful for one thing: they **pointed at the right phenomena** — the byte-identical week output was real, and finding it led to the per-input-size analysis of §5. But the direction and the numbers had to come from mechanical re-measurement.
 
-### 6.4 What we therefore rest on
+### 7.4 What we therefore rest on
 
-Every quantitative claim in §3–§5 comes from a script that can be re-run and whose output is archived with the repository: the seeded trace generator, the four-backend runner, the ablation, the token-survival and week-step measurements, and the chain checks. The judge outputs are archived too, marked as direction-only. The harness itself has 31 regression tests plus a mutation check that deliberately breaks the implementation in ten ways (including the ones above) and fails if the suite does not notice — added after the traps of §6.1–6.2, precisely because passing tests prove little if the tests never exercise the thing they name.
+Every quantitative claim in §4–§6 comes from a script that can be re-run and whose output is archived with the repository: the seeded trace generator, the four-backend runner, the ablation, the token-survival and week-step measurements, and the chain checks. The judge outputs are archived too, marked as direction-only. The harness itself has 31 regression tests plus a mutation check that deliberately breaks the implementation in ten ways (including the ones above) and fails if the suite does not notice — added after the traps of §7.1–6.2, precisely because passing tests prove little if the tests never exercise the thing they name.
 
 ---
 
-## 7. Limitations
+## 8. Limitations
 
 - **Three seeds.** The synthetic results rest on seeds 7/11/23. Exact recall's zero variance across buckets makes its 100% robust; the summary figures carry bucket standard deviations up to 38% and should be read as centres, not point estimates. Summary buckets hold 2–14 probes each.
 - **Synthetic trace.** Mechanism-level claims (capacity cliff, destructive compaction) transfer; magnitudes calibrated to this trace do not.
-- **No ground truth on the real corpus.** §5 is survival measurement and blind recall, not accuracy. §5.1 shows that what was recorded is recoverable; it cannot show that everything important was recorded.
-- **Judge coverage incomplete.** Of four planned judge shards (24 days), two produced output (12 days). Since judge counts are not citable (§6.3) this affects only the qualitative colour, not the reported numbers.
+- **No ground truth on the real corpus.** §6 is survival measurement and blind recall, not accuracy. §6.1 shows that what was recorded is recoverable; it cannot show that everything important was recorded.
+- **Judge coverage incomplete.** Of four planned judge shards (24 days), two produced output (12 days). Since judge counts are not citable (§7.3) this affects only the qualitative colour, not the reported numbers.
 - **Single deployment, single user, ~2 months.** No multi-tenant, authenticated or encrypted operation was exercised; scale is thousands of records across a handful of types.
 - **Only the `day → week` hop was measured.** The service also supports finer levels (`10min`/`30min`/`1h`/`3h`); their behaviour is not characterised here, and the traces used here declare `[day, week]` only.
 - **The level chain ends at `week`.** This bounds what "longer spans" can mean. The service recognises a `month` level but no `quarter` or `year`, and the production `worklog` type enables neither; a span beyond the coarsest enabled level is not summarised more coarsely, it is covered by **exact recall plus pagination** over the raw series. Our measurements are consistent with that being sufficient rather than a stopgap: exact recall answered 100% in every lag bucket up to 29 days, and the reader pages automatically (measured: 300 records over 2 pages, no truncation). What remains unmeasured is a span long enough that the *raw* series itself becomes impractical to page through — which is a volume question about the deployment, not a ceiling of the summarisation hierarchy.
@@ -628,7 +646,7 @@ Every quantitative claim in §3–§5 comes from a script that can be re-run and
 
 ---
 
-## 8. Conclusion
+## 9. Conclusion
 
 We set out to execute the position paper's evaluation plan and found that the most interesting result was about the measurement.
 
@@ -642,14 +660,21 @@ Finally, a negative result we did not expect to be reportable: independent LLM j
 
 ## References
 
-*(Inherits the reference list of the position paper. Newly cited artefacts:)*
+**The position paper's reference list applies, and its memory-system entries (MemGPT, Generative Agents, HiMem, RaMem, AriadneMem, A-MEM, Mem0, Letta) are the context for §2.** Added here are the works §2 compares this paper's measurements against, plus the artefacts that make the numbers reproducible. Every entry below was verified against the publisher, not recalled.
 
-1. Position paper: *Chronomem (忆时塔): Time-Layered External Memory as an MCP Service for Agent Recall and Summarization.* AiraXiv 2610.0035.
-2. Evaluation harness and archived results: `chronomem/bench/` and `chronomem/bench/results/` in the implementation repository.
-3. Consolidated evaluation documents: `chronomem/docs/evaluation-retention.md`, `chronomem/docs/evaluation-real-corpus.md`, `chronomem/docs/evaluation-baseline.md`.
+1. Wang, Q., Fu, Y., Cao, Y., Wang, S., Tian, Z., Ding, L. *Recursively Summarizing Enables Long-Term Dialogue Memory in Large Language Models.* Neurocomputing, 2025; arXiv:2308.15022. — the mechanism §5 measures, and the closest prior work to it.
+2. Jiang, D., Li, Y., Li, G., Li, B. *MAGMA: A Multi-Graph based Agentic Memory Architecture for AI Agents.* Proceedings of ACL 2026 (Long Papers), pp. 36848–36865. DOI: 10.18653/v1/2026.acl-long.1709. — structure-preserving memory, from the design side.
+3. Huang, Z., Tian, Z., Guo, Q., Zhang, F., Zhou, Y., Jiang, D., Xie, Z., Zhou, X. *LiCoMemory: Lightweight and Cognitive Agentic Memory for Efficient Long-Term Reasoning.* Findings of ACL 2026, pp. 36842–36858. DOI: 10.18653/v1/2026.findings-acl.1835. — hierarchical graph memory over entities and relations.
+
+**Artefacts:**
+
+4. Position paper: *Chronomem (忆时塔): Time-Layered External Memory as an MCP Service for Agent Recall and Summarization.* AiraXiv 2610.0035.
+5. Evaluation harness and archived results: `chronomem/bench/` and `chronomem/bench/results/` in the implementation repository (`https://atomgit.com/ystyle/chronomem`). The scripts named in this paper — `retention_eval.py`, `week_step.py`, `gen_trace.py`, `stats_intervals.py`, `validate_classifiers.py`, `semantic_survival.py`, `rouge_survival.py`, `variance_bench.py` — and their outputs under `bench/results/` are what every quantitative claim resolves to.
+6. Consolidated evaluation documents: `chronomem/docs/evaluation-retention.md`, `chronomem/docs/evaluation-real-corpus.md`, `chronomem/docs/evaluation-baseline.md`.
+7. Incident records for the two failures reported here: `chronomem/docs/incidents/2026-10-16-mcp-unresponsive.md` (the service failure in §6.3) and `chronomem/docs/incidents/2026-10-16-embedding-pooling-mismatch.md` (the serving misconfiguration in §3.5).
 
 ---
 
 ## AI-Use Disclosure
 
-The implementation, the evaluation harness and the analysis were developed in collaboration with an AI assistant (DeepSeek). Independent LLM judges were used as a *foil*: their outputs are reported as a negative result in §6.3 and are not the source of any quantitative claim. All reported numbers are produced by scripts archived with the repository and were re-verified against that output during writing.
+The implementation, the evaluation harness and the analysis were developed in collaboration with an AI assistant (DeepSeek). Independent LLM judges were used as a *foil*: their outputs are reported as a negative result in §7.3 and are not the source of any quantitative claim. All reported numbers are produced by scripts archived with the repository and were re-verified against that output during writing.
