@@ -219,7 +219,7 @@ Ten reference tokens, one sentence, and **the mapping from token to option is go
 
 So the coarse level's cost profile is not "smaller output": it is a **summary of summaries whose compression drops the pairing between an item and its value**, while retaining the items' names. That is consistent with §5.2's finding on real data — identifiers outlive the quantities and mechanisms attached to them — and it means a client that needs a specific fact from a month ago is not simply paying less for a coarser answer; it is paying a similar amount for an answer that may not contain the fact at all.
 
-The layered design is still what makes month-deep recall possible — exact recall is 100% at every lag and the day level retains over half — but the gain does not come from the coarse summary being cheap. It comes from the fine levels remaining available beneath it.
+The layered design is still what makes recall over long spans possible — exact recall is 100% at every lag and the day level retains over half — but the gain does not come from the coarse summary being cheap. It comes from the fine levels remaining available beneath it, and beyond the coarsest level from paging the raw series directly (§7).
 
 This is the same mechanism §4 characterises from the other direction. There, a week summary built from a *single* day's summary was byte-identical to its input (no compression, no loss); here, a week summary built from six days actively merges them and loses the item-to-value pairing. **The coarse level's fidelity is a function of how much its input varies, and its cost is a function of how much it has to name** — neither follows from the level's position in the hierarchy.
 
@@ -451,7 +451,8 @@ Every quantitative claim in §3–§5 comes from a script that can be re-run and
 - **No ground truth on the real corpus.** §5 is survival measurement and blind recall, not accuracy. §5.1 shows that what was recorded is recoverable; it cannot show that everything important was recorded.
 - **Judge coverage incomplete.** Of four planned judge shards (24 days), two produced output (12 days). Since judge counts are not citable (§6.3) this affects only the qualitative colour, not the reported numbers.
 - **Single deployment, single user, ~2 months.** No multi-tenant, authenticated or encrypted operation was exercised; scale is thousands of records across a handful of types.
-- **Only day→week recursion measured.** The service supports finer levels (1h and below) and their behaviour is not characterised here.
+- **Only the `day → week` hop was measured.** The service also supports finer levels (`10min`/`30min`/`1h`/`3h`); their behaviour is not characterised here, and the traces used here declare `[day, week]` only.
+- **The level chain ends at `week`.** This bounds what "longer spans" can mean. The service recognises a `month` level but no `quarter` or `year`, and the production `worklog` type enables neither; a span beyond the coarsest enabled level is not summarised more coarsely, it is covered by **exact recall plus pagination** over the raw series. Our measurements are consistent with that being sufficient rather than a stopgap: exact recall answered 100% in every lag bucket up to 29 days, and the reader pages automatically (measured: 300 records over 2 pages, no truncation). What remains unmeasured is a span long enough that the *raw* series itself becomes impractical to page through — which is a volume question about the deployment, not a ceiling of the summarisation hierarchy.
 - **One implementation of compaction.** The one-shot baseline is our own; a stronger compressor would shift its numbers, though not the structural argument that it cannot answer about content it has discarded.
 
 ---
