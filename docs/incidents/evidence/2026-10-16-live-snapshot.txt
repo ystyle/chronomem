@@ -1,0 +1,70 @@
+=== 采样时刻: 2026-10-16T15:44:33+08:00 (CST) ===
+
+--- 容器状态 ---
+chronomem	Up 18 hours (unhealthy)
+RestartCount=0 StartedAt=2026-10-15T13:52:05.535219156Z
+
+--- 内存 ---
+1.018GiB / 29.08GiB / 3.50%
+VmPeak:	 4138420 kB
+VmSize:	 3089028 kB
+VmRSS:	  973580 kB
+Threads:	12
+
+--- fd / 连接（关键：对比事故记录里「fd=12 正常」）---
+fd count: 77
+tcp lines: 130
+连接状态分布 (01=ESTAB 08=CLOSE_WAIT 0A=LISTEN):
+    118 01
+      9 08
+      2 0A
+
+--- 线程状态（11 线程，schd-worker 变多）---
+      1 S chronomem.cli
+      1 S gc-helper
+      1 S gc-main-thread
+      1 S gc-pool-t1
+      7 S schd-worker
+      1 S schmon
+
+--- 健康检查历史（exit=-1 = 超时失败）---
+2026-10-16 15:41:57.370689924 +0800 CST exit=-1
+2026-10-16 15:42:32.400283746 +0800 CST exit=-1
+2026-10-16 15:43:07.428326164 +0800 CST exit=-1
+2026-10-16 15:43:42.458303523 +0800 CST exit=-1
+2026-10-16 15:44:17.485316362 +0800 CST exit=-1
+
+
+--- GC 日志尾部（内存低点趋势）---
+713056 9 ReleaseGarbageMemory time: 6us
+2026-10-16 07:15:42.713045 8 Collect large garbage time: 3us
+2026-10-16 07:15:42.714648 8 exempt from-space: 947847168 B - 894304256 B -> 53542912 B, 41406824 B floating garbage, 0 B to forward
+2026-10-16 07:15:42.714659 8 ExemptFromRegions time: 1,575us
+2026-10-16 07:15:42.716293 8 PostTrace time: 3,258us
+2026-10-16 07:15:42.716566 8 Preforward time: 264us
+
+=== 追加：OOM 实锤（15:46 CST，同一次采样的后续）===
+观察到容器日志反复出现：
+    An exception has occurred:
+        Out of memory
+
+伴随的 GC region 统计（每次 OOM 前后）：
+    total units: 262144 (1073741824 B)          ← 堆上限 1GB
+    active units: 262139 (1073721344 B)         ← 99.998% 活跃
+    from-regions 13680: 896532480 B             ← 896MB 在 from 区
+    pinned regions 71: 1136 units (4653056 B)   ← 从故障早期的 16 涨到 71
+    large-object regions 20: 5753 units (23564288 B)
+    usedObjSize 925638872 B (925MB)
+    released units: 36082 (147791872 B)         ← 单次 GC 仅释放 ~147MB，瞬间被填回
+
+结论：内存泄漏已从「贴顶摆动」升级为**持续 OOM**。进程未退出（仍在响应部分请求），
+但持续抛 Out of memory —— 服务实际已不可用。
+
+叠加同时观察到的连接泄漏：
+    15:32  fd=53  tcp=~80
+    15:36  fd=58~60 tcp=96~100
+    15:44  fd=77  tcp=130 (118 ESTAB + 9 CLOSE_WAIT)
+    健康检查每 ~35s 一次且 exit=-1（GET / 超时），每次失败留下未回收连接
+→ 形成正反馈：GET / 变慢 → 健康检查超时 → 连接累积 → 压力更大。
+   （与首次事故记录的「fd=12，排除连接泄漏」不同：那是恶化早期，
+    连接泄漏在进入 OOM 阶段后才显性化。）
