@@ -117,7 +117,7 @@ The synthetic experiments write, so their client **refuses** the production port
 
 ### 3.1 Setup
 
-30-day synthetic trace, 300 events, 32 probes, three seeds (7/11/23). Accuracy per lag bucket, averaged over seeds; `±` is the standard deviation across seeds.
+30-day synthetic trace, 300 events, 32 probes, three seeds (7/11/23). Accuracy per lag bucket, averaged over seeds; `±` is the standard deviation across seeds. Figure 1 plots the shape; the tables give the numbers.
 
 ### 3.2 Results
 
@@ -132,6 +132,77 @@ The synthetic experiments write, so their client **refuses** the production port
 | **overall** | 6.2% | **0.0%** | **100.0%** | **53.1%** | **18.8%** |
 
 Exact recall is 100% in every bucket, as before. The two summary arms are single runs (one seed) and their per-bucket counts are 2–14 probes, so the bucket-level figures are noisy; the totals are the more reliable reading.
+
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 330" width="100%" role="img" aria-label="recall retention by lag, five arms">
+<style>.ax{stroke:#9aa3ad;stroke-width:1}.gr{stroke:#e3e7ea;stroke-width:1}.lb{font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:11px;fill:#4a5766}.tt{font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:12px;fill:#1f2933;font-weight:600}.ln{fill:none;stroke-width:2}</style>
+<line class="gr" x1="58" y1="278.0" x2="510" y2="278.0"/>
+<text class="lb" x="50" y="282.0" text-anchor="end">0%</text>
+<line class="gr" x1="58" y1="215.0" x2="510" y2="215.0"/>
+<text class="lb" x="50" y="219.0" text-anchor="end">25%</text>
+<line class="gr" x1="58" y1="152.0" x2="510" y2="152.0"/>
+<text class="lb" x="50" y="156.0" text-anchor="end">50%</text>
+<line class="gr" x1="58" y1="89.0" x2="510" y2="89.0"/>
+<text class="lb" x="50" y="93.0" text-anchor="end">75%</text>
+<line class="gr" x1="58" y1="26.0" x2="510" y2="26.0"/>
+<text class="lb" x="50" y="30.0" text-anchor="end">100%</text>
+<line class="ax" x1="58" y1="26" x2="58" y2="278"/>
+<text class="lb" x="58.0" y="296" text-anchor="middle">1</text>
+<text class="lb" x="148.4" y="296" text-anchor="middle">2</text>
+<text class="lb" x="238.8" y="296" text-anchor="middle">3–4</text>
+<text class="lb" x="329.2" y="296" text-anchor="middle">5–6</text>
+<text class="lb" x="419.6" y="296" text-anchor="middle">7–13</text>
+<text class="lb" x="510.0" y="296" text-anchor="middle">14–29</text>
+<text class="lb" x="284" y="318" text-anchor="middle">days since the fact (bucket)</text>
+<path class="ln" d="M 58.0 26.0 L 148.4 26.0 L 238.8 26.0 L 329.2 26.0 L 419.6 26.0 L 510.0 26.0" stroke="#166534"/>
+<circle cx="58.0" cy="26.0" r="3" fill="#166534"/>
+<circle cx="148.4" cy="26.0" r="3" fill="#166534"/>
+<circle cx="238.8" cy="26.0" r="3" fill="#166534"/>
+<circle cx="329.2" cy="26.0" r="3" fill="#166534"/>
+<circle cx="419.6" cy="26.0" r="3" fill="#166534"/>
+<circle cx="510.0" cy="26.0" r="3" fill="#166534"/>
+<path class="ln" d="M 58.0 26.0 L 148.4 152.0 L 238.8 215.0 L 329.2 215.0 L 419.6 134.0 L 510.0 110.0" stroke="#2563eb"/>
+<circle cx="58.0" cy="26.0" r="3" fill="#2563eb"/>
+<circle cx="148.4" cy="152.0" r="3" fill="#2563eb"/>
+<circle cx="238.8" cy="215.0" r="3" fill="#2563eb"/>
+<circle cx="329.2" cy="215.0" r="3" fill="#2563eb"/>
+<circle cx="419.6" cy="134.0" r="3" fill="#2563eb"/>
+<circle cx="510.0" cy="110.0" r="3" fill="#2563eb"/>
+<path class="ln" d="M 58.0 278.0 L 148.4 278.0 L 238.8 278.0 L 329.2 278.0 L 419.6 206.0 L 510.0 194.0" stroke="#7c3aed"/>
+<circle cx="58.0" cy="278.0" r="3" fill="#7c3aed"/>
+<circle cx="148.4" cy="278.0" r="3" fill="#7c3aed"/>
+<circle cx="238.8" cy="278.0" r="3" fill="#7c3aed"/>
+<circle cx="329.2" cy="278.0" r="3" fill="#7c3aed"/>
+<circle cx="419.6" cy="206.0" r="3" fill="#7c3aed"/>
+<circle cx="510.0" cy="194.0" r="3" fill="#7c3aed"/>
+<path class="ln" d="M 58.0 26.0 L 148.4 278.0 L 238.8 278.0 L 329.2 278.0 L 419.6 278.0 L 510.0 278.0" stroke="#b45309" stroke-dasharray="6 4"/>
+<circle cx="58.0" cy="26.0" r="3" fill="#b45309"/>
+<circle cx="148.4" cy="278.0" r="3" fill="#b45309"/>
+<circle cx="238.8" cy="278.0" r="3" fill="#b45309"/>
+<circle cx="329.2" cy="278.0" r="3" fill="#b45309"/>
+<circle cx="419.6" cy="278.0" r="3" fill="#b45309"/>
+<circle cx="510.0" cy="278.0" r="3" fill="#b45309"/>
+<path class="ln" d="M 58.0 278.0 L 148.4 278.0 L 238.8 278.0 L 329.2 278.0 L 419.6 278.0 L 510.0 278.0" stroke="#991b1b" stroke-dasharray="2 3"/>
+<circle cx="58.0" cy="278.0" r="3" fill="#991b1b"/>
+<circle cx="148.4" cy="278.0" r="3" fill="#991b1b"/>
+<circle cx="238.8" cy="278.0" r="3" fill="#991b1b"/>
+<circle cx="329.2" cy="278.0" r="3" fill="#991b1b"/>
+<circle cx="419.6" cy="278.0" r="3" fill="#991b1b"/>
+<circle cx="510.0" cy="278.0" r="3" fill="#991b1b"/>
+<line class="ln" x1="528" y1="34" x2="554" y2="34" stroke="#166534"/>
+<text class="lb" x="560" y="38">chronomem exact</text>
+<line class="ln" x1="528" y1="55" x2="554" y2="55" stroke="#2563eb"/>
+<text class="lb" x="560" y="59">chronomem day</text>
+<line class="ln" x1="528" y1="76" x2="554" y2="76" stroke="#7c3aed"/>
+<text class="lb" x="560" y="80">chronomem week</text>
+<line class="ln" x1="528" y1="97" x2="554" y2="97" stroke="#b45309" stroke-dasharray="6 4"/>
+<text class="lb" x="560" y="101">flat recency</text>
+<line class="ln" x1="528" y1="118" x2="554" y2="118" stroke="#991b1b" stroke-dasharray="2 3"/>
+<text class="lb" x="560" y="122">one-shot compaction</text>
+</svg>
+<figcaption><b>Figure 1.</b> Recall retention by lag, five arms (seed 7). Exact recall is flat at 100% — it does not decay with age. The recency baseline is perfect at one day and zero from two days on, a cliff rather than a slope. One-shot compaction is zero everywhere, including the most recent window. The two summary arms lose information but not monotonically, because a summary is written once and does not change as it ages (§3.2c). Dashed styles distinguish the arms if colour is lost.</figcaption>
+</figure>
+
 
 **(d) The coarse level is not a cheaper version of the fine one — it is a different trade.** The intuitive story would be "read the week summary, get a shorter answer". The measurement says otherwise:
 
@@ -164,7 +235,7 @@ The variance column is informative. Exact recall is deterministic (std 0.0 in ev
 
 ### 3.3 Ablation: the cliff tracks capacity
 
-If (a) is a capacity effect, moving the window must move the cliff. Six window sizes, local backends only (no instance, no LLM):
+If (a) is a capacity effect, moving the window must move the cliff. Six window sizes, local backends only (no instance, no LLM); Figure 2 plots the result:
 
 | top_k | predicted cliff (top_k ÷ 10 events/day) | observed cliff | overall |
 |---|---|---|---|
@@ -176,6 +247,43 @@ If (a) is a capacity effect, moving the window must move the cliff. Six window s
 | 200 | 20.0 d | ≤7 d | 93.8% |
 
 The cliff moves monotonically (0→1→2→3→5→7). Had it stayed at 2 days regardless of window size, the capacity explanation would be refuted and the difference would require an explanation in terms of the extractor or probe construction. Observed values sit slightly below predicted, for two reasons that are not defects: bucket edges are sparse (the cliff can only land on a boundary, and the intervening bucket requires *all* its probes correct), and the two errors at `top_k=200` are 29-day probes, which a 20-day window cannot cover.
+
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 300" width="100%" role="img" aria-label="window size versus observed cliff">
+<style>.ax{stroke:#9aa3ad;stroke-width:1}.gr{stroke:#e3e7ea;stroke-width:1}.lb{font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:11px;fill:#4a5766}.tt{font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:12px;fill:#1f2933;font-weight:600}.ln{fill:none;stroke-width:2}</style>
+<line class="gr" x1="58" y1="248.0" x2="436" y2="248.0"/>
+<text class="lb" x="50" y="252.0" text-anchor="end">0d</text>
+<line class="gr" x1="58" y1="197.5" x2="436" y2="197.5"/>
+<text class="lb" x="50" y="201.5" text-anchor="end">5d</text>
+<line class="gr" x1="58" y1="147.1" x2="436" y2="147.1"/>
+<text class="lb" x="50" y="151.1" text-anchor="end">10d</text>
+<line class="gr" x1="58" y1="96.6" x2="436" y2="96.6"/>
+<text class="lb" x="50" y="100.6" text-anchor="end">15d</text>
+<line class="gr" x1="58" y1="46.2" x2="436" y2="46.2"/>
+<text class="lb" x="50" y="50.2" text-anchor="end">20d</text>
+<line class="ax" x1="58" y1="26" x2="58" y2="248"/>
+<line class="ax" x1="58" y1="248" x2="436" y2="248"/>
+<path class="ln" d="M 222.3 237.9 L 271.7 227.8 L 300.7 217.7 L 337.1 197.5 L 386.5 147.1 L 436.0 46.2" stroke="#9aa3ad" stroke-dasharray="4 3"/>
+<text class="lb" x="432" y="38" text-anchor="end">predicted (window / 10 events/day)</text>
+<path class="ln" d="M 222.3 248.0 L 271.7 237.9 L 300.7 227.8 L 337.1 217.7 L 386.5 197.5 L 436.0 177.4" stroke="#166534"/>
+<circle cx="222.3" cy="248.0" r="3.5" fill="#166534"/>
+<text class="lb" x="222.3" y="266" text-anchor="middle">10</text>
+<circle cx="271.7" cy="237.9" r="3.5" fill="#166534"/>
+<text class="lb" x="271.7" y="266" text-anchor="middle">20</text>
+<circle cx="300.7" cy="227.8" r="3.5" fill="#166534"/>
+<text class="lb" x="300.7" y="266" text-anchor="middle">30</text>
+<circle cx="337.1" cy="217.7" r="3.5" fill="#166534"/>
+<text class="lb" x="337.1" y="266" text-anchor="middle">50</text>
+<circle cx="386.5" cy="197.5" r="3.5" fill="#166534"/>
+<text class="lb" x="386.5" y="266" text-anchor="middle">100</text>
+<circle cx="436.0" cy="177.4" r="3.5" fill="#166534"/>
+<text class="lb" x="436.0" y="266" text-anchor="middle">200</text>
+<text class="lb" x="247" y="288" text-anchor="middle">recency window (top_k, log scale)</text>
+<text class="tt" x="58" y="16">observed cliff</text>
+</svg>
+<figcaption><b>Figure 2.</b> Ablation: the observed cliff tracks window capacity. The grey dashed line is the prediction that a window of <code>top_k</code> entries covers <code>top_k ÷ 10 events/day</code> days; the green line is what the measurements show. The measured cliff sits slightly below prediction because bucket edges are sparse — the cliff can only land on a boundary, and the intervening bucket requires every probe in it to be correct.</figcaption>
+</figure>
+
 
 ---
 
@@ -197,7 +305,7 @@ The first row is the tell: a measurement in which the coarser level appears *mor
 
 ### 4.2 The real result
 
-40 project-week pairs from three closed weeks. Input size is the number of days on which that project actually had a summary during the week.
+40 project-week pairs from three closed weeks. Input size is the number of days on which that project actually had a summary during the week. Figure 3 plots retention against input size.
 
 | days of input | pairs | quantities | identifiers | causal markers | length ratio |
 |---|---|---|---|---|---|
@@ -206,6 +314,44 @@ The first row is the tell: a measurement in which the coarser level appears *mor
 | all (mixed) | 40 | — | — | — | 0.82x |
 
 **The single-input case is not compression.** For those 29 pairs the week summary is *byte-identical* to the day summary it was built from — measured similarity 1.0000 on texts of 755, 1112 and 972 characters. An LLM cannot reproduce 755 characters of Chinese verbatim; the model is choosing to restate its input unchanged. So "90% retention" there means "no compression occurred", not "compression is lossless".
+
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300" width="100%" role="img" aria-label="recursive step: input days vs retention">
+<style>.ax{stroke:#9aa3ad;stroke-width:1}.gr{stroke:#e3e7ea;stroke-width:1}.lb{font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:11px;fill:#4a5766}.tt{font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:12px;fill:#1f2933;font-weight:600}.ln{fill:none;stroke-width:2}</style>
+<line class="gr" x1="74" y1="248.0" x2="440" y2="248.0"/>
+<text class="lb" x="66" y="252.0" text-anchor="end">0%</text>
+<line class="gr" x1="74" y1="192.5" x2="440" y2="192.5"/>
+<text class="lb" x="66" y="196.5" text-anchor="end">25%</text>
+<line class="gr" x1="74" y1="137.0" x2="440" y2="137.0"/>
+<text class="lb" x="66" y="141.0" text-anchor="end">50%</text>
+<line class="gr" x1="74" y1="81.5" x2="440" y2="81.5"/>
+<text class="lb" x="66" y="85.5" text-anchor="end">75%</text>
+<line class="gr" x1="74" y1="26.0" x2="440" y2="26.0"/>
+<text class="lb" x="66" y="30.0" text-anchor="end">100%</text>
+<line class="ax" x1="74" y1="26" x2="74" y2="248"/>
+<line class="ax" x1="74" y1="248" x2="440" y2="248"/>
+<path class="ln" d="M 74.0 48.3 L 165.5 101.0 L 257.0 181.4" stroke="#b45309"/>
+<circle cx="74.0" cy="48.3" r="3.5" fill="#b45309"/>
+<text class="lb" x="74.0" y="39.3" text-anchor="middle">n=29</text>
+<circle cx="165.5" cy="101.0" r="3.5" fill="#b45309"/>
+<text class="lb" x="165.5" y="92.0" text-anchor="middle">n=7</text>
+<circle cx="257.0" cy="181.4" r="3.5" fill="#b45309"/>
+<text class="lb" x="257.0" y="172.4" text-anchor="middle">n=2</text>
+<circle cx="348.5" cy="202.1" r="3.5" fill="none" stroke="#b45309" stroke-width="1.6"/>
+<text class="lb" x="348.5" y="193.1" text-anchor="middle">n=1*</text>
+<circle cx="440.0" cy="33.7" r="3.5" fill="none" stroke="#b45309" stroke-width="1.6"/>
+<text class="lb" x="440.0" y="24.7" text-anchor="middle">n=1*</text>
+<text class="lb" x="74.0" y="266" text-anchor="middle">1</text>
+<text class="lb" x="165.5" y="266" text-anchor="middle">2</text>
+<text class="lb" x="257.0" y="266" text-anchor="middle">3</text>
+<text class="lb" x="348.5" y="266" text-anchor="middle">4</text>
+<text class="lb" x="440.0" y="266" text-anchor="middle">5</text>
+<text class="lb" x="257" y="288" text-anchor="middle">days of input merged into the week summary</text>
+<text class="tt" x="74" y="16">quantity retention  (* = single project, not joined)</text>
+</svg>
+<figcaption><b>Figure 3.</b> The recursive step loses in proportion to what it is asked to merge. Quantity retention against the number of days of input combined into one project's week summary. The single-day point (n=29) is near 100% because the step restates its input rather than compressing it; retention falls as more days must be merged. Marked points hold one project only and are plotted but not joined, since a single observation would bend the curve.</figcaption>
+</figure>
+
 
 Compression appears only when the input is diverse. With two or more days, the step halves the text (0.53x) and retention falls to 58% for quantities and 48% for causal connectives. The trend continues with input size:
 
