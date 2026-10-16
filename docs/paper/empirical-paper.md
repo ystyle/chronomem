@@ -18,7 +18,7 @@ Three findings. **(1) The recency baseline's failure is structural, not gradual.
 
 **(3) Over two months of real use, what survives is names, not numbers.** A blind recall test — an agent allowed to consult only the memory service, never the repository — answered 6/6 prepared questions correctly, all via the no-LLM path, including exact figures. But along the summary chain the first casualties are quantitative evidence and causal mechanism, while proper nouns and identifiers persist longest. We also report two measurement traps that produced confidently wrong results before being caught: a length artefact that made the coarser level look *more* faithful, and a grouping error that made a single day's input dominate the average.
 
-Finally, we report a negative result about evaluation methodology itself: independent LLM judges produced specific claims that did not survive verification — two of the two claims we checked in detail were wrong, both in the direction of overstating loss. Conclusions here therefore rest on mechanical, reproducible measurements, with judge output used only to indicate where to look.
+Finally, and as results in their own right, we report what the measurement work itself turned up: a validation of the token classifiers that found the identifier detector missing 78% of the identifiers it was meant to count (fixed; the conclusions survive, and the correction works *against* our claim rather than for it); two measurement traps that produced confidently wrong results before being caught; a power analysis showing the day-versus-week difference is not resolvable at the sample sizes used and would need roughly 40 probes per bucket; a serving-configuration bug that had collapsed the embedding endpoint's semantic range thirtyfold, which we had wrongly written off as un-fixable; a semantic-survival design that this fix then exposed as invalid (its control resembled the target more than the fact did), reported as a failed measurement rather than as the 15-to-0 result it superficially produced; and a negative result about evaluation methodology: independent LLM judges produced specific claims that did not survive verification, two of the two we checked being wrong, both overstating loss. Conclusions here therefore rest on mechanical, reproducible measurements, with judge output used only to indicate where to look.
 
 ---
 
@@ -105,7 +105,9 @@ For each level we report the fraction of the finer level's tokens still present.
 
 `absent` (the level exists but omits the fact) and `missing` (no summary exists for that window) are counted separately throughout. Conflating them reports non-generation as information loss — a mistake made twice during development, once here and once in an earlier drift study.
 
-**We attempted the complementary semantic metric and report that it failed.** The reviewer's objection to token counting is that it confuses lexical with semantic preservation: a fact restated in different words scores as lost, and a fact whose tokens remain but whose meaning is inverted scores as kept. The natural fix is an embedding-based measure — similarity of a level's text to the fact, against a control fact from another window — and `semantic_survival.py` implements exactly that. It does not work here, and the reason is worth stating rather than hiding:
+**We attempted the complementary semantic metric. The tool works; the design we built on it does not, and both halves are worth reporting.** The reviewer's objection to token counting is that it conflates lexical with semantic preservation: a fact restated in different words scores as lost, and a fact whose tokens survive but whose meaning is inverted scores as kept. The natural fix is an embedding-based measure — similarity of a level's text to the fact, against a control fact from another window.
+
+**First the tool, because getting it wrong is easy.** Our initial run produced this:
 
 | probe | cosine similarity |
 |---|---|
@@ -114,11 +116,28 @@ For each level we report the fraction of the finer level's tokens still present.
 | topically related | 0.9901 |
 | **completely unrelated** ("time-series database stores timestamped data" vs "I had tomatoes and eggs for lunch") | **0.9758** |
 
-Unrelated texts score 0.9758 while close ones score 0.9772 — a range of 0.0014 across the entire semantic spectrum, against 1.0 for identity. Consequently the margin of a fact against its own window and against a control window is ~0 for every fact measured (+0.001 at day level, +0.002 at week level), and the metric can neither support nor refute anything.
+A semantic range of 0.0014 against 1.0 for identity: the embedding could not separate unrelated from related text, so every margin computed from it would be noise. The cause was in the serving configuration, not the data — the endpoint ran `llama-server` with `pooling = cls` in its model preset, overriding `qwen3.pooling_type = 3` (LAST) that the GGUF itself declares and that Qwen3-Embedding was trained with. **We had first written this off as un-fixable shared infrastructure; that was premature.** Removing the override is a one-line change, and the same probes then gave:
 
-**Diagnosis:** the embedding server runs with `--pooling cls`, whereas Qwen3-Embedding requires `--pooling last`; applying the model's documented query-instruction prefix made separation *worse* (identical texts fell to 0.798), which is consistent with a pooling misconfiguration rather than a misuse. We did not change the endpoint's configuration — it is shared infrastructure, and re-tuning it to make one paper's metric work would mean measuring a different system than the one that runs.
+| probe | `pooling = cls` | model default (LAST) |
+|---|---|---|
+| identical | 1.0000 | 1.0000 |
+| semantically close | 0.9772 | **0.8065** |
+| topically related | 0.9901 | 0.6553 |
+| completely unrelated | 0.9758 | **0.2572** |
+| **range** | **0.0242** | **0.7428** |
 
-**What this does and does not mean for the results.** It does not mean the token metric is validated; its stated limitation stands unaddressed. It does mean the limitation cannot be closed by the obvious route on this deployment, and that a semantic replication needs a correctly configured embedding model. We note one asymmetry from the failed attempt that is at least suggestive: of 17 facts, 11 were scored kept by the token metric and lost by the semantic one, and none the other way — the direction the reviewer predicted, though on a metric we have just shown to be uninformative, so we do not treat it as evidence.
+The metric we had declared unusable became usable. `semantic_survival.py` now refuses to run unless this separability check passes (identical ≫ paraphrase ≫ unrelated, span > 0.3), so a misconfigured endpoint fails loudly instead of silently producing margins.
+
+**Then the design, which the working tool exposed as wrong.** With the embedding fixed we measured 30 facts against their own windows and against control facts from other windows. The day/week margins came out +0.049 and −0.056, and of 15 disagreements between the token metric and the semantic one, **all 15** were "token says kept, semantic says lost" — precisely the direction the reviewer predicted. It is also, on inspection, not a measurement of loss:
+
+| quantity | value |
+|---|---|
+| similarity of the fact to its own week window | 0.632 |
+| similarity of the fact to the **control** week window | **0.687** |
+
+A control that resembles the window *more* than the fact does cannot serve as a baseline. The reason is visible in the inputs: the "fact" was an entire `outcome`/`decisions` field (170–273 characters, numbered ①②③, written as a work-log entry), while the target text is a *summary*; and the control facts were drawn from adjacent days of the same projects, so they share the target's genre and vocabulary almost exactly. The negative week margins are at least as consistent with "a summary reads differently from a raw record field" as with "the summary lost this fact", and the measurement cannot distinguish the two. **We therefore report it as a failed measurement rather than as support**, which matters here specifically because a 15-to-0 result pointing the way the reviewer expected is exactly the kind of finding that gets believed.
+
+**What would fix it,** and what we did not do: control facts from a different genre and period, a fact expressed in the summary's own register, or a QA-style probe (ask a question answerable only from the fact and score the answer) rather than a similarity margin. The last is the most promising, since a question and a summary are comparable in register in a way that a record field and a summary are not.
 
 ### 2.6 Summarizer configuration
 
@@ -488,7 +507,7 @@ Compression appears only when the input is diverse. With two or more days, the s
 
 ### 4.4 An independent lexical measure reproduces the ordering
 
-The reviewer asked whether we had tried n-gram overlap, ROUGE or edit distance instead of the token metric, after the embedding route failed. We have, and the framing matters: **these are still lexical measures.** They compare surface sequences, so they do not close the gap the reviewer identified — a fact restated in different words scores low on ROUGE exactly as it scores low on token survival. What they can test is different and narrower: whether the *specific choices* inside the token metric (which classes count, how membership is tested) bias the day-versus-week ordering. If measures that share none of those choices reproduce it, the ordering is not an artefact of the token design.
+The reviewer asked whether we had tried n-gram overlap, ROUGE or edit distance instead of the token metric, alongside the semantic route (§2.5). We have, and the framing matters: **these are still lexical measures.** They compare surface sequences, so they do not close the gap the reviewer identified — a fact restated in different words scores low on ROUGE exactly as it scores low on token survival. What they can test is different and narrower: whether the *specific choices* inside the token metric (which classes count, how membership is tested) bias the day-versus-week ordering. If measures that share none of those choices reproduce it, the ordering is not an artefact of the token design.
 
 Measured on the same 52 pairs as §4.2, with character bigrams for ROUGE-L because the corpus is Chinese and has no word delimiters:
 

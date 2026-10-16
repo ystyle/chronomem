@@ -172,6 +172,28 @@ def main() -> int:
         print("no LLM endpoint configured", file=sys.stderr)
         return 1
 
+    # Validate the embedding before trusting any margin computed from it. An
+    # endpoint whose pooling does not match the model collapses the semantic range
+    # (measured once: unrelated 0.976 against related 0.977, a span of 0.024), and
+    # every downstream number would then be noise. The check is the one the
+    # reviewer suggested: identical >> paraphrase >> unrelated must be separated.
+    diag = [("identical", "时序数据库是存储时间序列的数据库", "时序数据库是存储时间序列的数据库"),
+            ("paraphrase", "时序数据库是存储时间序列的数据库", "专门为时间戳数据设计的数据库系统"),
+            ("related", "时序数据库是存储时间序列的数据库", "关系数据库支持事务和连接"),
+            ("unrelated", "时序数据库是存储时间序列的数据库", "今天午饭吃了西红柿炒蛋")]
+    sep = {}
+    va = embed([a for _n, a, _b in diag], base, key, model)
+    vb = embed([b for _n, _a, b in diag], base, key, model)
+    for (n, _a, _b), x, y in zip(diag, va, vb):
+        sep[n] = cosine(x, y)
+    span = sep["identical"] - sep["unrelated"]
+    print("embedding separability: " + "  ".join(f"{k}={v:.3f}" for k, v in sep.items()))
+    if span < 0.3:
+        print(f"REFUSING: embedding range collapsed (span {span:.3f} < 0.3). "
+              f"The endpoint's pooling probably does not match the model; the "
+              f"margin below would measure nothing.", file=sys.stderr)
+        return 2
+
     s = sample_real.rpc(PROD, "mem/summaries", {"type": "worklog", "limit": 500})
     wins = [(int(x), int(y)) for x, y in re.findall(r"窗口 (\d+)~(\d+)", s)]
     days = sorted({f for f, t in wins if 0.5 <= (t - f) / 86_400_000 < 1.5}, reverse=True)

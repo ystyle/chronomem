@@ -1,12 +1,12 @@
 {
  "model": "qwen3-embed",
  "summary": {
-  "n_facts": 17,
-  "n_disagree_week": 11,
-  "token_only_kept": 11,
+  "n_facts": 30,
+  "n_disagree_week": 15,
+  "token_only_kept": 15,
   "semantic_only_kept": 0,
-  "mean_margin_day": 0.001417561103559297,
-  "mean_margin_week": 0.001983211759256028
+  "mean_margin_day": 0.04887449915160886,
+  "mean_margin_week": -0.05577532153238101
  },
  "disagreements": [
   {
@@ -14,77 +14,105 @@
    "token_says_kept": true,
    "semantic_says_kept": false,
    "marker_ratio_week": 1.0,
-   "margin_week": -0.004949198438973457
+   "margin_week": 0.0077670694761446946
+  },
+  {
+   "day": "2026-10-11",
+   "token_says_kept": true,
+   "semantic_says_kept": false,
+   "marker_ratio_week": 1.0,
+   "margin_week": -0.13827820818950887
   },
   {
    "day": "2026-10-10",
    "token_says_kept": true,
    "semantic_says_kept": false,
    "marker_ratio_week": 0.8333333333333334,
-   "margin_week": 0.0
+   "margin_week": -0.00831814508696005
   },
   {
    "day": "2026-10-10",
    "token_says_kept": true,
    "semantic_says_kept": false,
    "marker_ratio_week": 1.0,
-   "margin_week": -0.04309898821994307
+   "margin_week": -0.04116281652751341
   },
   {
    "day": "2026-10-09",
    "token_says_kept": true,
    "semantic_says_kept": false,
    "marker_ratio_week": 0.6666666666666666,
-   "margin_week": 0.020236609147551543
+   "margin_week": -0.11484162258072983
   },
   {
    "day": "2026-10-09",
    "token_says_kept": true,
    "semantic_says_kept": false,
    "marker_ratio_week": 0.6666666666666666,
-   "margin_week": 0.0
+   "margin_week": -0.14915168548779645
   },
   {
    "day": "2026-10-08",
    "token_says_kept": true,
    "semantic_says_kept": false,
    "marker_ratio_week": 1.0,
-   "margin_week": 0.0
+   "margin_week": 0.01786929464030662
   },
   {
    "day": "2026-10-08",
    "token_says_kept": true,
    "semantic_says_kept": false,
    "marker_ratio_week": 0.5,
-   "margin_week": 0.018661353750084264
+   "margin_week": -0.13422252834307513
   },
   {
    "day": "2026-10-06",
    "token_says_kept": true,
    "semantic_says_kept": false,
    "marker_ratio_week": 1.0,
-   "margin_week": 0.0
+   "margin_week": -0.008179358943315451
+  },
+  {
+   "day": "2026-10-06",
+   "token_says_kept": true,
+   "semantic_says_kept": false,
+   "marker_ratio_week": 0.6666666666666666,
+   "margin_week": -0.08469288171709877
+  },
+  {
+   "day": "2026-10-02",
+   "token_says_kept": true,
+   "semantic_says_kept": false,
+   "marker_ratio_week": 0.8333333333333334,
+   "margin_week": -0.004358096884648388
+  },
+  {
+   "day": "2026-10-02",
+   "token_says_kept": true,
+   "semantic_says_kept": false,
+   "marker_ratio_week": 0.8333333333333334,
+   "margin_week": 0.020003473123538784
   },
   {
    "day": "2026-10-02",
    "token_says_kept": true,
    "semantic_says_kept": false,
    "marker_ratio_week": 1.0,
-   "margin_week": 5.8308385897376525e-09
+   "margin_week": -0.14743289942557203
   },
   {
-   "day": "2026-10-02",
+   "day": "2026-10-01",
    "token_says_kept": true,
    "semantic_says_kept": false,
-   "marker_ratio_week": 0.8333333333333334,
-   "margin_week": 0.0
+   "marker_ratio_week": 1.0,
+   "margin_week": -0.05127307398331804
   },
   {
-   "day": "2026-10-02",
+   "day": "2026-09-30",
    "token_says_kept": true,
    "semantic_says_kept": false,
-   "marker_ratio_week": 0.8333333333333334,
-   "margin_week": 0.027577407129216525
+   "marker_ratio_week": 1.0,
+   "margin_week": -0.10384544432133258
   }
  ],
  "rows": [
@@ -92,200 +120,346 @@
    "day": "2026-10-11",
    "marker_ratio_day": 1.0,
    "marker_ratio_week": 1.0,
-   "sim_day": 0.95965289083008,
-   "sim_week": 0.9718544231047286,
-   "ctrl_day_max": 0.9655767388214802,
-   "ctrl_week_max": 0.976803621543702,
-   "margin_day": -0.005923847991400222,
-   "margin_week": -0.004949198438973457
+   "sim_day": 0.62643321268244,
+   "sim_week": 0.7051775519191305,
+   "ctrl_day_max": 0.6054804206023169,
+   "ctrl_week_max": 0.6974104824429858,
+   "margin_day": 0.020952792080123128,
+   "margin_week": 0.0077670694761446946
   },
   {
    "day": "2026-10-11",
    "marker_ratio_day": 0.0,
    "marker_ratio_week": 0.0,
-   "sim_day": 0.95965289083008,
-   "sim_week": 0.9718544231047286,
-   "ctrl_day_max": 0.9655767388214802,
-   "ctrl_week_max": 0.976803621543702,
-   "margin_day": -0.005923847991400222,
-   "margin_week": -0.004949198438973457
+   "sim_day": 0.6192553992878311,
+   "sim_week": 0.6594387911477552,
+   "ctrl_day_max": 0.6054804206023169,
+   "ctrl_week_max": 0.6974104824429858,
+   "margin_day": 0.01377497868551425,
+   "margin_week": -0.03797169129523059
   },
   {
    "day": "2026-10-11",
    "marker_ratio_day": 0.0,
    "marker_ratio_week": 0.16666666666666666,
-   "sim_day": 0.95965289083008,
-   "sim_week": 0.9718544231047286,
-   "ctrl_day_max": 0.9655767388214802,
-   "ctrl_week_max": 0.976803621543702,
-   "margin_day": -0.005923847991400222,
-   "margin_week": -0.004949198438973457
+   "sim_day": 0.6156742676221392,
+   "sim_week": 0.6513121508314985,
+   "ctrl_day_max": 0.6054804206023169,
+   "ctrl_week_max": 0.6974104824429858,
+   "margin_day": 0.010193847019822289,
+   "margin_week": -0.04609833161148724
+  },
+  {
+   "day": "2026-10-11",
+   "marker_ratio_day": 1.0,
+   "marker_ratio_week": 1.0,
+   "sim_day": 0.6934430132865186,
+   "sim_week": 0.5591322742534769,
+   "ctrl_day_max": 0.6054804206023169,
+   "ctrl_week_max": 0.6974104824429858,
+   "margin_day": 0.0879625926842017,
+   "margin_week": -0.13827820818950887
   },
   {
    "day": "2026-10-10",
    "marker_ratio_day": 0.0,
    "marker_ratio_week": 0.0,
-   "sim_day": 0.9850692176170415,
-   "sim_week": 0.976803621543702,
-   "ctrl_day_max": 0.9759264300170841,
-   "ctrl_week_max": 0.9718544231047286,
-   "margin_day": 0.009142787599957347,
-   "margin_week": 0.004949198438973457
+   "sim_day": 0.6366007021273709,
+   "sim_week": 0.6235630976371548,
+   "ctrl_day_max": 0.6627213999212752,
+   "ctrl_week_max": 0.7055160536405236,
+   "margin_day": -0.026120697793904357,
+   "margin_week": -0.08195295600336883
   },
   {
    "day": "2026-10-10",
    "marker_ratio_day": 0.8333333333333334,
    "marker_ratio_week": 0.8333333333333334,
-   "sim_day": 0.9759264300170841,
-   "sim_week": 0.9718544231047286,
-   "ctrl_day_max": 0.9759264300170841,
-   "ctrl_week_max": 0.9718544231047286,
-   "margin_day": 0.0,
-   "margin_week": 0.0
+   "sim_day": 0.6839120347831412,
+   "sim_week": 0.6971979085535636,
+   "ctrl_day_max": 0.6627213999212752,
+   "ctrl_week_max": 0.7055160536405236,
+   "margin_day": 0.02119063486186601,
+   "margin_week": -0.00831814508696005
   },
   {
    "day": "2026-10-10",
    "marker_ratio_day": 1.0,
    "marker_ratio_week": 1.0,
-   "sim_day": 0.9025123051747674,
-   "sim_week": 0.9287554348847855,
-   "ctrl_day_max": 0.9759264300170841,
-   "ctrl_week_max": 0.9718544231047286,
-   "margin_day": -0.07341412484231669,
-   "margin_week": -0.04309898821994307
+   "sim_day": 0.7330974468839923,
+   "sim_week": 0.6643532371130102,
+   "ctrl_day_max": 0.6627213999212752,
+   "ctrl_week_max": 0.7055160536405236,
+   "margin_day": 0.07037604696271704,
+   "margin_week": -0.04116281652751341
+  },
+  {
+   "day": "2026-10-10",
+   "marker_ratio_day": 0.0,
+   "marker_ratio_week": 0.0,
+   "sim_day": 0.6161569388449409,
+   "sim_week": 0.5353854187213538,
+   "ctrl_day_max": 0.6627213999212752,
+   "ctrl_week_max": 0.7055160536405236,
+   "margin_day": -0.046564461076334274,
+   "margin_week": -0.1701306349191698
   },
   {
    "day": "2026-10-09",
    "marker_ratio_day": 0.6666666666666666,
    "marker_ratio_week": 0.6666666666666666,
-   "sim_day": 0.9887204422926834,
-   "sim_week": 0.9920910322522801,
-   "ctrl_day_max": 0.9621861215694928,
-   "ctrl_week_max": 0.9718544231047286,
-   "margin_day": 0.02653432072319062,
-   "margin_week": 0.020236609147551543
+   "sim_day": 0.6142558183132109,
+   "sim_week": 0.591089297443629,
+   "ctrl_day_max": 0.6561155452040988,
+   "ctrl_week_max": 0.7059309200243589,
+   "margin_day": -0.041859726890887905,
+   "margin_week": -0.11484162258072983
   },
   {
    "day": "2026-10-09",
    "marker_ratio_day": 0.6666666666666666,
    "marker_ratio_week": 0.6666666666666666,
-   "sim_day": 0.9621861215694928,
-   "sim_week": 0.9718544231047286,
-   "ctrl_day_max": 0.9621861215694928,
-   "ctrl_week_max": 0.9718544231047286,
-   "margin_day": 0.0,
-   "margin_week": 0.0
+   "sim_day": 0.5886382616618865,
+   "sim_week": 0.5567792345365624,
+   "ctrl_day_max": 0.6561155452040988,
+   "ctrl_week_max": 0.7059309200243589,
+   "margin_day": -0.06747728354221227,
+   "margin_week": -0.14915168548779645
   },
   {
    "day": "2026-10-09",
    "marker_ratio_day": 0.3333333333333333,
    "marker_ratio_week": 0.3333333333333333,
-   "sim_day": 0.9887204422926834,
-   "sim_week": 0.9920910322522801,
-   "ctrl_day_max": 0.9621861215694928,
-   "ctrl_week_max": 0.9718544231047286,
-   "margin_day": 0.02653432072319062,
-   "margin_week": 0.020236609147551543
+   "sim_day": 0.6673763378739671,
+   "sim_week": 0.6391286387310775,
+   "ctrl_day_max": 0.6561155452040988,
+   "ctrl_week_max": 0.7059309200243589,
+   "margin_day": 0.011260792669868347,
+   "margin_week": -0.06680228129328136
+  },
+  {
+   "day": "2026-10-09",
+   "marker_ratio_day": 0.25,
+   "marker_ratio_week": 0.25,
+   "sim_day": 0.6019112204450378,
+   "sim_week": 0.6076775582223404,
+   "ctrl_day_max": 0.6561155452040988,
+   "ctrl_week_max": 0.7059309200243589,
+   "margin_day": -0.05420432475906101,
+   "margin_week": -0.09825336180201849
   },
   {
    "day": "2026-10-08",
    "marker_ratio_day": 0.8,
    "marker_ratio_week": 1.0,
-   "sim_day": 0.9571034354692154,
-   "sim_week": 0.9718544231047286,
-   "ctrl_day_max": 0.9571034354692154,
-   "ctrl_week_max": 0.9718544231047286,
-   "margin_day": 0.0,
-   "margin_week": 0.0
+   "sim_day": 0.733097036901643,
+   "sim_week": 0.7230468465594371,
+   "ctrl_day_max": 0.562309234591957,
+   "ctrl_week_max": 0.7051775519191305,
+   "margin_day": 0.17078780230968593,
+   "margin_week": 0.01786929464030662
   },
   {
    "day": "2026-10-08",
    "marker_ratio_day": 0.5,
    "marker_ratio_week": 0.5,
-   "sim_day": 0.9871904507195396,
-   "sim_week": 0.9905157768548128,
-   "ctrl_day_max": 0.9571034354692154,
-   "ctrl_week_max": 0.9718544231047286,
-   "margin_day": 0.0300870152503242,
-   "margin_week": 0.018661353750084264
+   "sim_day": 0.6822680783600207,
+   "sim_week": 0.5709550235760553,
+   "ctrl_day_max": 0.562309234591957,
+   "ctrl_week_max": 0.7051775519191305,
+   "margin_day": 0.11995884376806365,
+   "margin_week": -0.13422252834307513
   },
   {
    "day": "2026-10-06",
    "marker_ratio_day": 1.0,
    "marker_ratio_week": 1.0,
-   "sim_day": 0.974724279364832,
-   "sim_week": 0.9718544231047286,
-   "ctrl_day_max": 0.974724279364832,
-   "ctrl_week_max": 0.9718544231047286,
-   "margin_day": 0.0,
-   "margin_week": 0.0
+   "sim_day": 0.6872165663907164,
+   "sim_week": 0.6977402584671837,
+   "ctrl_day_max": 0.6194623785455715,
+   "ctrl_week_max": 0.7059196174104991,
+   "margin_day": 0.06775418784514486,
+   "margin_week": -0.008179358943315451
   },
   {
    "day": "2026-10-06",
    "marker_ratio_day": 0.16666666666666666,
    "marker_ratio_week": 0.16666666666666666,
-   "sim_day": 0.974724279364832,
-   "sim_week": 0.9718544231047286,
-   "ctrl_day_max": 0.974724279364832,
-   "ctrl_week_max": 0.9718544231047286,
-   "margin_day": 0.0,
-   "margin_week": 0.0
+   "sim_day": 0.5686517314347969,
+   "sim_week": 0.56117891382041,
+   "ctrl_day_max": 0.6194623785455715,
+   "ctrl_week_max": 0.7059196174104991,
+   "margin_day": -0.050810647110774654,
+   "margin_week": -0.14474070359008917
   },
   {
    "day": "2026-10-06",
    "marker_ratio_day": 0.0,
    "marker_ratio_week": 0.0,
-   "sim_day": 0.974724279364832,
-   "sim_week": 0.9718544231047286,
-   "ctrl_day_max": 0.974724279364832,
-   "ctrl_week_max": 0.9718544231047286,
-   "margin_day": 0.0,
-   "margin_week": 0.0
+   "sim_day": 0.6437215871725602,
+   "sim_week": 0.6323962223085637,
+   "ctrl_day_max": 0.6194623785455715,
+   "ctrl_week_max": 0.7059196174104991,
+   "margin_day": 0.024259208626988715,
+   "margin_week": -0.0735233951019354
+  },
+  {
+   "day": "2026-10-06",
+   "marker_ratio_day": 0.6666666666666666,
+   "marker_ratio_week": 0.6666666666666666,
+   "sim_day": 0.6144595692780619,
+   "sim_week": 0.6212267356934004,
+   "ctrl_day_max": 0.6194623785455715,
+   "ctrl_week_max": 0.7059196174104991,
+   "margin_day": -0.0050028092675096225,
+   "margin_week": -0.08469288171709877
   },
   {
    "day": "2026-10-02",
    "marker_ratio_day": 0.8333333333333334,
    "marker_ratio_week": 1.0,
-   "sim_day": 0.9722958771180655,
-   "sim_week": 0.9660843531899851,
-   "ctrl_day_max": 0.9722958695318019,
-   "ctrl_week_max": 0.9660843473591465,
-   "margin_day": 7.586263617298528e-09,
-   "margin_week": 5.8308385897376525e-09
+   "sim_day": 0.8134951160731035,
+   "sim_week": 0.7268931340313352,
+   "ctrl_day_max": 0.5485468161036897,
+   "ctrl_week_max": 0.6621969243090593,
+   "margin_day": 0.2649482999694138,
+   "margin_week": 0.06469620972227585
   },
   {
    "day": "2026-10-02",
    "marker_ratio_day": 0.8333333333333334,
    "marker_ratio_week": 0.8333333333333334,
-   "sim_day": 0.9722958695318019,
-   "sim_week": 0.9660843473591465,
-   "ctrl_day_max": 0.9722958695318019,
-   "ctrl_week_max": 0.9660843473591465,
-   "margin_day": 0.0,
-   "margin_week": 0.0
+   "sim_day": 0.6751910167013829,
+   "sim_week": 0.6578388274244109,
+   "ctrl_day_max": 0.5485468161036897,
+   "ctrl_week_max": 0.6621969243090593,
+   "margin_day": 0.1266442005976932,
+   "margin_week": -0.004358096884648388
   },
   {
    "day": "2026-10-02",
    "marker_ratio_day": 0.8333333333333334,
    "marker_ratio_week": 0.8333333333333334,
-   "sim_day": 0.9952816252259009,
-   "sim_week": 0.993661754488363,
-   "ctrl_day_max": 0.9722958695318019,
-   "ctrl_week_max": 0.9660843473591465,
-   "margin_day": 0.022985755694098997,
-   "margin_week": 0.027577407129216525
+   "sim_day": 0.6535974446628207,
+   "sim_week": 0.6822003974325981,
+   "ctrl_day_max": 0.5485468161036897,
+   "ctrl_week_max": 0.6621969243090593,
+   "margin_day": 0.10505062855913094,
+   "margin_week": 0.020003473123538784
+  },
+  {
+   "day": "2026-10-02",
+   "marker_ratio_day": 1.0,
+   "marker_ratio_week": 1.0,
+   "sim_day": 0.5877809218394685,
+   "sim_week": 0.5147640248834873,
+   "ctrl_day_max": 0.5485468161036897,
+   "ctrl_week_max": 0.6621969243090593,
+   "margin_day": 0.03923410573577879,
+   "margin_week": -0.14743289942557203
+  },
+  {
+   "day": "2026-10-01",
+   "marker_ratio_day": 1.0,
+   "marker_ratio_week": 1.0,
+   "sim_day": 0.6568606903610433,
+   "sim_week": 0.6110434186165036,
+   "ctrl_day_max": 0.6571132305190786,
+   "ctrl_week_max": 0.6623164925998216,
+   "margin_day": -0.00025254015803521934,
+   "margin_week": -0.05127307398331804
+  },
+  {
+   "day": "2026-10-01",
+   "marker_ratio_day": 0.16666666666666666,
+   "marker_ratio_week": 0.16666666666666666,
+   "sim_day": 0.6400967941060521,
+   "sim_week": 0.636872298035342,
+   "ctrl_day_max": 0.6571132305190786,
+   "ctrl_week_max": 0.6623164925998216,
+   "margin_day": -0.017016436413026415,
+   "margin_week": -0.02544419456447966
+  },
+  {
+   "day": "2026-10-01",
+   "marker_ratio_day": 0.0,
+   "marker_ratio_week": 0.0,
+   "sim_day": 0.6825600129886207,
+   "sim_week": 0.6987294725563402,
+   "ctrl_day_max": 0.6571132305190786,
+   "ctrl_week_max": 0.6623164925998216,
+   "margin_day": 0.02544678246954213,
+   "margin_week": 0.0364129799565186
+  },
+  {
+   "day": "2026-10-01",
+   "marker_ratio_day": 0.6666666666666666,
+   "marker_ratio_week": 0.8333333333333334,
+   "sim_day": 0.7002013142972527,
+   "sim_week": 0.7333993824386787,
+   "ctrl_day_max": 0.6571132305190786,
+   "ctrl_week_max": 0.6623164925998216,
+   "margin_day": 0.04308808377817419,
+   "margin_week": 0.07108288983885713
+  },
+  {
+   "day": "2026-09-30",
+   "marker_ratio_day": 1.0,
+   "marker_ratio_week": 0.0,
+   "sim_day": 0.6963666784372335,
+   "sim_week": 0.5735776864776285,
+   "ctrl_day_max": 0.6145627630196918,
+   "ctrl_week_max": 0.6629343287864733,
+   "margin_day": 0.08180391541754173,
+   "margin_week": -0.08935664230884477
+  },
+  {
+   "day": "2026-09-30",
+   "marker_ratio_day": 0.6666666666666666,
+   "marker_ratio_week": 0.16666666666666666,
+   "sim_day": 0.684394180503647,
+   "sim_week": 0.5688158552924709,
+   "ctrl_day_max": 0.6145627630196918,
+   "ctrl_week_max": 0.6629343287864733,
+   "margin_day": 0.06983141748395516,
+   "margin_week": -0.09411847349400237
+  },
+  {
+   "day": "2026-09-30",
+   "marker_ratio_day": 0.8333333333333334,
+   "marker_ratio_week": 0.16666666666666666,
+   "sim_day": 0.8434168387898412,
+   "sim_week": 0.6859921935321778,
+   "ctrl_day_max": 0.6145627630196918,
+   "ctrl_week_max": 0.6629343287864733,
+   "margin_day": 0.22885407577014938,
+   "margin_week": 0.02305786474570448
+  },
+  {
+   "day": "2026-09-30",
+   "marker_ratio_day": 1.0,
+   "marker_ratio_week": 1.0,
+   "sim_day": 0.7867334272843279,
+   "sim_week": 0.5590888844651407,
+   "ctrl_day_max": 0.6145627630196918,
+   "ctrl_week_max": 0.6629343287864733,
+   "margin_day": 0.17217066426463612,
+   "margin_week": -0.10384544432133258
   }
  ],
  "validity": {
-  "verdict": "metric unusable on this deployment",
-  "reason": "the endpoint's embedding model has near-zero discriminative range",
-  "probe": {
-   "identical_texts": 1.0,
-   "semantically_close": 0.9772,
-   "topically_related": 0.9901,
-   "completely_unrelated": 0.9758
+  "verdict": "negative margins are a design artefact, not a measurement of loss",
+  "embedding_ok": true,
+  "separability": {
+   "identical": 1.0,
+   "paraphrase": 0.807,
+   "related": 0.656,
+   "unrelated": 0.259,
+   "note": "endpoint fixed by removing `pooling = cls` from the llama.cpp preset; range widened from 0.024 to 0.743"
   },
-  "diagnosis": "the embedding server runs with --pooling cls; Qwen3-Embedding requires --pooling last. Adding the model's documented query instruction prefix made separation worse (identical texts fell to 0.798), confirming a pooling misconfiguration rather than a usage error.",
-  "consequence": "the margin between a fact's similarity to its own window and to a control window is ~0 for every fact (+0.001 day, +0.002 week), so the metric cannot support or refute semantic survival. Reported as a negative result; the token metric's stated limitation stands unaddressed by this route."
+  "problem": "the 'fact' text is an entire outcome/decisions field (170-273 chars, numbered ①②③), while the target text is a *summary*. The control facts come from adjacent days of the same projects, so control and target share genre and vocabulary almost exactly. Measured symptom: ctrl_week 0.687 > sim_week 0.632 — a control that resembles the window more than the fact does cannot be a baseline.",
+  "consequence": "the negative week margins (-0.056 mean) cannot be read as 'the week summary lost this fact'; they are consistent with 'the summary reads differently from a raw record field'. The 15 disagreements are therefore not evidence.",
+  "what_would_fix_it": "control facts from a different style and period (e.g. a different type entirely), or a query-side framing where the fact is expressed in the summary's own register, or a QA probe (ask a question answerable only from the fact and score the answer) instead of a similarity margin.",
+  "kept_because": "the 0-vs-15 direction is what the reviewer predicted, and it would be tempting to report; it is recorded here as a failed measurement so it is not mistaken for support."
  }
 }
