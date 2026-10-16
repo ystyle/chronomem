@@ -1,6 +1,6 @@
 package chronomem.cli
 
-import chronomem.core.MaterializeScheduler
+import chronomem.core.{MaterializeScheduler, HeapDumpWatcher}
 import chronomem.mcp.*
 import mcp.*
 import mcp.transport.*
@@ -38,6 +38,17 @@ main() {
     if (svc.summarizer.isSome() && cfg.summaryMaxPerRun > 0) {
         let sumScheduler = SummarizeScheduler.fromConfig(svc, cfg)
         sumScheduler.start(spec: cfg.summaryCron)
+    }
+    // 堆水位看护（默认关闭；CHRONOLOG_HEAP_DUMP_THRESHOLD_PCT>0 开启）：
+    // 堆贴顶摆动不会触发 cjHeapDumpOnOOM，内存问题最需要现场时反而没有 dump，
+    // 故按水位主动取证。见 docs/incidents/2026-10-16-mcp-unresponsive.md。
+    let heapWatcher = HeapDumpWatcher(cfg.heapDumpThresholdPct, cfg.heapDumpCheckSeconds,
+        cfg.heapDumpCooldownSeconds, cfg.dir)
+    if (heapWatcher.enabled()) {
+        heapWatcher.start()
+        println("chronomem heapDump: threshold=" + cfg.heapDumpThresholdPct.toString() +
+            "%, check=" + cfg.heapDumpCheckSeconds.toString() + "s, cooldown=" +
+            cfg.heapDumpCooldownSeconds.toString() + "s, dir=" + cfg.dir)
     }
     // 组合分发器：MCP 挂 /mcp，UI（如启用）占根路径
     let transport = SessionHttpServerTransport()
