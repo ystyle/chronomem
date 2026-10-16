@@ -455,3 +455,35 @@ class TestTokenClassifiers(unittest.TestCase):
 
     def test_bare_years_remain_excluded(self):
         self.assertEqual(numeric_tokens("2026 年的部署"), set())
+
+class TestNoRefVariant(unittest.TestCase):
+    """The trace variant that removes the opaque reference token.
+
+    Built to test the reviewer's concern that the token makes exact recall
+    trivially extractable. The two traces must differ in exactly that one
+    respect, or the comparison does not isolate anything.
+    """
+
+    def test_only_the_token_differs(self):
+        a = gen_trace.generate(days=5, agents=3, seed=7, no_ref=False)
+        b = gen_trace.generate(days=5, agents=3, seed=7, no_ref=True)
+        self.assertEqual(len(a.events), len(b.events))
+        self.assertEqual(len(a.probes), len(b.probes))
+        for ea, eb in zip(a.events, b.events):
+            self.assertEqual(ea.day, eb.day)
+            self.assertEqual(ea.topic, eb.topic)
+            self.assertEqual(ea.answer, eb.answer)
+            # The only textual difference is the `(ref Zxx) ` prefix.
+            self.assertEqual(ea.text.replace(f"(ref {ea.ref}) ", ""), eb.text)
+
+    def test_token_absent_when_disabled(self):
+        import re as _re
+        b = gen_trace.generate(days=5, agents=3, seed=7, no_ref=True)
+        for e in b.events:
+            self.assertIsNone(_re.search(r"\bZ[A-Z]\d{2}\b", e.text), e.text)
+
+    def test_probes_use_topic_when_disabled(self):
+        b = gen_trace.generate(days=5, agents=3, seed=7, no_ref=True)
+        for p in b.probes:
+            self.assertNotIn("ref Z", p.question)
+            self.assertIn(p.topic, p.question)

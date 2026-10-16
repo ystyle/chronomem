@@ -422,13 +422,36 @@ class ConservativeCompactionBackend(Backend):
     # option A ..." or "(ref ZR01) Applied option A in the vun module (...)".
     REF_RE = re.compile(r"ref\s+(Z[A-Z]\d{2})", re.IGNORECASE)
     OPT_RE = re.compile(r"option\s+([A-D])", re.IGNORECASE)
+    # When the input carries no reference token the pair has to be keyed by
+    # (topic, value) instead, which is the same preservation policy expressed in
+    # the vocabulary the text actually offers. Without this the backend stores
+    # nothing at all and returns empty answers — a 0% that says "this arm cannot
+    # read token-free text", not "conservative compaction fails without tokens".
+    # Measured: exactly that, 100% -> 0%, before the fallback was added.
+    TOPIC_RE = re.compile(r"\[([a-z]+)\]")
+    DAY_RE = re.compile(r"day\s+(\d+)")
 
     def _compact(self) -> None:
         """Rewrite the buffer keeping only (token, value) pairs."""
         self.server_tokens += est_tokens("\n".join(self.buffer))
         for t in self.buffer:
             mref = self.REF_RE.search(t)
+            mtop = self.TOPIC_RE.search(t)
             mopt = self.OPT_RE.search(t)
+            if not mref and mtop and mopt:
+                # Key on (topic, day), not topic alone. A topic recurs on several
+                # days with different answers, so a topic-only key collides: with
+                # 5 topics over 30 days the store held 15 pairs and answered the
+                # wrong day's option. That is a defect in this transcription, not
+                # a property of token-free text — the same policy has to keep the
+                # same discriminator the reader will use.
+                mday = self.DAY_RE.search(t)
+                if mday:
+                    line = (f"{mtop.group(1)} on day {mday.group(1)} chose "
+                            f"option {mopt.group(1).upper()}")
+                    if line not in self.pairs:
+                        self.pairs.append(line)
+                continue
             if mref and mopt:
                 # Natural-language phrasing, matching the other arms, so the same
                 # extractor reads every backend. An earlier version wrote these as

@@ -75,7 +75,7 @@ class Trace:
 
 
 def generate(days: int, agents: int, seed: int, facts_per_day: int = 2,
-             filler_per_day: int = 6) -> Trace:
+             filler_per_day: int = 6, no_ref: bool = False) -> Trace:
     """Build one trace. Facts accumulate across days; probes test recall of them.
 
     Answers are drawn *round-robin* over CHOICES rather than uniformly at
@@ -122,17 +122,26 @@ def generate(days: int, agents: int, seed: int, facts_per_day: int = 2,
             # identifies the fact unambiguously.
             ref = f"Z{REF_LETTERS[fact_n % len(REF_LETTERS)]}{fact_n:02d}"
 
+            # `no_ref` drops the opaque token from the text while leaving
+            # everything else — topics, answers, lag structure, probe schedule —
+            # identical, so a comparison isolates exactly one variable: whether a
+            # fact is located by a token that survives summarisation verbatim, or
+            # by natural-language (topic, day) reference. The token was introduced
+            # to remove *ambiguity* in the reader; the question this variant asks
+            # is whether it also removed *difficulty*, making exact recall look
+            # better than it is when upstream text has no such marker.
+            token = "" if no_ref else f"(ref {ref}) "
             tr.events.append(Event(
                 day=day, seq=seq, kind="decision", fact_id=fid, answer=answer,
                 topic=topic, ref=ref,
-                text=f"[{topic}] (ref {ref}) {owner} decided to go with option "
+                text=f"[{topic}] {token}{owner} decided to go with option "
                      f"{answer} for the {topic} work on day {day}."))
             seq += 1
 
             tr.events.append(Event(
                 day=day, seq=seq, kind="edit", fact_id=fid, answer=answer,
                 topic=topic, ref=ref,
-                text=f"(ref {ref}) Applied option {answer} in the {topic} module "
+                text=f"{token}Applied option {answer} in the {topic} module "
                      f"({owner}, day {day})."))
             seq += 1
 
@@ -161,9 +170,14 @@ def generate(days: int, agents: int, seed: int, facts_per_day: int = 2,
             target_day = max(1, day - max(1, day // 2))
             candidates = [e for e in all_facts if e.day == target_day] or all_facts
             target = candidates[0]
+            # Without a reference token the probe must name the fact the way the
+            # text does: by topic and day. That is exactly the reader's fallback
+            # path, and it is the harder problem the variant is meant to pose.
+            q = (f"What option was chosen for {target.topic} on day {target.day}?"
+                 if no_ref else
+                 f"What option was chosen for ref {target.ref} on day {target.day}?")
             tr.probes.append(Probe(
-                qid=f"q{day:02d}", topic=target.topic,
-                question=f"What option was chosen for ref {target.ref} on day {target.day}?",
+                qid=f"q{day:02d}", topic=target.topic, question=q,
                 answer=target.answer, fact_id=target.fact_id, day_asked=day,
                 ref=target.ref))
 
@@ -173,9 +187,11 @@ def generate(days: int, agents: int, seed: int, facts_per_day: int = 2,
         if idx >= len(decisions):
             continue
         ev = decisions[idx]
+        q = (f"(recap) What option was chosen for {ev.topic} on day {ev.day}?"
+             if no_ref else
+             f"(recap) What option was chosen for ref {ev.ref} on day {ev.day}?")
         tr.probes.append(Probe(
-            qid=f"q_long{i + 1}", topic=ev.topic,
-            question=f"(recap) What option was chosen for ref {ev.ref} on day {ev.day}?",
+            qid=f"q_long{i + 1}", topic=ev.topic, question=q,
             answer=ev.answer, fact_id=ev.fact_id, day_asked=days, ref=ev.ref))
 
     return tr
@@ -187,9 +203,19 @@ def main() -> None:
     ap.add_argument("--agents", type=int, default=3)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--facts-per-day", type=int, default=2)
+    ap.add_argument("--filler-per-day", type=int, default=6)
+    ap.add_argument("--no-ref", action="store_true",
+                    help="omit the opaque reference token from fact text and ask "
+                         "probes by (topic, day) instead; isolates whether exact "
+                         "recall depends on a token that survives summarisation "
+                         "verbatim")
     args = ap.parse_args()
 
-    tr = generate(args.days, args.agents, args.seed)
+    tr = generate(args.days, args.agents, args.seed,
+                  facts_per_day=args.facts_per_day,
+                  filler_per_day=args.filler_per_day,
+                  no_ref=args.no_ref)
     payload = {
         "meta": {"days": tr.days, "agents": tr.agents, "seed": tr.seed,
                  "events": len(tr.events), "probes": len(tr.probes)},

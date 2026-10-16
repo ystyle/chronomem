@@ -1,0 +1,35 @@
+{
+ "purpose": "Test the reviewer's concern that the synthetic trace's opaque reference token makes exact recall trivially extractable, overstating the no-LLM path.",
+ "design": "Two traces, identical in everything except the token: same seed, same 390 events, same 32 probes, same topics/answers/lag schedule. Without the token, probes name the fact by (topic, day) and the reader must disambiguate by day.",
+ "arms": {
+  "flat-recency": {
+   "with_ref": 0.0,
+   "no_ref": 0.0
+  },
+  "compaction-destructive": {
+   "with_ref": 0.0,
+   "no_ref": 0.0
+  },
+  "compaction-conservative": {
+   "with_ref": 1.0,
+   "no_ref": 1.0
+  },
+  "chronomem-exact": {
+   "with_ref": 1.0,
+   "no_ref": 1.0
+  }
+ },
+ "finding": "Removing the token changes nothing for exact recall: 100% either way. The concern therefore does not hold for the accuracy claim. The reason is that exact recall drills into RAW entries, which already carry [topic] and 'day N' — the token was never load-bearing for that path. A topic recurs on several days with different answers (vun appeared twice in one probe's evidence, day 2 = A and day 3 = B), and the reader disambiguated correctly by day.",
+ "where_the_token_does_matter": "The summary path. A summary packs several topics and options into one prose sentence, so without a token the reader has only (topic, day) against paraphrased prose. That is why the token was introduced, and that is the path the ablation should be read against — not exact recall.",
+ "consequence_for_the_paper": "The exact-recall claim stands on its own. The limitation to state is narrower than the reviewer's: the token makes the SUMMARY arm's task easier, and §3.2's day/week figures should be read with that in mind.",
+ "arts": "probes 32, days 30, seed 7.",
+ "summary_arm": {
+  "with_ref": 0.25,
+  "no_ref": 0.25,
+  "trace": "10 days, 130 events, 12 probes, seed 7",
+  "finding": "identical, so the token did not help the summary arm either — which contradicted our own expectation that it would.",
+  "mechanism": "a summary is organised into sections (决策 / 结论 / 待办). The topic appears in the decisions section, the day number in the heading and conclusions. The reader's strict mode requires the topic and the day in the SAME segment, so it fails on both traces alike. The token did not help because the token and its day are also in different segments.",
+  "so": "the token's stated purpose — removing ambiguity from packed prose — is not what the accuracy numbers turn on in this trace. What turns them is whether the reader can bind a topic to a day, and the summary's sectioning breaks that binding regardless of tokens."
+ },
+ "conclusion": "The reviewer's concern that the token makes exact recall trivially extractable does not hold at the accuracy level: exact recall is 100% with and without it, because it reads raw entries that already carry [topic] and 'day N'. The concern's premise is right about the token's purpose but wrong about where it bites: it does not rescue the summary arm either, whose failure comes from section structure rather than from token absence. The honest reading is that this trace cannot separate the token's effect from the reader's structural limits, and that a cleaner ablation would vary the reader rather than the token."
+}

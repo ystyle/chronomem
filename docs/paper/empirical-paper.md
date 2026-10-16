@@ -358,6 +358,24 @@ Two further defects surfaced while fixing the first pair, both of which would ha
 
 Compare the pre-correction figures in §4.2 (90/97/90% at 0.94x, and 58/65/48% at 0.53x): the picture is unchanged, and the identifier advantage *narrows* rather than widening, so the correction works against the paper's claim rather than for it. The remaining false negatives are disagreements about scope rather than misses — whether `284 MiB` should be counted with or without its unit, whether `.` separates identifiers — and the causal classifier's two false positives (`所以` inside `所以然`, `为了` used non-causally) are genuine ambiguities we kept in the gold set rather than resolved in the detector's favour.
 
+### 3.2d Does the reference token make exact recall too easy?
+
+The reviewer raised a concern we had not considered from that angle: the synthetic trace embeds an opaque reference token (`(ref ZR01)`) in every fact, and summaries reproduce it verbatim, so exact drill-down might be *trivially* extractable — overstating the no-LLM path. We built the variant: two traces differing in exactly that one respect (same seed, same 390 events, same 32 probes, same topics/answers/lag schedule; without the token, probes ask by (topic, day) and the reader must disambiguate by day).
+
+| arm | with token | without token |
+|---|---|---|
+| flat recency | 0.0% | 0.0% |
+| compaction (destructive) | 0.0% | 0.0% |
+| compaction (conservative) | 100.0% | 100.0% |
+| **chronomem exact** | **100.0%** | **100.0%** |
+| chronomem day (10-day trace) | 25.0% | 25.0% |
+
+**The concern does not hold at the accuracy level**, and the reason is structural rather than lucky: exact recall drills into **raw entries**, which already carry `[topic]` and `day N`. The token was never load-bearing for that path. We verified the reader is genuinely disambiguating rather than matching something trivially: in one probe the topic `vun` appears twice in the evidence, as day 2 = A and day 3 = B, and the answers are correct by day.
+
+**But the same experiment refuted our own expectation.** We predicted the token would matter for the summary arm, where prose packs several topics into one sentence. Both traces scored 25% — identical. The mechanism is that a summary is organised into sections (decisions / conclusions / todos): the topic sits in the decisions section while the day number sits in the heading and conclusions, and the reader's strict mode requires topic and day in the *same* segment. It fails the same way whether or not a token is present, because the token is also in a different segment from its day.
+
+**The honest reading** is that this trace cannot separate the token's effect from the reader's structural limits. A cleaner ablation would vary the *reader* — a paraphrase-tolerant one — rather than the token, and that is the follow-up we would run first. We report the negative result about our own hypothesis rather than only the finding that answers the reviewer, because the second is what we expected and the first is what happened.
+
 ### 3.3 Ablation: the cliff tracks capacity
 
 If (a) is a capacity effect, moving the window must move the cliff. Six window sizes, local backends only (no instance, no LLM); Figure 2 plots the result:
