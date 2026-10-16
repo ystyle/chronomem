@@ -7,12 +7,17 @@
 # id must also be followed by a `notifications/initialized` before the tool list
 # is populated (without it, `tools/list` returns zero tools rather than an error).
 #
-# Usage:  airamcp.sh <tool> '<json args>'
-#         airamcp.sh --list-tools
+# Usage:  AIRAXIV_API_KEY=... airamcp.sh <tool> '<json args>'
+#         AIRAXIV_API_KEY=... airamcp.sh --list-tools
+#
+# The key is read from the environment; this script never carries one.
 set -euo pipefail
 
 ENDPOINT="${AIRAXIV_URL:-https://airaxiv.com/mcp/}"
-KEY="${AIRAXIV_API_KEY:-***REMOVED-CREDENTIAL***}"
+# The key comes from the environment only. An inline fallback was committed here
+# once and reached three remotes, one of them public, before anyone noticed; a
+# credential that is convenient to hard-code is a credential that will be.
+KEY="${AIRAXIV_API_KEY:?AIRAXIV_API_KEY is not set — export it before running}"
 UA='Content-Type: application/json'
 AC='Accept: application/json, text/event-stream'
 

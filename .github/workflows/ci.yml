@@ -66,6 +66,12 @@ jobs:
           python-version: '3.12'
       # 纯 stdlib，不连塔不联网：只验证「读取器与时间对齐」这类使结果可信的
       # 逻辑。真正的对照实验需要有实例与 LLM，不在 CI 里跑。
+      - name: 凭据扫描
+        working-directory: .
+        # 一个 API key 曾以「内联兜底」的形式留在这套工具里，并随之推到了
+        # 三个远程（其中一个公开）。旋转已公开的 key 是唯一真正的补救，
+        # 这一步只是让同类问题不再静默发生。
+        run: ./bench/check_secrets.sh HEAD
       - name: 回归用例
         run: python3 -m unittest test_harness -v
       # 故意破坏实现，断言用例会报警。测试通过本身说明不了什么——用例可能
