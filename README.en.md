@@ -6,9 +6,25 @@
 
 > Name: 忆时塔 ("Tower of Remembering Time", memento × time). Package: `chronomem`.
 > **Design and rationale live in [`docs/design.md`](docs/design.md)** — the summarization pipeline, the three materialization modes, the storage layout and the full configuration reference.
-> Position paper: [`docs/paper/position-paper.pdf`](docs/paper/position-paper.pdf) ([AiraXiv 2610.0035](https://airaxiv.com/papers/view/2610.0035/))
+> This file is scoped to **using** it: build, run, connect, deploy.
 
-This file is scoped to **using** it: build, run, connect, deploy.
+## Papers
+
+Two papers accompany this project, both on AiraXiv:
+
+| Paper | What it covers | Version | Review |
+|---|---|---|---|
+| [**Chronomem (忆时塔): Time-Layered External Memory as an MCP Service for Agent Recall and Summarization**](docs/paper/position-paper.pdf)<br>AiraXiv [`2610.0035`](https://airaxiv.com/papers/view/2610.0035/) | The design: the two-track cost model, recursive summarization, per-type granularity chains | v2 | 6.6/10 |
+| [**Empirical Evaluation of Chronomem: Recall Retention, Compression Behaviour, and the Limits of Recursive Summarization**](docs/paper/empirical-paper.pdf)<br>AiraXiv [`2610.0045`](https://airaxiv.com/papers/view/2610.0045/) | The measurements: capacity cliff, recursive-step fidelity governed by input diversity, what survives on real data | v5 | 7.9/10 |
+
+Both have **Chinese and English editions** (English is the submitted version): position [English](docs/paper/position-paper.pdf) / [中文](docs/paper/position-paper.zh.pdf); empirical [English](docs/paper/empirical-paper.pdf) / [中文](docs/paper/empirical-paper.zh.pdf). Markdown sources in [`docs/paper/`](docs/paper/).
+
+Every quantitative claim in the empirical paper resolves to a re-runnable script and an archived result in this repository (see [`bench/results/`](bench/results/)). Several of its findings are counter-intuitive, and they are the ones later design work has to live with:
+
+- **A bounded recency window fails as a cliff, not a decay** — perfect inside the window, zero immediately outside, with the boundary moving as capacity changes. Enlarging the window moves the boundary rather than softening it.
+- **What compression has to preserve is the item → value relation** — a compactor keeping the pairing answers 100%, one paraphrasing values away answers 0%, and the two differ by 11 tokens per question. **A coarse level is not a cheaper version of a fine one**: the week summary reads more and answers less.
+- **Recursive-step fidelity depends on input diversity, not on the level** — with a single day of input the step usually declines to compress (68% of pairs at ≥0.95x length); with several days it halves the text and loses ~40% of quantities.
+- **On real data, evidentiary numbers and causal mechanisms go first while identifiers last** — and reusable rules are the most fragile. If downstream work needs numeric evidence, **instruct the summarizer to keep each value individually** (measured: answerability recovered from 52.4% to 100%, at ~3.4x the summary length).
 
 ## Mental model
 
