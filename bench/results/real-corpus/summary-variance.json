@@ -1,0 +1,39 @@
+{
+ "reps": 5,
+ "rows": [
+  {
+   "source_day": "2026-09-15",
+   "n_entries": 12,
+   "reps": 5,
+   "input_chars": 13724,
+   "chars": [
+    1789,
+    1686,
+    1332,
+    1205,
+    1258
+   ],
+   "chars_mean": 1454.0,
+   "chars_stdev": 265.2121792075168,
+   "similarity_mean": 0.26254212854667963,
+   "similarity_min": 0.17571774472500865
+  },
+  {
+   "source_day": "2026-09-12",
+   "n_entries": 33,
+   "reps": 5,
+   "input_chars": 29198,
+   "chars": [
+    2350,
+    1562,
+    1456,
+    1432,
+    2189
+   ],
+   "chars_mean": 1797.8,
+   "chars_stdev": 437.0928963046643,
+   "similarity_mean": 0.24981589984527003,
+   "similarity_min": 0.19834710743801653
+  }
+ ]
+}
