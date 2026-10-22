@@ -78,8 +78,14 @@ chronomem/
   它只是塔的一个客户端，**不参与 `cjpm build`**。
 - 它的行为契约见 `docs/plans/2026-09-05-dsh-session-memory.md`（README 的相对引用即指此）。
 
-## 私有项目声明
+## 开源与发包
 
-- **本项目为私有/内部项目，不发布到仓颉中心仓（禁止 `cjpm publish`）**。
+- **本项目已开源**：主仓 `atomgit.com/ystyle/chronomem`，GitHub 镜像 `github.com/ystyle/chronomem`，
+  内部源仍是私有 Gitea。设计文档与两篇论文（AiraXiv `2610.0035` / `2610.0045`）一并公开。
+- **仍不发仓颉中心仓**（`cjpm publish` 禁止）。这不是"私有"决定的，而是包性质决定的：
+  chronomem 是**应用型包**（MCP 服务，可执行入口 `chronomem.cli`），不是供他人
+  `[dependencies]` 引用的库；中心仓也只承载库包。开源 = 源码可见可构建，发包 = 被下游依赖，
+  两件事互不蕴含。
 - 依赖以 path 方式引用本地库（`mcp-cj` / `tsdb-cj` / `llm_api` / `cron-cj` / `cjxt` 等），另引用中心仓库（`jsonvalue` / `ystyle::jsonrpc`）。
 - 中心仓库（如 `badgercj`）升级后，按需同步本仓库依赖版本即可，**不因此发布本项目**；若依赖的本地库（如 `tsdb-cj`）需发版，由其仓库自行发布，本仓库只改 path/版本引用。
+- 发布可见性口径的单一来源：工作区 `docs/publish-scope.md`。
