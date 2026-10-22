@@ -1,22 +1,22 @@
 version = 0
 
 [requires]
-  mcp = {version = "2.3.15"}
-  cron = {version = "1.0.1"}
-  cjxt = {version = "1.1.1"}
-  tang = {version = "1.0.5"}
-  tsdb = {version = "0.3.5"}
-  jsonvalue = {version = "1.1.1"}
   "ystyle::jsonrpc" = {version = "0.7.8"}
-  llm_api = {version = "1.4.1"}
-  "opencj::ulid" = {version = "0.1.2"}
+  mcp = {version = "2.3.15"}
   sonyflake = {version = "1.0.9"}
+  embed = {version = "1.0.7"}
+  badgercj = {version = "1.6.22"}
+  "opencj::ulid" = {version = "0.1.2"}
   "opencj::multipart" = {version = "0.1.3"}
   markit = {version = "0.0.4"}
   cjpminfo = {version = "1.2.0"}
   snappy = {version = "1.0.1"}
-  seajson = {version = "1.4.7", output-type = "static"}
+  tsdb = {version = "0.5.0"}
+  tang = {version = "1.0.5"}
+  jsonvalue = {version = "1.1.1"}
   gjson = {version = "1.2.1"}
-  embed = {version = "1.0.7"}
-  badgercj = {version = "1.6.20"}
+  seajson = {version = "1.4.7", output-type = "static"}
+  cjxt = {version = "1.2.1"}
+  cron = {version = "1.0.1"}
+  llm_api = {version = "1.4.1"}
   "ystyle::crc" = {version = "1.0.0"}

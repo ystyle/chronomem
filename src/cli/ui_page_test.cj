@@ -178,7 +178,7 @@ func uiDetailShowsAllPayloadFields() {
     let page = RecallPage()
     // 直接构造条目详情体（与「详情」按钮同一条代码路径）
     let tl = svc.registry.timelineOf("worklog").getOrThrow()
-    let pts = tl.queryPoints(0, 0, 1, Option<(String, String)>.None)
+    let pts = tl.queryPoints(0, 0, 1, ArrayList<TagFilter>())
     @Expect(pts.size, Int64(1))
     let body = itemDetailBody(pts[0])
     let json = toJsonString(body)

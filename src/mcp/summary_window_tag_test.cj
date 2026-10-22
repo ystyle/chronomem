@@ -18,7 +18,7 @@ import std.collection.*
 // 读一条摘要的 wf tag（诊断用：确认落库确实带上了窗口起点）
 func summaryHasWindowTag(s: MemoryService, typeName: String, ts: Int64): Bool {
     let stl = s.registry.summaryTimelineOf(typeName).getOrThrow()
-    for (p in stl.queryPoints(0, 0, 0, None)) {
+    for (p in stl.queryPoints(0, 0, 0, ArrayList<TagFilter>())) {
         if (p.ts == ts) {
             return p.tagsMap().get("wf").isSome()
         }

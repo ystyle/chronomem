@@ -27,7 +27,7 @@ func putSummary(s: MemoryService, typeName: String, ts: Int64, winFrom: Int64, w
 func countSummariesExact(s: MemoryService, typeName: String, wf: Int64, wt: Int64): Int64 {
     var n = Int64(0)
     let stl = s.registry.summaryTimelineOf(typeName).getOrThrow()
-    for (p in stl.queryPoints(0, 0, 0, None)) {
+    for (p in stl.queryPoints(0, 0, 0, ArrayList<TagFilter>())) {
         let rec = fromJsonString<SummaryRecord>(p.payload)
         if (rec.windowFrom == wf && rec.windowTo == wt) { n += 1 }
     }

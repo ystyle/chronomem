@@ -111,7 +111,7 @@ public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
 | `mem/truncate` | 清空类型全部条目（TRUNCATE 语义，保留类型） | `type`(必填) |
 | `mem/type_delete` | 删除类型（DROP 语义；**守卫：原始+总结序列必须为空**） | `type`(必填) |
 | `mem/append` | 追加一条原始条目 | `type`(必填), `payload`(对象,必填), `tags`?, `ts`?(缺省=now) |
-| `mem/query` | 结构回想：最近 / 时间范围 / tag 过滤 | `type`(必填), `from`?, `to`?, `limit`?(默认20), `tag`? |
+| `mem/query` | 结构回想：最近 / 时间范围 / tag 过滤（多条件） | `type`(必填), `from`?, `to`?, `limit`?(默认20), `tag`?（语法见下） |
 | `mem/recall` | 回想：`mode=exact` 下钻原始条目（零 LLM）；`mode=summary` 返回时段语义摘要（依赖已生成或现算） | `type`(必填), `granularity`(必填，须在类型 levels 内), `windowStartMs`?, `mode`?(exact/summary，默认 exact), `summarize_on_miss`?(默认 false，仅 summary 模式), `group`?(summary 模式按分组过滤，如 proj 值；"未分组"查无 tag 条目) |
 | `mem/buckets` | 列某粒度物化桶（发现可用窗口 + 桶摘要） | `type`(必填), `granularity`(必填), `from`?, `to`? |
 | `mem/summarize` | 语义总结（见 §7）：**按粒度**总结（须在类型 levels 内）或**按显式窗口**总结（`from/to`，任意不规则时段 = 任务阶段） | `type`(必填), `from`?, `to`?, `granularity`?, `instructions`?, `model`?, `recompute`?, `store`?(默认true) |
@@ -137,6 +137,7 @@ mem/summarize { type, from/to 或 granularity+anchor, instructions?, model? }
 
 - **结构化锚点**（requirements §9.4「总结 schema」）：系统指令引导 LLM 输出固定章节——`决策 / 结论 / 待办 / 状态变更 / 关键词`，保证可回忆、可下钻、可再聚合。
 - **按分组维度分桶（summary_group_by）**：类型可配置 `summary_group_by`（tag 键列表，如 `["proj"]`，上限 2 个），总结时按该维度把窗口内条目**分桶**，每桶独立 LLM 总结、各自落一条 `SummaryRecord`（`groupKey` 记录分组值）。这样跨项目混在一起的条目（如一天内做了 xisp + chronomem）可分别成条，按项目回溯互不干扰；**无任何维度 tag 的条目归入「未分组」桶**（不丢失）。未配置则该类型整窗一条（向后兼容）。`mem/recall mode=summary` 支持 `group` 参数按分组过滤取回。
+- **标签过滤语法（`mem/query` 的 `tag`）**：`key=value` 单条件；空格分隔多条件 **AND**；逗号分隔同 tag 多值 **IN**（`status=todo,done`）。**条件间一律 AND，无 OR 运算符**（最常见的多值 OR 用同 tag IN 表达）；同一 tag 写两遍视为两个 AND 条件（不合并成 IN，避免歧义）。**语法错误一律报错**，绝不静默降级为「无过滤」——否则一次笔误就把「查某项目」变成「查全部条目」，返回大量无关数据而调用方无感。解析实现见 `src/core/tag_filter.cj`，条件经 `applyTagFilters` 落到 tsdb 的 `filter` / `filterIn`（多值走索引归并）。
 - **输入窗口两种形态**：
   - **按粒度**：`granularity + anchor`（锚点所在物化桶的窗口）——自动对齐该类型的粒度链，适合规律性总结（如每天/每周）。
   - **按显式窗口（任务阶段）**：`from/to` 任意不规则时段——**存储层不做「阶段」特殊机制**，由调用方（agent 客户端）在阶段结束时把「任务阶段」映射成 `from/to` 窗口调用；工作日志这类「一天 1 条、也可能一小时好几条」的不均匀分布，正是由「按天/周粒度」+「任务阶段显式窗口」两条腿覆盖。两条路径产生的 `SummaryRecord` 同存 `<type>.summary`，凭 `windowFrom/windowTo`（及 `groupKey`）区分。

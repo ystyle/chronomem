@@ -448,7 +448,7 @@ func forEachSummary(svc: MemoryService, name: String, cb: (SummaryRecord) -> Boo
     let pageSize = Int64(200)
     var page = Int64(1)
     while (true) {
-        let (points, total) = stl.queryPointsPage(0, 0, page, pageSize, None)
+        let (points, total) = stl.queryPointsPage(0, 0, page, pageSize, ArrayList<TagFilter>())
         if (points.size == 0) { break }
         for (p in points) {
             if (!cb(fromJsonString<SummaryRecord>(p.payload))) { return }
@@ -467,7 +467,9 @@ func forEachSummaryAtWindowStart(svc: MemoryService, name: String, winFrom: Int6
     let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
     var n: Int64 = 0
     // 该窗口起点的摘要条数上界 = 分组数 + 重算历史，量级很小；一次性取回即可
-    let points = stl.queryPoints(0, 0, 0, Some((SUMMARY_WF_TAG, winFrom.toString())))
+    let wfFilters = ArrayList<TagFilter>()
+    wfFilters.add(TagFilter(SUMMARY_WF_TAG, ArrayList<String>([winFrom.toString()])))
+    let points = stl.queryPoints(0, 0, 0, wfFilters)
     for (p in points) {
         n += 1
         if (!cb(fromJsonString<SummaryRecord>(p.payload))) { return n }
@@ -760,12 +762,18 @@ public func handleQuery(svc: MemoryService, args: HashMap<String, JsonValue>): C
     let to = argInt(args, "to")
     let limit = argInt(args, "limit")
     let page = argInt(args, "page")
-    let tagFilter = argTagPair(args, "tag")
+    // tag 多条件语法：空格分隔 AND、逗号分隔同 tag 多值 IN（解析见 core/tag_filter.cj）。
+    // 语法错误必须报错——静默降级为「无过滤」会把「查某项目」变成「查全部」。
+    let tagParsed = parseTagFilters(argStr(args, "tag"))
+    if (!tagParsed.isOk()) {
+        return toolError(tagParsed.error)
+    }
+    let tagFilters = tagParsed.filters
     let tl = svc.registry.timelineOf(name).getOrThrow()
     let pageSize = if (limit > 0) { limit } else { 20 }
     // 页码分页（page ≥ 1 时生效，默认第 1 页；limit = 每页条数）：
     // 响应头给出总数/总页数，AI 可据此翻页取完，不遗漏（此前单次全量取 limit 条）。
-    let (points, total) = tl.queryPointsPage(from, to, page, pageSize, tagFilter)
+    let (points, total) = tl.queryPointsPage(from, to, page, pageSize, tagFilters)
     if (total == 0) { return CallToolResult.text("（无匹配条目）") }
     let sb = StringBuilder()
     // 分页头：共 N 条 · 第 p/totalPages 页 · 每页 L 条
@@ -931,7 +939,7 @@ public func handleSummaries(svc: MemoryService, args: HashMap<String, JsonValue>
     let to = argInt(args, "to")
     let limit = argInt(args, "limit")
     let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
-    let points = stl.queryPoints(from, to, if (limit > 0) { limit } else { 10 }, None)
+    let points = stl.queryPoints(from, to, if (limit > 0) { limit } else { 10 }, ArrayList<TagFilter>())
     if (points.size == 0) { return CallToolResult.text("（暂无总结记录）") }
     let sb = StringBuilder()
     for (p in points) {
@@ -1027,7 +1035,7 @@ public func registerTools(server: McpServer, svc: MemoryService): Unit {
     s5.addField("to", "integer", "结束时间（毫秒，0=不限）")
     s5.addField("limit", "integer", "每页条数（默认 20；响应头给总数/总页数，翻页用 page）")
     s5.addField("page", "integer", "页码（1 起，默认 1；首页响应会提示下一页的 page 值）")
-    s5.addField("tag", "string", "标签过滤 key=value")
+    s5.addField("tag", "string", "标签过滤。" + TAG_SYNTAX_HINT)
     let t5 = Tool("mem/query", "结构回想：最近/时间范围/tag 过滤原始条目（零 LLM）；分页返回（响应头含 总数·第x/y页，按提示翻页取完，勿一次拉超大 limit）", s5)
     server.addTool(t5, { params => handleQuery(svc, params.arguments) })
 
