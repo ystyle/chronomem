@@ -13,12 +13,14 @@ import std.collection.*
 //   ② 日窗口在周窗口内部，于是周窗口被其内部的任一日摘要判为「已总结」——「总结到周」不产出；
 //      反向地，查某一天的摘要会把整周摘要一并返回（时段归属错误）。
 
-// 向某类型的 .summary series 直写一条摘要（测试用；绕过 LLM）
+// 向某类型的 .summary series 直写一条摘要（测试用；绕过 LLM）。
+// 走与生产一致的落库路径（含 wf tag）——测试辅助与真实写入若分叉，
+// 用例就测不到生产行为（历史摘要的例外路径在对应用例里显式直写）。
 func putSummary(s: MemoryService, typeName: String, ts: Int64, winFrom: Int64, winTo: Int64,
     text: String, group: Option<String>): Unit {
     let stl = s.registry.summaryTimelineOf(typeName).getOrThrow()
     let rec = SummaryRecord(ts, winFrom, winTo, "fake", ArrayList<Int64>(), "", text, groupKey: group)
-    stl.append(ts, toJsonString(rec), HashMap<String, String>())
+    appendSummaryPoint(stl, rec)
 }
 
 // 统计窗口精确匹配（windowFrom/windowTo 全等）的摘要条数

@@ -367,7 +367,7 @@ func summarizeWindowCore(svc: MemoryService, name: String, winFrom: Int64, winTo
         }
         let rec = svc.summarizer.getOrThrow().summarize(winFrom, winTo, entries, instructions, groupKey: groupKey)
         if (store) {
-            svc.registry.summaryTimelineOf(name).getOrThrow().append(rec.ts, toJsonString(rec), HashMap<String, String>())
+            appendSummaryPoint(svc.registry.summaryTimelineOf(name).getOrThrow(), rec)
         }
         records.add(rec)
         fresh.add(true)
@@ -421,11 +421,27 @@ func latestSummaryForWindow(svc: MemoryService, name: String, winFrom: Int64, wi
     None
 }
 
+// 摘要落库时写入的窗口起点 tag 键。摘要点的 ts 是**生成时刻**而非窗口时间，
+// 按窗口取摘要无法用 tsdb 的 range 预筛；把窗口起点写成 tag 后，读侧可用
+// filter(wf, ...) 走倒排索引，避免把该类型的全部摘要分页遍历一遍。
+let SUMMARY_WF_TAG = "wf"
+
+// 摘要落库：payload 之外把窗口起点写成 tag（供按窗口下推检索）。
+// 窗口终点不进 tag：同一窗口起点下的摘要本就只有「分组数」条，读侧内存比对 windowTo
+// 即可；而 wf 单独作键已足以把候选集从「该类型全部摘要」缩到「该窗口的几条」。
+func appendSummaryPoint(stl: Timeline, rec: SummaryRecord): Unit {
+    let tags = HashMap<String, String>()
+    tags[SUMMARY_WF_TAG] = rec.windowFrom.toString()
+    stl.append(rec.ts, toJsonString(rec), tags)
+}
+
 // 分页遍历某类型的全部摘要（每页 200，边读边判，不整表驻留）。
-// 摘要的 ts 是**生成时刻**而非窗口时间，无法用时间范围预筛「窗口匹配」，故只能全量遍历；
-// 摘要量随运营线性增长（每日 × 分组数 + 每周一条），不能按「一年只有 52 条」写死条数上限
-// ——上限一旦触顶，更早窗口的摘要就对「语义回顾」与自动调度的幂等判据同时静默不可见
-// （表现为：库里明明有，recall summary 却说「无摘要」，且老窗口被判未总结而重复总结烧 token）。
+//
+// 这是**兜底路径**：正常情况按窗口检索走 forEachSummaryInWindow（走 wf 索引），
+// 只有历史摘要（升级前落库、无 wf tag）才落到这里全量遍历。
+// 摘要的 ts 是生成时刻而非窗口时间，无法用 tsdb 的 range 预筛「窗口匹配」。
+// 摘要量随运营线性增长（每日 × 分组数 + 每周一条），这条全量遍历成本与摘要总量成正比，
+// 故新落库一律带 wf tag，让常规查询不必走这里。
 // cb 返回 false 表示提前结束遍历。
 func forEachSummary(svc: MemoryService, name: String, cb: (SummaryRecord) -> Bool): Unit {
     let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
@@ -442,14 +458,41 @@ func forEachSummary(svc: MemoryService, name: String, cb: (SummaryRecord) -> Boo
     }
 }
 
+// 遍历「窗口起点 = winFrom」的摘要：走 wf tag 的倒排索引（只扫该窗口那几条），
+// 而非全量遍历该类型的全部摘要。cf 返回 false 表示提前结束。
+// 返回扫描到的摘要条数——0 说明该窗口起点下没有**带 tag** 的摘要，调用方可据此决定
+// 是否退回全量遍历（历史存量）。
+func forEachSummaryAtWindowStart(svc: MemoryService, name: String, winFrom: Int64,
+    cb: (SummaryRecord) -> Bool): Int64 {
+    let stl = svc.registry.summaryTimelineOf(name).getOrThrow()
+    var n: Int64 = 0
+    // 该窗口起点的摘要条数上界 = 分组数 + 重算历史，量级很小；一次性取回即可
+    let points = stl.queryPoints(0, 0, 0, Some((SUMMARY_WF_TAG, winFrom.toString())))
+    for (p in points) {
+        n += 1
+        if (!cb(fromJsonString<SummaryRecord>(p.payload))) { return n }
+    }
+    n
+}
+
 // 窗口**精确匹配**（windowFrom/windowTo 全等）的全部摘要，最新在前。
 //
 // 必须精确匹配而非「区间重叠」：日窗口落在周窗口**内部**，重叠判据会让周窗口被其内部的
 // 日摘要判为「已总结」（周层永不产出），也会让查某一天时把整周摘要一并返回（时段归属错误）。
 // 同一粒度的自然窗口互不重叠，故「全等」才等于「就是这个窗口」；显式 from/to 的不规则
 // 任务阶段窗口同理（同一对 from/to 即同一窗口）。
+//
+// 检索优先走 wf tag 下推（只扫该窗口起点下的几条摘要）；无命中说明该窗口只有**历史存量**
+// （升级前落库、不带 wf tag），退回全量遍历保证旧数据仍可见——两条路径的匹配判据完全一致
+// （windowFrom/windowTo 全等），不会因走哪条而改变结果。
 func summariesForWindow(svc: MemoryService, name: String, winFrom: Int64, winTo: Int64): ArrayList<SummaryRecord> {
     let out = ArrayList<SummaryRecord>()
+    let scanned = forEachSummaryAtWindowStart(svc, name, winFrom, { rec =>
+        if (rec.windowFrom == winFrom && rec.windowTo == winTo) { out.add(rec) }
+        true
+    })
+    if (scanned > 0) { return out }
+    // 兜底：该窗口起点下没有带 tag 的摘要（历史存量），全量遍历一遍
     forEachSummary(svc, name, { rec =>
         if (rec.windowFrom == winFrom && rec.windowTo == winTo) { out.add(rec) }
         true
