@@ -204,12 +204,28 @@ npx @modelcontextprotocol/inspector --url http://127.0.0.1:8900
 | `mem/truncate` | 清空类型全部条目（原始 + 总结，TRUNCATE 语义；保留类型） |
 | `mem/type_delete` | 删除类型（DROP 语义；**守卫：原始 + 总结序列必须为空**，先 `mem/truncate`） |
 | `mem/append` | 追加条目（`type` + `payload` 必填；`tags`? `ts`?） |
-| `mem/query` | 结构回想：`from`? `to`? `limit`? `tag`?（key=value） |
+| `mem/query` | 结构回想：`from`? `to`? `limit`? `tag`?（多条件语法见「标签过滤」） |
 | `mem/recall` | `mode=exact` 下钻原始（零 LLM）/ `mode=summary` 语义回顾；`granularity` 须在类型 levels 内；`summarize_on_miss`? |
 | `mem/buckets` | 列某粒度物化桶（发现可用窗口） |
 | `mem/summarize` | **语义总结（后台异步）**：提交总结任务立即返回 `job_id`，LLM 在后台线程执行，**不阻塞任何其它请求**；`from/to`（任务阶段）或 `granularity`（按粒度）；`instructions`? `store`?（默认 true 落库） |
 | `mem/summarize_status` | 查后台总结任务状态（`job_id`；pending/running/done/failed；`store=false` 时返回结果文本） |
 | `mem/summaries` | 查总结记录（最新在前） |
+
+## 标签过滤语法（`mem/query` 的 `tag`）
+
+| 写法 | 含义 |
+|---|---|
+| `proj=chronomem` | 单条件等值（与旧版完全一致） |
+| `proj=chronomem role=user` | 空格分隔 = **多条件 AND** |
+| `status=todo,done` | 逗号分隔 = **同 tag 多值 IN**（OR） |
+| `status=todo,done room=r1` | IN 与 AND 组合 |
+
+语义要点：
+
+- **条件间一律 AND**，没有 OR 运算符（需要 OR 时用同 tag 多值 IN 表达最常见的场景）；
+- **同一 tag 写两遍 = 两个 AND 条件**，必然无交集——不会被悄悄合并成 IN（避免歧义）；
+- **语法错误一律报错**（缺 `=`、空键、空值、`status=todo,` 这种尾部空项）。这是刻意的：
+  静默降级为「无过滤」会把「查某个项目」变成「查全部条目」，返回大量无关数据而调用方毫无察觉。
 
 ## 示例：工作日志
 
@@ -226,6 +242,8 @@ mem/summarize_status { job_id: <mem/summarize 返回的 job_id> }   # 查任务�
 
 # 回想
 mem/query  { type: "worklog", tag: "proj=chronomem" }          # 结构回想（零 LLM）
+mem/query  { type: "worklog", tag: "proj=chronomem role=user" } # 多条件 AND
+mem/query  { type: "worklog", tag: "status=todo,done" }        # 同 tag 多值 IN
 mem/recall { type: "worklog", granularity: "day" }             # 精确下钻当天原始条目
 mem/recall { type: "worklog", granularity: "day", mode: "summary" }  # 语义回顾（当天摘要）
 ```

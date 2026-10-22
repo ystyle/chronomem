@@ -86,7 +86,7 @@ class GracefulShutdownTest {
         try {
             @Assert(svc2.registry.has("shut"), true)
             if (let Some(tl) <- svc2.registry.timelineOf("shut")) {
-                let points = tl.queryPoints(0, Int64.Max, 100, None)
+                let points = tl.queryPoints(0, Int64.Max, 100, ArrayList<TagFilter>())
                 @Assert(points.size == 3)
                 // queryPoints 为 reverse（最新在前）
                 @Assert(points[0].payload == "three")

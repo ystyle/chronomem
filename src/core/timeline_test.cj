@@ -16,19 +16,21 @@ func timeline_appendQueryCountAndTagFilter() {
 
     @Expect(tl.count(), Int64(3))
     // 全部（最新在前）
-    let all = tl.queryPoints(0, 0, 0, None)
+    let all = tl.queryPoints(0, 0, 0, ArrayList<TagFilter>())
     @Expect(all.size, Int64(3))
     @Expect(all[0].payload, "c")
     // 按 tag 过滤
-    let users = tl.queryPoints(0, 0, 0, Some(("role", "user")))
+    let roleFilters = ArrayList<TagFilter>()
+    roleFilters.add(TagFilter("role", ArrayList<String>(["user"])))
+    let users = tl.queryPoints(0, 0, 0, roleFilters)
     @Expect(users.size, Int64(2))
     // limit
-    let two = tl.queryPoints(0, 0, 2, None)
+    let two = tl.queryPoints(0, 0, 2, ArrayList<TagFilter>())
     @Expect(two.size, Int64(2))
     @Expect(two[0].payload, "c")
     @Expect(two[1].payload, "b")
     // 时间范围
-    let ranged = tl.queryPoints(TEST_BASE + 1, TEST_BASE + 1000, 0, None)
+    let ranged = tl.queryPoints(TEST_BASE + 1, TEST_BASE + 1000, 0, ArrayList<TagFilter>())
     @Expect(ranged.size, Int64(1))
     @Expect(ranged[0].payload, "b")
     store.close()
@@ -190,7 +192,7 @@ func timeline_windowTimestampsAndMaterializeTsOnly() {
     @Expect(winTs.size, Int64(3))
     @Expect(winTs[0], TEST_BASE)
     @Expect(winTs[2], TEST_BASE + 2000)
-    let all = tl.queryPoints(0, 0, 0, None)   // 最新在前
+    let all = tl.queryPoints(0, 0, 0, ArrayList<TagFilter>())   // 最新在前
     for (i in 0..all.size) {
         @Expect(all[all.size - 1 - i].ts == winTs[i], true)
     }

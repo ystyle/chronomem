@@ -91,11 +91,14 @@ public func uiTypeInfo(svc: MemoryService, name: String): Option<UiTypeInfo> {
 public func uiQuery(svc: MemoryService, name: String, from: Int64, to: Int64,
     limit: Int64, tagKey: String, tagValue: String): ArrayList<Point> {
     if (svc.registry.timelineOf(name).isNone()) { return ArrayList<Point>() }
-    let tagFilter: Option<(String, String)> =
-        if (tagKey != "" && tagValue != "") { Some((tagKey, tagValue)) } else { None }
+    // UI 目前只提供单 tag 输入，构造成单条件列表（多条件语法留给 MCP 层）
+    let tagFilters = ArrayList<TagFilter>()
+    if (tagKey != "" && tagValue != "") {
+        tagFilters.add(TagFilter(tagKey, ArrayList<String>([tagValue])))
+    }
     let fromArg = if (from > 0) { from } else { 0 }
     let toArg = if (to > 0) { to } else { 0 }
-    svc.registry.timelineOf(name).getOrThrow().queryPoints(fromArg, toArg, limit, tagFilter)
+    svc.registry.timelineOf(name).getOrThrow().queryPoints(fromArg, toArg, limit, tagFilters)
 }
 
 public func uiCount(svc: MemoryService, name: String): Int64 {
@@ -125,7 +128,7 @@ public func uiSummaries(svc: MemoryService, name: String, limit: Int64): ArrayLi
     let out = ArrayList<UiSummaryItem>()
     match (svc.registry.summaryTimelineOf(name)) {
         case Some(tl) =>
-            let points = tl.queryPoints(0, 0, limit, None)
+            let points = tl.queryPoints(0, 0, limit, ArrayList<TagFilter>())
             for (p in points) {
                 let rec = try {
                     fromJsonString<SummaryRecord>(p.payload)

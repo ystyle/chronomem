@@ -193,15 +193,15 @@ public class Timeline {
 
     // ---------- 查询（读，不落盘） ----------
 
-    // 时间范围（from/to = 0 表示不设边界）+ limit（最新在前；0 = 全部）+ 标签过滤（可选）
-    public func queryPoints(from: Int64, to: Int64, limit: Int64, tagFilter: Option<(String, String)>): ArrayList<Point> {
+    // 时间范围（from/to = 0 表示不设边界）+ limit（最新在前；0 = 全部）+ 标签过滤。
+    // tagFilters 为多条件（条件间 AND，同 tag 多值走 filterIn 索引归并）；空 = 不过滤。
+    public func queryPoints(from: Int64, to: Int64, limit: Int64,
+        tagFilters: ArrayList<TagFilter>): ArrayList<Point> {
         var q = this.tsdb.query(this.series).reverse()
         if (from > 0 || to > 0) {
             q = q.range(from, if (to > 0) { to } else { Int64.Max })
         }
-        if (let Some((tag, value)) <- tagFilter) {
-            q = q.filter(tag, value)
-        }
+        q = applyTagFilters(q, tagFilters)
         if (limit > 0) {
             q = q.limit(limit)
         }
@@ -212,16 +212,14 @@ public class Timeline {
     // count 全量（key-only/索引）一次 + offset 下推取本页——不做全量内存切片，
     // 大条目量时无 payload 峰值（配合 tsdb Query.offset/timestamps 语义）。
     public func queryPointsPage(from: Int64, to: Int64, page: Int64, pageSize: Int64,
-        tagFilter: Option<(String, String)>): (ArrayList<Point>, Int64) {
+        tagFilters: ArrayList<TagFilter>): (ArrayList<Point>, Int64) {
         let size = if (pageSize > 0) { pageSize } else { 20 }
         let p = if (page > 0) { page } else { 1 }
         var q = this.tsdb.query(this.series).reverse()
         if (from > 0 || to > 0) {
             q = q.range(from, if (to > 0) { to } else { Int64.Max })
         }
-        if (let Some((tag, value)) <- tagFilter) {
-            q = q.filter(tag, value)
-        }
+        q = applyTagFilters(q, tagFilters)
         let total = q.count()
         let points = q.offset((p - 1) * size).limit(size).find()
         (points, total)
