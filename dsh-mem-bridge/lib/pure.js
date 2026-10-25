@@ -25,7 +25,25 @@ export const KIND = {
   milestone: 'milestone',
   close: 'close',
   error: 'error',
+  user: 'user',
+  say: 'say',
+  tool: 'tool',
 }
+
+/**
+ * How much of a full-context session's tool traffic is recorded.
+ *
+ * `none` — no tool entries at all (a chat session: the tools are an artefact of
+ * the harness, not part of what was said);
+ * `names` — one entry per call carrying only the tool name and its error flag;
+ * `full` — the call's arguments and the result text as well.
+ *
+ * Measured on a real 1265 KB session: tool arguments plus results were 87% of
+ * every byte, against 0.34% for what the user actually typed. That ratio is why
+ * this is a configurable enum rather than a boolean: "record everything" is
+ * only meaningful once you have decided how much of the 87% you want.
+ */
+export const TOOL_MODES = ['none', 'names', 'full']
 
 /**
  * Clip one over-long text to `max` characters, keeping both ends.
@@ -133,6 +151,244 @@ export function compactTags(tags) {
   return out
 }
 
+/**
+ * One text-area line: `路径` or `路径 = 级别`.
+ *
+ * Paths contain no `=`, so the first one always separates the two halves; that
+ * keeps a path with spaces working without quoting.
+ */
+const WORKSPACE_LINE = /^(?<path>[^=]+?)\s*(?:=\s*(?<level>.*))?$/u
+
+/** The level a line with no explicit level takes: record tool names, not their bodies. */
+export const DEFAULT_WORKSPACE_LEVEL = 'names'
+
+/**
+ * Parse the full-context workspace list out of one text-area value.
+ *
+ * One workspace per line, either `路径` or `路径 = 级别`; blank lines and `#`
+ * comments are dropped; entries are trimmed and de-duplicated on path in
+ * first-seen order. An entry is either an absolute path (matched as a path
+ * prefix) or a bare directory name (matched against the cwd's last segment) —
+ * see {@link matchesWorkspace}.
+ *
+ * The result is the object array the config schema declares, so this is both
+ * what the settings page writes and what `resolveConfig` normalises:
+ *
+ * ```
+ * /home/me/notes               → { path: '/home/me/notes', level: 'names' }
+ * /home/me/notes = full        → { path: '/home/me/notes', level: 'full' }
+ * journal = none               → { path: 'journal', level: 'none' }
+ * ```
+ *
+ * An unrecognised level is dropped to the default rather than rejected: the
+ * settings form refuses to save when {@link parseWorkspaceListStrict} returns
+ * `undefined`, but the host parser still has to survive a hand-edited
+ * `cordis.patch.yml`, and losing a whole workspace over a typo would be worse
+ * than recording one level off.
+ *
+ * @param {unknown} text the text-area value, or an already-structured array.
+ * @returns {{path: string, level: string}[]} the entries, in input order.
+ */
+export function parseWorkspaceList(text) {
+  if (Array.isArray(text)) return normaliseWorkspaceArray(text)
+  return parseWorkspaceText(text, false)
+}
+
+/**
+ * Same parse, but report an invalid level instead of defaulting it.
+ *
+ * The settings form uses this so a typo blocks the save (the shared form model
+ * treats an `undefined` parse as invalid) instead of silently writing `names`.
+ *
+ * @param {unknown} text the text-area value.
+ * @returns {{path: string, level: string}[] | undefined} the entries, or
+ *   `undefined` when a level is not one of {@link TOOL_MODES}.
+ */
+export function parseWorkspaceListStrict(text) {
+  if (Array.isArray(text)) {
+    const rows = normaliseWorkspaceArray(text)
+    // normaliseWorkspaceArray defaults bad levels, so inspect the raw input too.
+    for (const row of text) {
+      if (row === null || typeof row !== 'object') continue
+      if (typeof row.level === 'string' && row.level !== '' && !TOOL_MODES.includes(row.level)) return undefined
+    }
+    return rows
+  }
+  return parseWorkspaceText(text, true)
+}
+
+/**
+ * Parse one text-area value.
+ *
+ * @param {unknown} text the text-area value.
+ * @param {boolean} strict whether an unknown level returns `undefined`.
+ * @returns {{path: string, level: string}[] | undefined} the rows.
+ */
+function parseWorkspaceText(text, strict) {
+  if (typeof text !== 'string' || text === '') return []
+  const out = []
+  const seen = new Set()
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (line === '' || line.startsWith('#')) continue
+    const match = WORKSPACE_LINE.exec(line)
+    if (match === null) continue
+    const path = normaliseWorkspacePath(match.groups.path)
+    if (path === '') continue
+    const levelText = match.groups.level === undefined ? '' : match.groups.level.trim()
+    if (levelText !== '' && !TOOL_MODES.includes(levelText)) {
+      if (strict) return undefined
+      if (seen.has(path)) continue
+      seen.add(path)
+      out.push({ path, level: DEFAULT_WORKSPACE_LEVEL })
+      continue
+    }
+    const level = levelText === '' ? DEFAULT_WORKSPACE_LEVEL : levelText
+    if (seen.has(path)) continue
+    seen.add(path)
+    out.push({ path, level })
+  }
+  return out
+}
+
+/**
+ * Render the object array back into its text-area form, one `路径 = 级别` per line.
+ *
+ * The settings page formats through this, so a saved list always comes back
+ * looking the way it was typed (including the explicit level).
+ *
+ * @param {unknown} rows the structured value.
+ * @returns {string} the text-area value.
+ */
+export function formatWorkspaceList(rows) {
+  if (!Array.isArray(rows)) return ''
+  const lines = []
+  for (const row of normaliseWorkspaceArray(rows)) lines.push(`${row.path} = ${row.level}`)
+  return lines.join('\n')
+}
+
+/** Trim a hand-typed path: drop surrounding space and trailing slashes, keep a lone `/`. */
+function normaliseWorkspacePath(value) {
+  if (typeof value !== 'string') return ''
+  const trimmed = value.trim()
+  if (trimmed === '') return ''
+  const stripped = trimmed.replace(/\/+$/, '')
+  return stripped === '' ? '/' : stripped
+}
+
+/** Coerce a structured array (or anything else) into clean rows, defaulting bad levels. */
+function normaliseWorkspaceArray(value) {
+  if (!Array.isArray(value)) return []
+  const out = []
+  const seen = new Set()
+  for (const row of value) {
+    if (row === null || typeof row !== 'object') continue
+    const path = normaliseWorkspacePath(row.path)
+    if (path === '' || seen.has(path)) continue
+    seen.add(path)
+    const level = TOOL_MODES.includes(row.level) ? row.level : DEFAULT_WORKSPACE_LEVEL
+    out.push({ path, level })
+  }
+  return out
+}
+
+/**
+ * Does one cwd belong to the full-context workspace list?
+ *
+ * An absolute entry matches as a path prefix on a segment boundary, so
+ * `/home/me/notes` covers `/home/me/notes` and `/home/me/notes/sub` but never
+ * `/home/me/notes-old`. A bare entry matches the cwd's last segment exactly.
+ * When several entries match, the longest path wins — that is what lets a broad
+ * `notes = none` coexist with a narrow `notes/2026 = full`.
+ *
+ * @param {unknown} cwd absolute session cwd.
+ * @returns {{path: string, level: string} | null} the winning entry.
+ */
+export function workspaceRuleFor(cwd, workspaces) {
+  if (typeof cwd !== 'string' || cwd === '') return null
+  if (!Array.isArray(workspaces) || workspaces.length === 0) return null
+  const trimmed = cwd.replace(/\/+$/, '') || '/'
+  const slash = trimmed.lastIndexOf('/')
+  const base = slash >= 0 ? trimmed.slice(slash + 1) : trimmed
+  let best = null
+  let bestLen = -1
+  for (const row of workspaces) {
+    if (row === null || typeof row !== 'object') continue
+    const path = typeof row.path === 'string' ? row.path : ''
+    if (path === '') continue
+    const level = TOOL_MODES.includes(row.level) ? row.level : DEFAULT_WORKSPACE_LEVEL
+    let matched = false
+    if (path.startsWith('/')) {
+      matched = trimmed === path || trimmed.startsWith(path === '/' ? '/' : path + '/')
+    } else {
+      matched = path === base
+    }
+    if (!matched) continue
+    // Longest wins; a bare name behaves like a one-segment path for this purpose.
+    const length = path.length
+    if (length > bestLen) {
+      bestLen = length
+      best = { path, level }
+    }
+  }
+  return best
+}
+
+/** Does a session's cwd fall inside the configured full-context workspaces? */
+export function matchesWorkspace(cwd, workspaces) {
+  return workspaceRuleFor(cwd, workspaces) !== null
+}
+
+/** Does a session's cwd fall inside the configured full-context workspaces? */
+export function isFullContextWorkspace(cwd, cfg) {
+  return workspaceRuleFor(cwd, cfg === null || cfg === undefined ? [] : cfg.fullContextWorkspaces) !== null
+}
+
+/**
+ * The recording level this session's cwd asks for, or `null` for the default profile.
+ *
+ * `null` is the important value: it means "not a full-context workspace", and
+ * every caller must then behave exactly as the plugin did before this feature
+ * existed. `'none'` is a different answer — a chat workspace that does record
+ * the transcript but no tool traffic at all.
+ */
+export function workspaceLevelFor(cwd, cfg) {
+  const rule = workspaceRuleFor(cwd, cfg === null || cfg === undefined ? [] : cfg.fullContextWorkspaces)
+  return rule === null ? null : rule.level
+}
+
+/**
+ * Pull the text out of one `user/message` event, or `''` when it carries none.
+ *
+ * Two shape facts drive this, both taken from dsh's session types:
+ *
+ * 1. A `user/message` event's `data` **is** the message; every other
+ *    message-producing event nests it under `data.message`
+ *    (`const message = type === 'user/message' ? record : record?.['message']`).
+ * 2. Not every `user/message` is something a human typed. In one measured
+ *    session 62 of 118 were real, and the 56 injected ones (runtime context,
+ *    skill catalog, time context, tool-job notices, model selection) were 17×
+ *    larger than the human text. Recording them would bury the conversation
+ *    under material the reader never wrote — so only `source.kind === 'user'`
+ *    counts.
+ *
+ * A replacement copy is refused too: compaction re-adds a `user/message` with
+ * `surfaceOp: {op:'replace', ...}` to shadow the range it summarised, and that
+ * checkpoint is not a new thing anyone said.
+ *
+ * @param {unknown} data the event's `data`.
+ * @param {unknown} surfaceOp the event's `surfaceOp` marker.
+ * @returns {string} the human-authored text, `''` when this event is not one.
+ */
+export function userTextOf(data, surfaceOp) {
+  if (surfaceOp !== 'append') return ''
+  if (data === null || typeof data !== 'object') return ''
+  const source = data.source
+  const kind = source !== null && typeof source === 'object' ? source.kind : undefined
+  if (kind !== 'user') return ''
+  return textOfBlocks(data.content)
+}
+
 /** Shared tag base for one activity entry. */
 function baseTags(kind, subject) {
   return compactTags({
@@ -196,6 +452,95 @@ export function compactEntry(subject, { compactionId, summaryText, shadowedRange
       stats: `shadowedTokenCount=${count(shadowedTokenCount)}`,
     },
     tags: compactTags(Object.assign(baseTags(KIND.compact, subject), { span, cid: compactionId })),
+  }
+}
+
+/**
+ * `kind=user` — something the human typed.
+ *
+ * Only reachable in a full-context workspace: the default profile records the
+ * assistant's own final replies, which already restate what was asked. A chat
+ * transcript is incomplete without the questions, so these entries exist.
+ */
+export function userEntry(subject, { turn, text, noteMax }) {
+  return {
+    payload: {
+      title: firstLine(text, 120),
+      note: clipText(text, noteMax),
+    },
+    tags: compactTags(Object.assign(baseTags(KIND.user, subject), { turn: turn })),
+  }
+}
+
+/**
+ * `kind=say` — one assistant message, in a full-context workspace.
+ *
+ * The default profile keeps only the last text-bearing assistant message of a
+ * turn (the final answer). A transcript needs the whole exchange, including the
+ * short narrations between tool calls, so every text-bearing message lands as
+ * its own entry and `step` keeps the order visible.
+ */
+export function sayEntry(subject, { turn, step, text, noteMax }) {
+  return {
+    payload: {
+      title: firstLine(text, 120),
+      note: clipText(text, noteMax),
+    },
+    tags: compactTags(Object.assign(baseTags(KIND.say, subject), { turn: turn, step: step })),
+  }
+}
+
+/**
+ * `kind=tool` — one tool call, in a full-context workspace.
+ *
+ * `mode` decides how much survives:
+ * - `none` — the caller must not call this at all;
+ * - `names` — the name and error flag only (arguments and output dropped);
+ * - `full` — the clipped arguments and result text too.
+ *
+ * Arguments arrive as a JSON-shaped value rather than a string, so they are
+ * rendered with `JSON.stringify` before clipping. The result text is the
+ * `tool/result` message when it has arrived; a call whose result never comes
+ * records what is known and nothing more.
+ *
+ * @param {object} subject entry subject.
+ * @param {object} input call facts plus `mode`.
+ * @returns {{payload: object, tags: object} | null} the entry, or `null` when
+ *   the mode records no calls.
+ */
+export function toolEntry(subject, { turn, step, callId, name, args, result, isError, mode, noteMax }) {
+  if (mode === 'none') return null
+  const toolName = typeof name === 'string' && name !== '' ? name : 'unknown'
+  const facts = []
+  if (mode === 'full') {
+    const renderedArgs = renderJson(args)
+    if (renderedArgs !== '') facts.push(`arguments: ${clipText(renderedArgs, Math.max(1, Math.trunc(noteMax / 2)))}`)
+    if (typeof result === 'string' && result !== '') facts.push(`result: ${clipText(result, noteMax)}`)
+  }
+  return {
+    payload: {
+      title: `工具 ${toolName}${isError === true ? '（出错）' : ''}`,
+      note: clipText(facts.join('\n'), noteMax),
+      outcome: toolName,
+    },
+    tags: compactTags(Object.assign(baseTags(KIND.tool, subject), {
+      turn: turn,
+      step: step,
+      call: callId,
+      tool: toolName,
+      ...(isError === true ? { error: 'true' } : {}),
+    })),
+  }
+}
+
+/** Render a JSON-shaped value for an entry body, tolerating a circular or absent one. */
+function renderJson(value) {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value)
+  } catch (_) {
+    return ''
   }
 }
 
@@ -381,6 +726,18 @@ function pickNumber(value, fallback) {
 }
 
 /**
+ * Effective workspace rows from either a text-area string or a structured array.
+ *
+ * Tolerant on purpose: the row config may have been written by hand (a string,
+ * the text-area form) or by the settings page (an array). A malformed level
+ * defaults rather than deleting the workspace, because dropping it would turn
+ * recording off for a session the user meant to record.
+ */
+function pickWorkspaces(value) {
+  return parseWorkspaceList(value)
+}
+
+/**
  * Resolve effective configuration: row `config` first, `DSH_MEM_BRIDGE_*` env as fallback, then defaults.
  *
  * @param {unknown} config the plugin row's `config` object.
@@ -411,6 +768,11 @@ export function resolveConfig(config, env) {
     tailN: pickNumber(c.tailN ?? e.DSH_MEM_BRIDGE_TAIL_N, 20),
     maxDaily: pickNumber(c.maxDaily ?? e.DSH_MEM_BRIDGE_MAX_DAILY, 20),
     projMap,
+    // 全上下文工作区：每个工作区自带录入级别；空列表 = 该功能完全不生效（默认），
+    // 故默认装载与旧版逐字节一致。
+    fullContextWorkspaces: pickWorkspaces(c.fullContextWorkspaces ?? e.DSH_MEM_BRIDGE_FULL_CONTEXT),
+    sayNoteMax: pickNumber(c.sayNoteMax ?? e.DSH_MEM_BRIDGE_SAY_NOTE_MAX, 20000),
+    toolNoteMax: pickNumber(c.toolNoteMax ?? e.DSH_MEM_BRIDGE_TOOL_NOTE_MAX, 2000),
   }
 }
 

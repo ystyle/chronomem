@@ -99,6 +99,10 @@ function toolCallEvent(turn) {
   return { type: 'tool/call', seq: 2, time: 1704110400001, data: { turn, step: 1, name: 'bash' } }
 }
 
+function turnStartEvent(turn) {
+  return { type: 'turn/start', seq: 0, time: 1704110399999, data: { turn } }
+}
+
 function turnEndEvent(turn, reason = 'completed') {
   return { type: 'turn/end', seq: 3, time: 1704110400002, data: { turn, reason: { kind: reason } } }
 }
@@ -616,13 +620,15 @@ function fieldMeta(schema, field) {
   return (json.refs ?? {})[ref]?.meta ?? {}
 }
 
-test('Config declares exactly the four fields the settings form shows', () => {
-  // design doc D16②/§282 pins these four: service address, auth key, master
-  // switch, distillation switch. Everything else stays off the form on purpose.
+test('Config declares exactly the five fields the settings form shows', () => {
+  // D16②/§282 pinned four: service address, auth key, master switch,
+  // distillation switch. `fullContextWorkspaces` is the fifth, added because
+  // choosing *which* workspaces keep a transcript is a deployment decision a
+  // user has to be able to make from the UI. Every other knob stays off the form.
   assert.deepEqual(
     schemaFieldNames(plugin.Config).sort(),
-    ['distill', 'enabled', 'token', 'url'],
-    'only the four designed fields belong on the settings form',
+    ['distill', 'enabled', 'fullContextWorkspaces', 'token', 'url'],
+    'only the designed fields belong on the settings form',
   )
 })
 
@@ -699,4 +705,200 @@ test('disabled through a volatile reference stops all recording', () => {
   apply(ctx, cfg)
   // apply() returns early when disabled, so it registers no listeners at all.
   assert.equal(ctx.listeners.size, 0, 'a disabled plugin must register nothing')
+})
+
+// ---------------------------------------------------------------------------
+// Full-context workspaces
+//
+// The regression that matters most is the default one: with an empty workspace
+// list a session must keep producing exactly what it produced before this
+// feature existed. These tests pin both halves of that.
+// ---------------------------------------------------------------------------
+
+const FULL_CTX_CWD = '/home/ystyle/notes'
+const fullCtxSession = { id: 'session-2', header: { cwd: FULL_CTX_CWD } }
+
+function userEvent(text, kind = 'user', surfaceOp = 'append') {
+  return {
+    type: 'user/message',
+    seq: 4,
+    time: 1704110400003,
+    surfaceOp,
+    data: { source: { kind }, content: [{ type: 'text', text }] },
+  }
+}
+
+function assistantStepEvent(turn, step, text) {
+  return {
+    type: 'assistant/message',
+    seq: 5,
+    time: 1704110400004,
+    data: { turn, step, message: { content: [{ type: 'text', text }] } },
+  }
+}
+
+function toolCallEventWithId(turn, callId, name, args) {
+  return {
+    type: 'tool/call',
+    seq: 6,
+    time: 1704110400005,
+    data: { turn, step: 2, callId, name, arguments: args },
+  }
+}
+
+function toolResultEvent(turn, callId, text, isError = false) {
+  return {
+    type: 'tool/result',
+    seq: 7,
+    time: 1704110400006,
+    data: {
+      turn,
+      step: 2,
+      message: { source: { kind: 'tool', callId }, content: [{ type: 'text', text }] },
+      ...(isError ? { error: { message: 'boom' } } : {}),
+    },
+  }
+}
+
+/** Collect the `kind` of every appended entry, in order. */
+function kindsOf(calls) {
+  return calls.map((call) => call.body.params.arguments.tags.kind)
+}
+
+test('an empty workspace list records no user message at all (default profile)', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test', projMap: {} })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', session, userEvent('你好'))
+    await settled()
+  })
+  assert.deepEqual(kindsOf(calls), [])
+})
+
+test('the default profile still writes exactly one turn entry per completed turn', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test', projMap: {}, turnMinTools: 1, turnMinLen: 120 })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', session, userEvent('你好'))
+    ctx.emit('session/event', session, assistantEvent(7, '结论：可以开始'))
+    ctx.emit('session/event', session, toolCallEvent(7))
+    ctx.emit('session/event', session, turnEndEvent(7))
+    await settled()
+  })
+  // Same single entry as before the feature: the user message is ignored and the
+  // turn entry still comes from `turn/end`.
+  assert.deepEqual(kindsOf(calls), ['turn'])
+})
+
+test('a full-context workspace records the transcript in order', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, {
+    url: 'http://tower.test',
+    projMap: {},
+    fullContextWorkspaces: `${FULL_CTX_CWD} = none`,
+    sayNoteMax: 20000,
+  })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', fullCtxSession, turnStartEvent(1))
+    ctx.emit('session/event', fullCtxSession, userEvent('帮我看看这个配置'))
+    ctx.emit('session/event', fullCtxSession, assistantStepEvent(1, 1, '我先读一下文件。'))
+    ctx.emit('session/event', fullCtxSession, assistantStepEvent(1, 2, '读完了，配置没问题。'))
+    ctx.emit('session/event', fullCtxSession, turnEndEvent(1))
+    await settled()
+  })
+
+  assert.deepEqual(kindsOf(calls), ['user', 'say', 'say'])
+  const args = calls.map((call) => call.body.params.arguments)
+  assert.equal(args[0].payload.note, '帮我看看这个配置')
+  assert.equal(args[1].payload.note, '我先读一下文件。')
+  assert.equal(args[2].payload.note, '读完了，配置没问题。')
+  assert.equal(args[0].tags.turn, '1')
+  assert.equal(args[1].tags.step, '1')
+  assert.equal(args[2].tags.step, '2')
+  // `turn/end` must not add a duplicate of the last say entry.
+  assert.ok(!kindsOf(calls).includes('turn'))
+})
+
+test('a full-context workspace ignores injected user-role messages', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test', projMap: {}, fullContextWorkspaces: `${FULL_CTX_CWD} = none` })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', fullCtxSession, userEvent('真的问题'))
+    ctx.emit('session/event', fullCtxSession, userEvent('x'.repeat(5000), 'runtime-context'))
+    ctx.emit('session/event', fullCtxSession, userEvent('x'.repeat(5000), 'skill-catalog'))
+    ctx.emit('session/event', fullCtxSession, userEvent('x'.repeat(5000), 'time-context'))
+    ctx.emit('session/event', fullCtxSession, userEvent('checkpoint', 'compact-checkpoint', { op: 'replace', startSeq: 1, endSeq: 9 }))
+    await settled()
+  })
+  assert.deepEqual(kindsOf(calls), ['user'])
+  assert.equal(calls[0].body.params.arguments.payload.note, '真的问题')
+})
+
+test('tool level none writes no tool entries', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test', projMap: {}, fullContextWorkspaces: `${FULL_CTX_CWD} = none` })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', fullCtxSession, toolCallEventWithId(1, 'call-1', 'bash', { command: 'ls' }))
+    ctx.emit('session/event', fullCtxSession, toolResultEvent(1, 'call-1', 'a.txt'))
+    await settled()
+  })
+  assert.deepEqual(kindsOf(calls), [])
+})
+
+test('tool level names records the name but drops arguments and output', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test', projMap: {}, fullContextWorkspaces: `${FULL_CTX_CWD} = names`, toolNoteMax: 2000 })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', fullCtxSession, toolCallEventWithId(1, 'call-2', 'bash', { command: 'rm -rf /tmp/x' }))
+    ctx.emit('session/event', fullCtxSession, toolResultEvent(1, 'call-2', 'x'.repeat(3000)))
+    await settled()
+  })
+  assert.deepEqual(kindsOf(calls), ['tool'])
+  const args = calls[0].body.params.arguments
+  assert.equal(args.tags.tool, 'bash')
+  assert.equal(args.tags.call, 'call-2')
+  assert.equal(args.tags.turn, '1')
+  assert.equal(args.payload.note, '', 'names mode must not leak arguments or output')
+})
+
+test('tool level full records clipped arguments and output', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test', projMap: {}, fullContextWorkspaces: `${FULL_CTX_CWD} = full`, toolNoteMax: 100 })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', fullCtxSession, toolCallEventWithId(1, 'call-3', 'read', { path: '/tmp/a.txt' }))
+    ctx.emit('session/event', fullCtxSession, toolResultEvent(1, 'call-3', 'y'.repeat(300)))
+    await settled()
+  })
+  assert.deepEqual(kindsOf(calls), ['tool'])
+  const note = calls[0].body.params.arguments.payload.note
+  assert.ok(note.includes('/tmp/a.txt'))
+  assert.ok(note.includes('省略'), 'the output must be clipped, not stored whole')
+})
+
+test('a tool entry keeps the call timestamp rather than the result timestamp', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test', projMap: {}, fullContextWorkspaces: `${FULL_CTX_CWD} = names` })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', fullCtxSession, toolCallEventWithId(1, 'call-4', 'bash', {}))
+    ctx.emit('session/event', fullCtxSession, toolResultEvent(1, 'call-4', 'done'))
+    await settled()
+  })
+  // The call happened at ...005, its result at ...006: the entry belongs to the call.
+  assert.equal(calls[0].body.params.arguments.ts, 1704110400005)
+})
+
+test('the workspace match uses the session cwd, not the agent id', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, {
+    url: 'http://tower.test',
+    projMap: {},
+    // Matches by last segment, so an absolute-cwd session under a different
+    // root would not be picked up.
+    fullContextWorkspaces: 'other-place = full',
+  })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', fullCtxSession, userEvent('不该被记录'))
+    await settled()
+  })
+  assert.deepEqual(kindsOf(calls), [])
 })

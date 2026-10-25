@@ -259,6 +259,7 @@ function pageState(overrides = {}) {
     token: { text: '', overridden: false, invalid: false },
     enabled: { text: 'true', overridden: false, invalid: false },
     distill: { text: 'true', overridden: false, invalid: false },
+    fullContext: { text: '', overridden: false, invalid: false },
     tokenConfigured: false,
     ...overrides,
   }
@@ -487,11 +488,14 @@ test('the page is torn down when the plugin unloads', async () => {
 
 // ── the form the controller builds ───────────────────────────────────────────
 
-test('the controller stages url as text and both switches through a boolean spec', async () => {
+test('the controller stages url as text, both switches as booleans, and the workspace list as JSON', async () => {
   const { exports, primitives } = await loadBundle()
   exports.apply(ctxFor(describeFaceStub(), []))
   const model = primitives.__Model.instances[0]
-  assert.deepEqual(model.specs.map((spec) => spec.field), ['url', 'enabled', 'distill'])
+  assert.deepEqual(
+    model.specs.map((spec) => spec.field),
+    ['url', 'enabled', 'distill', 'fullContextWorkspaces'],
+  )
   assert.equal(model.specs[0].format('http://x'), 'http://x')
   assert.deepEqual(model.specs[1].parse('false'), { kind: 'set', value: false })
   assert.deepEqual(model.specs[2].parse('true'), { kind: 'set', value: true })
@@ -579,7 +583,7 @@ test('the summary view renders the one-liner, not the form', async () => {
   assert.equal(node, 'description')
 })
 
-test('the page view renders the shared form with all four controls', async () => {
+test('the page view renders the shared form with every control', async () => {
   const { exports } = await loadBundle()
   const form = renderPage(exports, pageState({ tokenConfigured: true }))
   assert.equal(typeName(form), 'SettingsForm')
@@ -589,6 +593,7 @@ test('the page view renders the shared form with all four controls', async () =>
     'SettingsSecretField',
     'BooleanField',
     'BooleanField',
+    'TextAreaField',
   ])
   assert.equal(controls[1].props.configured, true)
   assert.equal(controls[1].props.stateLabel, 'tokenSet')
@@ -650,4 +655,74 @@ test('a switch renders its label and the staged state, and stages through onTogg
   assert.equal(switchNode.props.checked, true)
   assert.equal(switchNode.props.label, 'enabled')
   assert.equal(typeof switchNode.props.onChange, 'function')
+})
+
+// ---------------------------------------------------------------------------
+// The workspace text-area
+//
+// The bundle cannot `require` a relative module (see the header), so it carries
+// its own copy of the parser. That copy is what the settings page actually
+// saves through, so it is tested against `lib/pure.js` — a drift between the two
+// would mean the UI accepts a line the Host then reads differently.
+// ---------------------------------------------------------------------------
+
+test('the bundle parses workspace text the same way pure.js does', async () => {
+  const { exports } = await loadBundle()
+  const pure = await import('../lib/pure.js')
+  const inputs = [
+    '',
+    '   ',
+    '/home/me/notes',
+    '/home/me/notes = none',
+    '/home/me/notes = full\njournal',
+    '/home/me/work/ = full',
+    '/home/me/my notes = full',
+    '# comment\n\n/a = names\n/a = full',
+    '/a = bogus',
+    'journal = NONE',
+  ]
+  for (const input of inputs) {
+    assert.deepEqual(
+      exports.parseWorkspaceText(input),
+      pure.parseWorkspaceListStrict(input),
+      `parsers disagree on ${JSON.stringify(input)}`,
+    )
+  }
+})
+
+test('the bundle formats workspace rows the same way pure.js does', async () => {
+  const { exports } = await loadBundle()
+  const pure = await import('../lib/pure.js')
+  const cases = [
+    [],
+    [{ path: '/a', level: 'full' }],
+    [{ path: '/a', level: 'full' }, { path: 'journal', level: 'none' }],
+    [{ path: '/a/' }, { path: '/b', level: 'bogus' }],
+    null,
+  ]
+  for (const rows of cases) {
+    assert.equal(exports.formatWorkspaceRows(rows), pure.formatWorkspaceList(rows))
+  }
+})
+
+test('the workspace field round-trips through format and parse', async () => {
+  const { exports } = await loadBundle()
+  const rows = [{ path: '/home/me/notes', level: 'none' }, { path: 'journal', level: 'full' }]
+  assert.deepEqual(exports.parseWorkspaceText(exports.formatWorkspaceRows(rows)), rows)
+})
+
+test('an unknown level is rejected by the form field, so the save is blocked', async () => {
+  const { exports } = await loadBundle()
+  const spec = exports.settingsJsonField('fullContextWorkspaces', exports.formatWorkspaceRows, exports.parseWorkspaceText)
+  // `undefined` is the shared form model's "invalid" signal.
+  assert.equal(spec.parse('/a = bogus'), undefined)
+  assert.deepEqual(spec.parse('/a = none'), { kind: 'set', value: [{ path: '/a', level: 'none' }] })
+  // An empty box clears the field rather than storing an empty array.
+  assert.deepEqual(spec.parse('   '), { kind: 'clear' })
+})
+
+test('the row config key wiring still matches after adding a field', async () => {
+  const { exports } = await loadBundle()
+  assert.equal(exports.ROW_CONFIG_KEY, 'dsh-mem-bridge#mem-bridge')
+  assert.equal(exports.FULL_CONTEXT_FIELD, 'fullContextWorkspaces')
 })
