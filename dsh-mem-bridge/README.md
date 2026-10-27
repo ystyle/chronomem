@@ -29,6 +29,19 @@
 
 **L2b 护栏**：每会话最多 1 次 LLM 蒸馏；每日上限 `maxDaily`（默认 20）；`distill=false` 整体关闭（此时 close 仍写骨架条目）。蒸馏失败绝不阻塞、绝不重试。
 
+### 「目标收口蒸馏」和「忆时塔自动总结」不是一回事
+
+两个都会调用 LLM，但**切分维度不同，不能互相替代**：
+
+| | 谁做 | 切分依据 | 触发时机 | 覆盖 |
+|---|---|---|---|---|
+| `auto_summarize`（塔侧） | 忆时塔后台 | **时间窗** | 窗口闭合后（过零点） | 今天 / 本周整体做了什么 |
+| `distill`（本插件） | 桥调用 LLM | **目标（goal）** | 目标 `complete` 当时 | 某个目标最终做成了什么、下一步 |
+
+一个目标可能横跨好几天，也可能同一小时里完成三个目标——按时间切和按目标切覆盖不了彼此。
+
+**这个开关只在 goal 完成时触发**，日常问答与闲聊没有目标，所以一次都不会跑、也不产生任何调用。常用 goal 的话建议开启；不用 goal 可以关掉。
+
 **默认永不入塔**：用户输入的消息、工具入参/出参、错误堆栈。入塔的是「预蒸馏」产物（模型自己写的末条回复、dsh 自己生成的压缩摘要）加事件自带的结构事实。
 
 ## 全上下文工作区（可选）
@@ -179,7 +192,7 @@ profile 变更需要**重启该 profile 的 dsh 进程**才生效。
 | ★ `url` | `DSH_MEM_BRIDGE_URL` | `http://127.0.0.1:8900` | 忆时塔地址（MCP 端点为 `<url>/mcp`） |
 | ★ `token` | `DSH_MEM_BRIDGE_TOKEN` | 无（视作空） | 非空则带 `Authorization: Bearer <token>`（secret；**不设 `.default('')`**，否则界面会误报"已配置"） |
 | ★ `enabled` | `DSH_MEM_BRIDGE_ENABLE` | `true` | 总开关 |
-| ★ `distill` | `DSH_MEM_BRIDGE_DISTILL` | `true` | L2b 聚合蒸馏总开关；`false` 时 close 只写骨架 |
+| ★ `distill` | `DSH_MEM_BRIDGE_DISTILL` | `true` | 目标收口蒸馏（**仅 goal 完成时触发**，不是按时间窗总结）；`false` 时 close 只写骨架 |
 | `type` | `DSH_MEM_BRIDGE_TYPE` | `dsh/activity` | 活动时间线类型（低频运营账） |
 | `chatType` | `DSH_MEM_BRIDGE_CHAT_TYPE` | `dsh/chat` | 对话历史类型（全上下文工作区专用；levels `1h/day/week`） |
 | `projMap` | — | `{}` | 路径前缀 → proj 覆盖表（最长前缀优先） |
