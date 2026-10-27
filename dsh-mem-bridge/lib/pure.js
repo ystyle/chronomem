@@ -13,6 +13,44 @@
 /** 忆时塔 type names (namespace `dsh/` isolates this source domain). */
 export const TYPE_ACTIVITY = 'dsh/activity'
 export const TYPE_LESSON = 'dsh/lesson'
+/**
+ * Conversation transcript type, used only by full-context workspaces.
+ *
+ * A separate type from `dsh/activity` on purpose. `dsh/activity` is a
+ * *low-frequency* operational timeline — session lifecycle, one final reply per
+ * turn, goal state changes — and its `[day, week]` levels are sized for that.
+ * A transcript is the opposite: every message of every exchange, so it wants
+ * sub-hour windows while a day is in progress. Mixing them would make one
+ * type's levels wrong for half its contents, and `levels` cannot be changed
+ * after creation (`mem/type_update` refuses it), so the split has to be
+ * decided up front.
+ *
+ * `1h → day → week` rather than the default five-link chain: a chat message
+ * arrives every few minutes, so a 10-minute bucket holds nothing worth a
+ * separate layer, while hour-level recall ("what did we discuss this
+ * afternoon") is the useful-resolution unit.
+ */
+export const TYPE_CHAT = 'dsh/chat'
+
+/** Type metadata the bridge asks 忆时塔 to create on first write. */
+export function typeSpecs(cfg) {
+  return [
+    {
+      name: cfg.type,
+      description: 'dsh 会话活动时间线：会话生命周期（open/resume）、标题、轮次台账、上下文压缩、目标状态机、子代理里程碑与错误；纯自动账本，供 day/week 总结与按 session 回想。',
+      levels: ['day', 'week'],
+      autoSummarize: true,
+      summaryGroupBy: ['proj'],
+    },
+    {
+      name: cfg.chatType,
+      description: 'dsh 对话历史：全上下文工作区里逐条记录的真人输入、assistant 回复与工具调用（工具按工作区配置的级别决定存多少）；供按小时/天/周回想一次具体交谈。',
+      levels: ['1h', 'day', 'week'],
+      autoSummarize: true,
+      summaryGroupBy: ['proj'],
+    },
+  ]
+}
 
 /** Every `kind` tag value written into `dsh/activity`. */
 export const KIND = {
@@ -752,6 +790,7 @@ export function resolveConfig(config, env) {
     token: pick(c.token, e.DSH_MEM_BRIDGE_TOKEN, ''),
     enabled: pickBool(c.enabled ?? e.DSH_MEM_BRIDGE_ENABLE, true),
     type: pick(c.type, e.DSH_MEM_BRIDGE_TYPE, TYPE_ACTIVITY),
+    chatType: pick(c.chatType, e.DSH_MEM_BRIDGE_CHAT_TYPE, TYPE_CHAT),
     queueMax: pickNumber(c.queueMax ?? e.DSH_MEM_BRIDGE_QUEUE_MAX, 500),
     retryMax: pickNumber(c.retryMax ?? e.DSH_MEM_BRIDGE_RETRY_MAX, 5),
     retryBackoffMs: pickNumber(c.retryBackoffMs ?? e.DSH_MEM_BRIDGE_RETRY_BACKOFF_MS, 250),
@@ -799,6 +838,56 @@ export function appendRequest(id, type, entryValue, ts) {
     method: 'tools/call',
     params: { name: 'mem/append', arguments: args },
   }
+}
+
+/**
+ * The `mem/type_create` arguments for one {@link typeSpecs} entry.
+ *
+ * `mem/type_create` is **not** idempotent (an existing type throws), which is
+ * why the caller pairs this with {@link typeReviveArgs} on the "already exists"
+ * error rather than probing first: a probe costs a round trip on every boot,
+ * while the error path only runs once.
+ */
+export function typeCreateArgs(spec) {
+  return {
+    name: spec.name,
+    description: spec.description,
+    levels: spec.levels,
+    auto_summarize: spec.autoSummarize,
+    summary_group_by: spec.summaryGroupBy,
+  }
+}
+
+/**
+ * The `mem/type_update` arguments that make an existing type match `spec`.
+ *
+ * `type_update` is not an upsert either — it refuses an unknown type — so this
+ * is only ever attempted after `type_create` reports "already exists". `levels`
+ * is deliberately absent: 忆时塔 forbids changing it (the materialised bucket
+ * chain is irreversible), and passing the same value back is merely accepted as
+ * a no-op. Leaving it out also means a type this bridge did not create is never
+ * silently re-leveled by a save.
+ */
+export function typeReviveArgs(spec) {
+  return {
+    name: spec.name,
+    description: spec.description,
+    auto_summarize: spec.autoSummarize,
+    summary_group_by: spec.summaryGroupBy,
+  }
+}
+
+/**
+ * Does a `mem/type_create` failure mean "the type is already there"?
+ *
+ * Matched on the tower's own wording (`类型已存在`) because the MCP layer
+ * reports it as a tool error string rather than a structured code. A false
+ * negative only costs an extra revive attempt; a false positive would skip
+ * creation of a genuinely missing type, so the phrasing is kept narrow.
+ */
+export function isTypeExistsFailure(message) {
+  if (typeof message !== 'string') return false
+  return message.includes('类型已存在') || /type .*already exists/i.test(message)
 }
 
 /** A JSON-RPC `tools/call` request for a read-only tool (used by the integration self-test). */

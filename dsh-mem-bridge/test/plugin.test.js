@@ -59,12 +59,19 @@ function stubModel(provider = 'stub-provider', model = 'stub-model') {
   return { currentSelection: () => ({ provider, model }) }
 }
 
-/** Capture the requests a plugin run issues. */
-function withStubbedFetch(run) {
+/**
+ * Capture the requests a plugin run issues.
+ *
+ * Mounting the plugin also fires a one-shot type self-heal (`mem/type_create` /
+ * `mem/type_update`), which must not inflate the entry counts these tests assert
+ * on — so only `mem/append` is collected unless a test asks for everything.
+ */
+function withStubbedFetch(run, { all = false } = {}) {
   const calls = []
   const original = globalThis.fetch
   globalThis.fetch = async (url, init) => {
-    calls.push({ url, body: JSON.parse(init.body) })
+    const body = JSON.parse(init.body)
+    if (all || body.params.name === 'mem/append') calls.push({ url, body })
     return {
       ok: true,
       status: 200,
@@ -380,8 +387,9 @@ test('an ambiguous timeout is NOT retried — a duplicate is worse than a miss',
   apply(ctx, { url: 'http://tower.test', retryMax: 5, retryBackoffMs: 0 })
   const original = globalThis.fetch
   let attempts = 0
-  globalThis.fetch = async () => {
-    attempts += 1
+  globalThis.fetch = async (url, init) => {
+    // Only the append counts: the mount-time type self-heal is a separate path.
+    if (JSON.parse(init.body).params.name === 'mem/append') attempts += 1
     const error = new Error('This operation was aborted')
     error.name = 'AbortError'
     throw error
@@ -406,8 +414,8 @@ test('a connect failure IS retried up to retryMax', async () => {
   apply(ctx, { url: 'http://tower.test', retryMax: 3, retryBackoffMs: 0 })
   const original = globalThis.fetch
   let attempts = 0
-  globalThis.fetch = async () => {
-    attempts += 1
+  globalThis.fetch = async (url, init) => {
+    if (JSON.parse(init.body).params.name === 'mem/append') attempts += 1
     const error = new TypeError('fetch failed')
     error.cause = { code: 'ECONNREFUSED' }
     throw error
@@ -901,4 +909,200 @@ test('the workspace match uses the session cwd, not the agent id', async () => {
     await settled()
   })
   assert.deepEqual(kindsOf(calls), [])
+})
+
+// ---------------------------------------------------------------------------
+// Type self-healing and the transcript type split
+//
+// A deployment that names a type 忆时塔 does not have records *nothing* before
+// this: every append fails with "类型不存在" and is dropped after the retry
+// budget, with only a counter to show for it. These tests pin the bootstrap and
+// the split between the activity type and the transcript type.
+// ---------------------------------------------------------------------------
+
+/** A fetch stub that answers each tools/call by name, recording every request. */
+function withScriptedTower(script) {
+  const calls = []
+  const original = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body)
+    calls.push(body)
+    const name = body.params.name
+    const answer = script[name]
+    if (answer === undefined) {
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => JSON.stringify({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: 'ok' }] } }),
+      }
+    }
+    return answer
+  }
+  return {
+    calls,
+    restore: () => {
+      globalThis.fetch = original
+    },
+  }
+}
+
+const okBody = () => ({
+  ok: true,
+  status: 200,
+  statusText: 'OK',
+  text: async () => JSON.stringify({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: 'ok' }] } }),
+})
+const toolErrorBody = (message) => ({
+  ok: true,
+  status: 200,
+  statusText: 'OK',
+  text: async () => JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    result: { content: [{ type: 'text', text: message }], isError: true },
+  }),
+})
+
+test('mount creates both types on a fresh tower', async () => {
+  const tower = withScriptedTower({ 'mem/type_create': okBody() })
+  try {
+    apply(fakeCtx(), { url: 'http://tower.test' })
+    await settled()
+    await settled()
+  } finally {
+    tower.restore()
+  }
+  const created = tower.calls.filter((call) => call.params.name === 'mem/type_create')
+  assert.deepEqual(
+    created.map((call) => call.params.arguments.name),
+    ['dsh/activity', 'dsh/chat'],
+  )
+})
+
+test('the transcript type is created with the hour-level chain', async () => {
+  const tower = withScriptedTower({ 'mem/type_create': okBody() })
+  try {
+    apply(fakeCtx(), { url: 'http://tower.test' })
+    await settled()
+    await settled()
+  } finally {
+    tower.restore()
+  }
+  const chat = tower.calls.find(
+    (call) => call.params.name === 'mem/type_create' && call.params.arguments.name === 'dsh/chat',
+  )
+  assert.deepEqual(chat.params.arguments.levels, ['1h', 'day', 'week'])
+  assert.equal(chat.params.arguments.auto_summarize, true)
+  assert.deepEqual(chat.params.arguments.summary_group_by, ['proj'])
+})
+
+test('an existing type falls through to type_update, without levels', async () => {
+  const tower = withScriptedTower({
+    'mem/type_create': toolErrorBody('类型已存在: dsh/chat（要改配置用 mem/type_update）'),
+    'mem/type_update': okBody(),
+  })
+  try {
+    apply(fakeCtx(), { url: 'http://tower.test' })
+    await settled()
+    await settled()
+  } finally {
+    tower.restore()
+  }
+  const updated = tower.calls.filter((call) => call.params.name === 'mem/type_update')
+  assert.equal(updated.length, 2, 'both types should be revived')
+  for (const call of updated) {
+    assert.equal(
+      call.params.arguments.levels,
+      undefined,
+      'levels must never be sent: 忆时塔 refuses to change it',
+    )
+  }
+})
+
+test('a tower without mem/type_update does not break the mount', async () => {
+  const tower = withScriptedTower({
+    'mem/type_create': toolErrorBody('类型已存在: dsh/activity'),
+    'mem/type_update': toolErrorBody('未知工具: mem/type_update'),
+  })
+  try {
+    assert.doesNotThrow(() => apply(fakeCtx(), { url: 'http://tower.test' }))
+    await settled()
+    await settled()
+  } finally {
+    tower.restore()
+  }
+})
+
+test('a tower that cannot be reached does not break the mount', async () => {
+  const original = globalThis.fetch
+  globalThis.fetch = async () => {
+    throw new TypeError('fetch failed')
+  }
+  try {
+    assert.doesNotThrow(() => apply(fakeCtx(), { url: 'http://tower.test' }))
+    await settled()
+    await settled()
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('transcript entries go to the chat type, activity entries to the activity type', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, {
+    url: 'http://tower.test',
+    projMap: {},
+    type: 'dsh/activity',
+    chatType: 'dsh/chat',
+    fullContextWorkspaces: '/home/ystyle/notes = names',
+  })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', fullCtxSession, turnStartEvent(1))
+    ctx.emit('session/event', fullCtxSession, userEvent('问题'))
+    ctx.emit('session/event', fullCtxSession, assistantStepEvent(1, 1, '回答'))
+    ctx.emit('session/event', fullCtxSession, toolCallEventWithId(1, 'c1', 'bash', {}))
+    ctx.emit('session/event', fullCtxSession, toolResultEvent(1, 'c1', 'out'))
+    ctx.emit('session/event', fullCtxSession, turnEndEvent(1))
+    // A separate default-profile session still writes the activity type.
+    ctx.emit('session/event', session, assistantEvent(4, 'x'.repeat(200)))
+    ctx.emit('session/event', session, turnEndEvent(4))
+    await settled()
+  })
+
+  const byType = calls.map((call) => [call.body.params.arguments.type, call.body.params.arguments.tags.kind])
+  assert.deepEqual(byType, [
+    ['dsh/chat', 'user'],
+    ['dsh/chat', 'say'],
+    ['dsh/chat', 'tool'],
+    ['dsh/activity', 'turn'],
+  ])
+})
+
+test('the chat type is configurable', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, {
+    url: 'http://tower.test',
+    projMap: {},
+    chatType: 'my/transcript',
+    fullContextWorkspaces: '/home/ystyle/notes = none',
+  })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', fullCtxSession, userEvent('hi'))
+    await settled()
+  })
+  assert.equal(calls[0].body.params.arguments.type, 'my/transcript')
+})
+
+test('the mount log names both types', async () => {
+  const messages = []
+  const original = console.log
+  console.log = (message) => messages.push(String(message))
+  const ctx = fakeCtx()
+  try {
+    apply(ctx, { url: 'http://tower.test', type: 'a/one', chatType: 'a/two' })
+  } finally {
+    console.log = original
+  }
+  assert.ok(messages.some((line) => line.includes('type=a/one') && line.includes('chat=a/two')))
 })

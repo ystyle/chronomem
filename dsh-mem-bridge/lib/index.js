@@ -43,6 +43,10 @@ import {
   titleEntry,
   toolEntry,
   turnEntry,
+  isTypeExistsFailure,
+  typeCreateArgs,
+  typeReviveArgs,
+  typeSpecs,
   userEntry,
   userTextOf,
   workflowEntry,
@@ -267,12 +271,12 @@ export function apply(ctx, config) {
     setTimeout(resolve, ms)
   })
 
-  async function append(entry, at) {
+  async function append(entry, at, type) {
     rpcId += 1
     const response = await fetch(mcpUrl(cfg.url), {
       method: 'POST',
       headers: mcpHeaders(cfg.token),
-      body: JSON.stringify(appendRequest(rpcId, cfg.type, entry, at)),
+      body: JSON.stringify(appendRequest(rpcId, type, entry, at)),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     })
     if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`)
@@ -294,6 +298,63 @@ export function apply(ctx, config) {
     const failure = rpcFailure(body)
     if (failure !== null) throw new Error(failure)
     return resultText(body.result)
+  }
+
+  /**
+   * Make sure every type the bridge writes to exists in the tower.
+   *
+   * Without this a deployment that names a new type records nothing at all: the
+   * append fails with "类型不存在" and, after the retry budget, the entry is
+   * dropped — silently, because the failure count is the only trace. That is
+   * the wrong default for a bridge whose whole job is to record.
+   *
+   * The sequence is create → (on "already exists") → update, because
+   * `mem/type_create` is not idempotent and `mem/type_update` is not an upsert.
+   * `levels` is never sent to update: 忆时塔 forbids changing it.
+   *
+   * Runs once at mount, off the event path, and never blocks a write: a type
+   * that cannot be ensured only logs, and the first append then fails the way
+   * it always did.
+   */
+  async function ensureTypes() {
+    for (const spec of typeSpecs(cfg)) {
+      try {
+        const create = await callToolResult('mem/type_create', typeCreateArgs(spec))
+        if (create === null) continue
+        if (!isTypeExistsFailure(create)) {
+          warn(`type_create ${spec.name} failed: ${create}`)
+          continue
+        }
+        const revive = await callToolResult('mem/type_update', typeReviveArgs(spec))
+        if (revive !== null && !isRetryableWriteFailure(revive)) {
+          // Not fatal: an older tower without `mem/type_update` still has the
+          // type, which is all the writer needs.
+          log(`type_update ${spec.name} skipped: ${revive}`)
+        }
+      } catch (error) {
+        warn(`ensuring type ${spec.name} failed: ${describeError(error)}`)
+      }
+    }
+  }
+
+  /**
+   * One `tools/call`, returning the tool's failure text or `null` on success.
+   *
+   * `callTool` throws on a tool error; type self-healing needs to read the
+   * message instead ("类型已存在" is the expected answer, not a failure), so this
+   * variant returns it.
+   */
+  async function callToolResult(name, args) {
+    rpcId += 1
+    const response = await fetch(mcpUrl(cfg.url), {
+      method: 'POST',
+      headers: mcpHeaders(cfg.token),
+      body: JSON.stringify(callRequest(rpcId, name, args)),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    })
+    if (!response.ok) return `HTTP ${response.status} ${response.statusText}`
+    const body = parseMcpBody(await response.text())
+    return rpcFailure(body)
   }
 
   /** The host's default model route, used when the bridge has no explicit one. */
@@ -406,9 +467,17 @@ export function apply(ctx, config) {
     }), undefined)
   }
 
-  function enqueue(entry, at) {
+  /**
+   * Queue one entry.
+   *
+   * @param entry - the `{payload, tags}` to append.
+   * @param at - timestamp in ms, or `undefined` for "now".
+   * @param type - target 忆时塔 type; defaults to the activity type. Transcript
+   *   entries pass the chat type so the two timelines stay separate.
+   */
+  function enqueue(entry, at, type = cfg.type) {
     if (entry === null || entry === undefined || stopping) return
-    queue.push({ entry, at: typeof at === 'number' ? at : Date.now() })
+    queue.push({ entry, at: typeof at === 'number' ? at : Date.now(), type })
     if (queue.length > cfg.queueMax) {
       queue.shift()
       stats.dropped += 1
@@ -429,7 +498,7 @@ export function apply(ctx, config) {
           const retryMax = cfg.retryMax >= 1 ? Math.trunc(cfg.retryMax) : 1
           for (let attempt = 1; attempt <= retryMax; attempt += 1) {
             try {
-              await append(item.entry, item.at)
+              await append(item.entry, item.at, item.type)
               lastError = null
               break
             } catch (error) {
@@ -509,7 +578,7 @@ export function apply(ctx, config) {
           turn: state.currentTurn,
           text,
           noteMax: cfg.sayNoteMax,
-        }), at)
+        }), at, cfg.chatType)
         return
       }
       case 'assistant/message': {
@@ -527,7 +596,7 @@ export function apply(ctx, config) {
               step: typeof data.step === 'number' ? data.step : undefined,
               text,
               noteMax: cfg.sayNoteMax,
-            }), at)
+            }), at, cfg.chatType)
           }
           return
         }
@@ -587,7 +656,7 @@ export function apply(ctx, config) {
             mode: level,
             noteMax: cfg.toolNoteMax,
           })
-          if (entry !== null) enqueue(entry, pending === undefined ? at : pending.at)
+          if (entry !== null) enqueue(entry, pending === undefined ? at : pending.at, cfg.chatType)
           return
         }
         if (data.error !== undefined && data.error !== null) turnOf(state, data.turn).toolErrors += 1
@@ -738,7 +807,10 @@ export function apply(ctx, config) {
     }), undefined)
   })
 
-  log(`enabled → ${mcpUrl(cfg.url)} (type=${cfg.type})`)
+  // Fire and forget: a slow or unreachable tower must not delay the mount.
+  void ensureTypes()
+
+  log(`enabled → ${mcpUrl(cfg.url)} (type=${cfg.type}, chat=${cfg.chatType})`)
 }
 
 export { Config }

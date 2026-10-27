@@ -5,6 +5,7 @@ import {
   DISTILL_SYSTEM,
   KIND,
   TYPE_ACTIVITY,
+  TYPE_CHAT,
   appendRequest,
   blockKinds,
   buildDistillPrompt,
@@ -21,6 +22,7 @@ import {
   formatWorkspaceList,
   isFullContextWorkspace,
   isRetryableWriteFailure,
+  isTypeExistsFailure,
   isSubstantiveTurn,
   lifecycleEntry,
   mcpHeaders,
@@ -37,6 +39,9 @@ import {
   sayEntry,
   textOfBlocks,
   titleEntry,
+  typeCreateArgs,
+  typeReviveArgs,
+  typeSpecs,
   toolEntry,
   turnEntry,
   userEntry,
@@ -687,3 +692,52 @@ test('resolveConfig keeps a workspace whose level was mistyped', () => {
   assert.equal(workspaceLevelFor('/a', cfg), 'names')
 })
 
+
+// ---------------------------------------------------------------------------
+// Type specs and self-healing arguments
+// ---------------------------------------------------------------------------
+
+test('typeSpecs covers the activity type and the transcript type', () => {
+  const cfg = resolveConfig({}, {})
+  const specs = typeSpecs(cfg)
+  assert.deepEqual(specs.map((spec) => spec.name), ['dsh/activity', 'dsh/chat'])
+  assert.deepEqual(specs[0].levels, ['day', 'week'])
+  // A transcript is high-frequency, so it keeps sub-day windows.
+  assert.deepEqual(specs[1].levels, ['1h', 'day', 'week'])
+  assert.equal(specs[1].autoSummarize, true)
+  assert.deepEqual(specs[1].summaryGroupBy, ['proj'])
+})
+
+test('typeSpecs follows the configured type names', () => {
+  const cfg = resolveConfig({ type: 'x/act', chatType: 'x/chat' }, {})
+  assert.deepEqual(typeSpecs(cfg).map((spec) => spec.name), ['x/act', 'x/chat'])
+})
+
+test('typeCreateArgs sends levels, update does not', () => {
+  const spec = typeSpecs(resolveConfig({}, {}))[1]
+  const create = typeCreateArgs(spec)
+  assert.deepEqual(create.levels, ['1h', 'day', 'week'])
+
+  const revive = typeReviveArgs(spec)
+  assert.equal(revive.levels, undefined, 'mem/type_update refuses to change levels')
+  assert.equal(revive.name, create.name)
+  assert.equal(revive.auto_summarize, true)
+})
+
+test('isTypeExistsFailure recognises the tower wording and nothing else', () => {
+  assert.equal(isTypeExistsFailure('tool error: 类型已存在: dsh/chat（要改配置用 mem/type_update）'), true)
+  assert.equal(isTypeExistsFailure('类型已存在'), true)
+  assert.equal(isTypeExistsFailure('Type dsh/chat already exists'), true)
+  // Anything else must not be mistaken for "already there": treating a real
+  // failure as success would leave the type missing and every write dropped.
+  assert.equal(isTypeExistsFailure('tool error: 类型不存在: dsh/chat'), false)
+  assert.equal(isTypeExistsFailure('HTTP 500 Internal Server Error'), false)
+  assert.equal(isTypeExistsFailure(''), false)
+  assert.equal(isTypeExistsFailure(null), false)
+})
+
+test('resolveConfig exposes the transcript type with its own default', () => {
+  assert.equal(resolveConfig({}, {}).chatType, TYPE_CHAT)
+  assert.equal(resolveConfig({}, { DSH_MEM_BRIDGE_CHAT_TYPE: 'env/chat' }).chatType, 'env/chat')
+  assert.equal(resolveConfig({ chatType: 'cfg/chat' }, {}).chatType, 'cfg/chat')
+})
