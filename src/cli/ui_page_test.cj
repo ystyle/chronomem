@@ -334,3 +334,25 @@ func countOfStr(hay: String, needle: String): Int64 {
     }
     n
 }
+
+// UI 样式必须在**二进制里**，不能靠磁盘上的 public/css。
+//
+// 磁盘方案（.serveStatic("/css", "public/css")）按进程 cwd 解析相对路径：
+// 从仓库根跑 target/release/bin 时成立，但发行版装到 ~/.local/bin 之后，
+// 从任意目录启动都找不到资源 —— 控制台白屏、样式全丢，而 MCP 端点照常可用，
+// 很容易被当成"服务坏了"。这条用例钉住"嵌入内容非空且确实是那份样式"。
+@Test
+func uiStylesAreEmbedded() {
+    @Expect(UI_CSS_TEXT.size > 20000, true)          // 空串或截断会立刻暴露
+    @Expect(UI_CSS_TEXT.contains("ui-shell"), true)  // 主框架类名
+    @Expect(UI_CSS_TEXT.contains("ui-card"), true)   // 卡片类名
+}
+
+// 类名不能被改写：本项目 UI 里类名是字面量（a("ui-card")），
+// 不走 CssModule 映射。若哪天换用 cjxt 的 @importCSS，它会加 <hash> 后缀，
+// 244 个选择器与 105 处引用会同时失效——这条用例会让那种改动静默失败变成显式失败。
+@Test
+func uiStylesKeepClassNamesLiteral() {
+    @Expect(UI_CSS_TEXT.contains(".ui-shell{") || UI_CSS_TEXT.contains(".ui-shell {"), true)
+    @Expect(UI_CSS_TEXT.contains(".ui-card{") || UI_CSS_TEXT.contains(".ui-card {"), true)
+}

@@ -39,9 +39,10 @@ jobs:
           cjpm build -j 16
           mkdir -p dist
           cp target/release/bin/chronomem.cli dist/chronomem
+          # 只发一个 tar：Web 控制台的样式在编译期由 @EmbedString 嵌入二进制，
+          # 运行时不读磁盘上的 public/，所以不再需要单独的 public.tar.gz
+          # （曾经需要它，且"解错位置就白屏"是实际踩过的坑）。
           tar -czf "dist/chronomem_${VERSION}_linux_amd64.tar.gz" -C dist chronomem
-          # Web 控制台的静态资源（serveStatic("/css", "public/css") 相对运行目录）
-          tar -czf "dist/chronomem_${VERSION}_public.tar.gz" -C . public
           ls -lh dist
 
       - name: 创建/更新 Release 并上传产物
