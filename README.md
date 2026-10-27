@@ -40,7 +40,7 @@
 - ✅ **开箱即用默认 `worklog` 类型**（启动自动播种，`CHRONOLOG_SEED_WORKLOG` 可关）
 - ✅ 每类型自定义**粒度链 levels**（10min/30min/1h/3h/day/week/month 子集）
 - ✅ **自然时间窗口（日历对齐）**：day=本地零点、week=周一起点、month=1 号零点（`CHRONOLOG_TIMEZONE`），非 epoch 锚定
-- ✅ 结构回想：最近/时间范围/tag 过滤 + 物化桶**精确下钻**（零 LLM）
+- ✅ 结构回想：最近/时间范围/tag 过滤/**关键词内容搜索** + 物化桶**精确下钻**（零 LLM）
 - ✅ 语义总结：窗口 → LLM 结构化摘要（决策/结论/待办/状态变更/关键词）→ 落 `SummaryRecord`，**可递归再总结**
 - ✅ **定时自动总结**（cron-cj 驱动，默认 `*/10 * * * *`）：opt-in 类型自动长摘要，带闭合+沉降+幂等+每轮上限护栏
 - ✅ 任务阶段总结：`from/to` 显式窗口任意不规则时段
@@ -154,6 +154,33 @@ CHRONOLOG_DIR=~/.chronolog CHRONOLOG_PORT=8900 ./target/release/bin/chronomem.cl
 
 </details>
 
+## 发行版（二进制 / 容器镜像）
+
+从 [Releases](https://github.com/ystyle/chronomem/releases) 取现成产物，不必装仓颉工具链。
+
+| 产物 | 说明 |
+|---|---|
+| `chronomem_vX.Y.Z_linux_amd64.tar.gz` | 静态链接的可执行文件（`--static`，无 libcangjie-runtime 依赖） |
+| `chronomem_vX.Y.Z_public.tar.gz` | Web 控制台的静态资源，**解到可执行文件的同级目录** |
+| `ghcr.io/ystyle/chronomem:vX.Y.Z` / `:latest` | 容器镜像 |
+
+```bash
+# 二进制方式
+tar -xzf chronomem_vX.Y.Z_linux_amd64.tar.gz
+tar -xzf chronomem_vX.Y.Z_public.tar.gz        # 得到 ./public
+./chronomem            # 需要在 public/ 的同级目录运行（Web 控制台按相对路径找 public/css）
+
+# 容器方式
+docker run -d --name chronomem -p 8900:8900 \
+  -e CHRONOLOG_DIR=/home/app/.chronolog \
+  -e CHRONOLOG_ADDR=0.0.0.0 \
+  -v ~/docker/chronomem/data:/home/app/.chronolog \
+  ghcr.io/ystyle/chronomem:latest
+```
+
+> **不发布仓颉中心仓**：本项目是应用型包（MCP 服务，可执行入口 `chronomem.cli`），
+> 不是供 `[dependencies]` 引用的库。开源 = 源码可见可构建，与发包是两件事。
+
 ## Docker 部署
 
 > 镜像 = 产物打包：宿主工具链编译（`cjpm build`，`--static` 无 libcangjie-runtime 依赖）→ COPY 进镜像，镜像内不重编译。
@@ -204,7 +231,7 @@ npx @modelcontextprotocol/inspector --url http://127.0.0.1:8900
 | `mem/truncate` | 清空类型全部条目（原始 + 总结，TRUNCATE 语义；保留类型） |
 | `mem/type_delete` | 删除类型（DROP 语义；**守卫：原始 + 总结序列必须为空**，先 `mem/truncate`） |
 | `mem/append` | 追加条目（`type` + `payload` 必填；`tags`? `ts`?） |
-| `mem/query` | 结构回想：`from`? `to`? `limit`? `tag`?（多条件语法见「标签过滤」） |
+| `mem/query` | 结构回想：`from`? `to`? `limit`? `page`? `tag`? `keyword`?（tag 见「标签过滤」，keyword 见「内容搜索」） |
 | `mem/recall` | `mode=exact` 下钻原始（零 LLM）/ `mode=summary` 语义回顾；`granularity` 须在类型 levels 内；`summarize_on_miss`? |
 | `mem/buckets` | 列某粒度物化桶（发现可用窗口） |
 | `mem/summarize` | **语义总结（后台异步）**：提交总结任务立即返回 `job_id`，LLM 在后台线程执行，**不阻塞任何其它请求**；`from/to`（任务阶段）或 `granularity`（按粒度）；`instructions`? `store`?（默认 true 落库） |
@@ -226,6 +253,49 @@ npx @modelcontextprotocol/inspector --url http://127.0.0.1:8900
 - **同一 tag 写两遍 = 两个 AND 条件**，必然无交集——不会被悄悄合并成 IN（避免歧义）；
 - **语法错误一律报错**（缺 `=`、空键、空值、`status=todo,` 这种尾部空项）。这是刻意的：
   静默降级为「无过滤」会把「查某个项目」变成「查全部条目」，返回大量无关数据而调用方毫无察觉。
+
+## 内容搜索（`mem/query` 的 `keyword`）
+
+按**条目内容**查找，而不只是按 tag 命中。`keyword` 不填 = 不启用（与没有这个参数时逐字节一致）。
+
+| 写法 | 含义 |
+|---|---|
+| `图片` | 单个关键词，命中即返回 |
+| `图片 报错` | 空格分隔 = **多关键词 AND**（两者都要出现，顺序无关） |
+
+语义要点：
+
+- **不区分大小写**：`NFTables` 与 `nftables` 等价（记忆里混着英文标识符，没人会在意大小写）；
+- **只做 AND，没有 OR / 正则 / 加权**：多个词表达的是「同时满足」，而不是「任一个算」——
+  OR 会让结果随关键词增多而变大，与搜索的直觉相反；真要 OR 就分开搜两次；
+- **空关键词段不会静默退化**：连续空白按一次切分，不会拆出空串
+  （空串匹配一切，会让「搜两个词」悄悄变成「什么都没搜」）；
+- **匹配范围是 payload 原文，不解析 JSON**：所以字段名也会被搜到
+  （搜 `cause` 会命中所有带 `cause` 字段的条目，这在使用中反而方便）。
+
+### 与 tag 的分工
+
+| 想找 | 用 |
+|---|---|
+| 某个项目 / 某个种类的条目 | `tag`（走索引，快） |
+| 某段时间内提到某个词的条目 | `keyword`（无索引，见下方代价） |
+| 两者都要 | 同时传，先用 tag 收窄范围再按内容过滤 |
+
+### 代价（重要）
+
+内容条件**没有索引**，每次都要扫完候选范围，因此：
+
+| 数据量 | 全范围扫描耗时（按实测线性外推） |
+|---|---|
+| 约 1 万条 | 0.3 s |
+| 约 3 万条 | 1 s |
+| 约 11 万条 | 4 s |
+
+小类型（万级条目内）无感；`dsh/activity` 这类十几万条的类型上会明显变慢。
+缩小 `from`/`to` 或同时给 `tag` 能显著降低扫描量。
+真要把大类型的搜索做到毫秒级，需要另建倒排或向量索引，不是调参能解决的。
+
+---
 
 ## 示例：工作日志
 

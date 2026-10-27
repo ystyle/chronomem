@@ -38,7 +38,7 @@ Every quantitative claim in the empirical paper resolves to a re-runnable script
 - ✅ User-defined memory types (loose schema: arbitrary JSON payload + tags)
 - ✅ **`worklog` type works out of the box** (seeded at startup; disable with `CHRONOLOG_SEED_WORKLOG`)
 - ✅ Per-type **granularity chains**, with **calendar-aligned** natural windows (`CHRONOLOG_TIMEZONE`)
-- ✅ Structural recall: latest / time-range / tag filter, plus **exact drill-down** (zero LLM)
+- ✅ Structural recall: latest / time-range / tag filter / **keyword content search**, plus **exact drill-down** (zero LLM)
 - ✅ Semantic summarization, including **scheduled auto-summaries** and explicit task-phase windows
 - ✅ Background structural materialization (zero LLM, idempotent)
 - ✅ Streamable HTTP only; many clients share one memory store
@@ -153,6 +153,41 @@ Type list: entry count, granularity chain, grouping dimension and auto-summarize
 
 </details>
 
+## Releases (binaries / container image)
+
+Prebuilt artifacts are on the [Releases](https://github.com/ystyle/chronomem/releases) page — no Cangjie toolchain needed.
+
+| Artifact | Notes |
+|---|---|
+| `chronomem_vX.Y.Z_linux_amd64.tar.gz` | Statically linked binary (`--static`, no libcangjie-runtime dependency) |
+| `chronomem_vX.Y.Z_public.tar.gz` | Web-console assets; extract **next to the binary** |
+| `ghcr.io/ystyle/chronomem:vX.Y.Z` / `:latest` | Container image |
+
+```bash
+tar -xzf chronomem_vX.Y.Z_linux_amd64.tar.gz
+tar -xzf chronomem_vX.Y.Z_public.tar.gz        # produces ./public
+./chronomem                                    # run from the directory that contains public/
+```
+
+> **Not published to the Cangjie registry**: this is an application (MCP service, entry point
+> `chronomem.cli`), not a library meant to be referenced via `[dependencies]`. Open source
+> and package publishing are separate decisions.
+
+### Content search (`mem/query`'s `keyword`)
+
+Find entries by **content** rather than tag. Omitting `keyword` leaves behavior byte-identical
+to the pre-feature version.
+
+| Input | Meaning |
+|---|---|
+| `image` | one term |
+| `image error` | space-separated = **all terms must appear** (AND, order-independent) |
+
+- Case-insensitive; AND only (no OR / regex / weighting) — several terms mean "narrow it down".
+- Matches the raw payload, JSON not parsed, so field names match too (`cause` finds every entry with that field).
+- **No index**: each search scans the whole candidate range. Inside ~10k entries it is unnoticeable;
+  on a 100k+ type it takes seconds. Narrow `from`/`to` or add `tag` to cut the scan.
+
 ## Docker
 
 > The image **packages a host-built binary**: compile with the host toolchain (`cjpm build`), then `COPY` the result in — nothing is rebuilt inside the image (there is no Rust-style in-image toolchain, and no need for one).
@@ -206,7 +241,7 @@ npx @modelcontextprotocol/inspector --url http://127.0.0.1:8900/mcp
 | `mem/truncate` | Drop all entries of a type (raw + summaries; TRUNCATE, type kept) |
 | `mem/type_delete` | Delete a type (DROP; **guard: both series must be empty** — `mem/truncate` first) |
 | `mem/append` | Append an entry (`type` + `payload` required; `tags`? `ts`?) |
-| `mem/query` | Structural recall: `from`? `to`? `limit`? `tag`? (key=value) |
+| `mem/query` | Structural recall: `from`? `to`? `limit`? `page`? `tag`? `keyword`? (tag syntax below; keyword = content search) |
 | `mem/recall` | `mode=exact` drill-down (zero LLM) / `mode=summary` semantic recall; `granularity` must be in the type's levels; `summarize_on_miss`? |
 | `mem/buckets` | List materialized buckets at a granularity (discover available windows) |
 | `mem/summarize` | **Semantic summarization (async)**: returns a `job_id` immediately, the LLM runs in a background thread and **blocks no other request**; `from`/`to` (task phase) or `granularity`; `instructions`? `store`? (default true) |
