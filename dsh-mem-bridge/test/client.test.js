@@ -157,7 +157,13 @@ async function loadBundle(overrides = {}) {
   }
   assert.equal(registrations.length, 1, 'the bundle must register exactly one factory')
   const registration = registrations[0]
-  const react = { createElement: (type, props, ...children) => element(type, props, ...children) }
+  const react = {
+    createElement: (type, props, ...children) => element(type, props, ...children),
+    // The text-area measures itself after mount; a stand-in hook is enough to
+    // render it, and keeps the test about the control's shape rather than layout.
+    useRef: () => ({ current: null }),
+    useLayoutEffect: () => {},
+  }
   const fakeRequire = (spec) => {
     required.push(spec)
     if (spec === 'react') return react
@@ -725,4 +731,68 @@ test('the row config key wiring still matches after adding a field', async () =>
   const { exports } = await loadBundle()
   assert.equal(exports.ROW_CONFIG_KEY, 'dsh-mem-bridge#mem-bridge')
   assert.equal(exports.FULL_CONTEXT_FIELD, 'fullContextWorkspaces')
+})
+
+// ---------------------------------------------------------------------------
+// The workspace text-area's affordances
+//
+// Two things made it read as a one-line input rather than a list: it collapsed
+// to a single row when empty, and it carried no example. Both are about the
+// control being visibly *multi-entry*, so they are pinned here.
+// ---------------------------------------------------------------------------
+
+test('the workspace field renders as a multi-line box, not a one-line input', async () => {
+  const { exports } = await loadBundle()
+  const form = renderPage(exports, pageState())
+  const area = form.children.find((child) => typeName(child) === 'TextAreaField')
+  const rendered = shallow(area)
+  const node = rendered.children[1]
+  assert.equal(node.type, 'textarea', 'the control must be a textarea element')
+  // Several rows so an empty box still looks like it takes a list.
+  assert.ok(node.props.rows >= 4, `rows was ${node.props.rows}, expected a multi-line box`)
+  assert.ok(
+    rendered.children[0].props.style.minHeight !== undefined ||
+      node.props.style.minHeight !== undefined,
+    'a min height keeps the empty box from collapsing to one line',
+  )
+})
+
+test('the workspace field points at a placeholder', async () => {
+  const { exports } = await loadBundle()
+  const form = renderPage(exports, pageState())
+  const area = form.children.find((child) => typeName(child) === 'TextAreaField')
+  const node = shallow(area).children[1]
+  // `t` in the test harness echoes keys, so this only proves the control is
+  // wired to one; the copy itself is checked in the next test.
+  assert.equal(node.props.placeholder, 'fullContextPlaceholder')
+})
+
+test('every shipped placeholder example is valid input', async () => {
+  // A placeholder that does not parse would teach the wrong syntax — the reader
+  // copies it into the box and the save is refused.
+  const { exports } = await loadBundle()
+  for (const [locale, dict] of Object.entries(exports.dictionaries)) {
+    const placeholder = dict.fullContextPlaceholder
+    assert.equal(typeof placeholder, 'string', `${locale} has no placeholder`)
+    assert.ok(placeholder.includes(' = '), `${locale}: ${JSON.stringify(placeholder)}`)
+    assert.ok(placeholder.includes('\n'), `${locale} example should span several lines`)
+    const parsed = exports.parseWorkspaceText(placeholder)
+    assert.ok(Array.isArray(parsed) && parsed.length >= 2, `${locale} example must be valid input`)
+    for (const row of parsed) assert.ok(['none', 'names', 'full'].includes(row.level))
+    // It should demonstrate the contrast the levels exist for, not three copies
+    // of the same level.
+    assert.ok(new Set(parsed.map((row) => row.level)).size >= 2, `${locale} should show differing levels`)
+  }
+})
+
+test('the placeholder is absent from a field that has a value', async () => {
+  const { exports } = await loadBundle()
+  const form = renderPage(exports, pageState({
+    fullContext: { text: '/a = none', overridden: false, invalid: false },
+  }))
+  const area = form.children.find((child) => typeName(child) === 'TextAreaField')
+  const node = shallow(area).children[1]
+  // Browsers only show a placeholder while empty; what matters here is that the
+  // control carries the example while the value stays the real content.
+  assert.equal(node.props.value, '/a = none')
 })

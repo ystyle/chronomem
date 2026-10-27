@@ -220,6 +220,9 @@ window.__ModuleLoader__.load({
      * @param props.label - visible label.
      * @param props.hint - explanation under the control.
      * @param props.value - current staged text.
+     * @param props.placeholder - example shown while empty; a list field is
+     *   much easier to fill in when its syntax is visible than when it is
+     *   described only in the hint.
      * @param props.invalid - whether the staged text fails to parse.
      * @param props.disabled - whether the control refuses input.
      * @param props.onEdit - stages the edited text.
@@ -248,9 +251,12 @@ window.__ModuleLoader__.load({
         react.createElement('textarea', {
           id: props.id,
           ref,
-          rows: 1,
+          // `rows` only sets the initial box; the layout effect takes over after
+          // mount and sizes to content, clamped by minHeight.
+          rows: TEXT_AREA_MIN_ROWS,
           value: props.value,
           disabled: props.disabled,
+          placeholder: props.placeholder,
           spellCheck: false,
           style: {
             ...textAreaStyle,
@@ -283,6 +289,8 @@ window.__ModuleLoader__.load({
       distillHint: '仅在一个目标（goal）完成时触发，对该会话的塔内活动做一次聚合，产出「做成了什么 / 下一步」。日常问答与闲聊没有目标，不会触发，也不产生任何调用。它与忆时塔按时间窗（今天/本周）的自动总结是两回事：那个按时间切，这个按目标切，互不替代。常用 goal 的话建议开启；不用 goal 可以关掉。',
       fullContext: '全上下文工作区',
       fullContextHint: '一行一个：路径 = 级别（级别可省略，默认 names）。级别 none=只存对话、names=存工具名、full=存工具入参出参。留空则所有会话都按默认方式记录（每轮只存末条回复）。',
+      // 示例直接写在框里：列表字段的语法只在 hint 里描述时，用户得先照着拼一遍才敢填。
+      fullContextPlaceholder: '/home/me/notes = none\n/home/me/notes/code = full\njournal = names',
       fullContextInvalid: '有行的级别写错了，只接受 none / names / full。',
       privacy: '开启后会向忆时塔上报：轮次末条回复、dsh 已产生的压缩摘要，以及事件自带的标量字段。全上下文工作区还会额外上报你输入的消息（仅真人输入，不含注入内容）与按级别的工具调用。',
       overridden: '已覆盖',
@@ -312,6 +320,7 @@ window.__ModuleLoader__.load({
       distillHint: 'Runs only when a goal completes, aggregating that session into \'what was achieved / what is next\'. Everyday Q&A and chat have no goal, so it never runs and costs nothing there. This is not the same as the tower\'s time-window summaries (today/this week): those cut by time, this cuts by goal. Turn it on if you use goals often; off is fine otherwise.',
       fullContext: 'Full-context workspaces',
       fullContextHint: 'One per line: path = level (level defaults to names). none keeps the conversation only, names keeps tool names, full keeps tool arguments and output. Empty means every session records the default way (final reply per turn).',
+      fullContextPlaceholder: '/home/me/notes = none\n/home/me/notes/code = full\njournal = names',
       fullContextInvalid: 'A line has an unknown level; only none / names / full are accepted.',
       privacy: 'When on, this uploads the final reply of each turn, the compaction summary dsh produced, and event-borne scalar fields to 忆时塔. A full-context workspace additionally uploads the messages you typed (human input only, never injected context) and tool calls at its configured level.',
       overridden: 'Overridden',
@@ -342,11 +351,18 @@ window.__ModuleLoader__.load({
       color: 'var(--dsw-alias-label-tertiary)',
     }
     /** The text-area mirrors the shared input's metrics so the form stays aligned. */
+    /** Minimum height, in content lines: an empty box still reads as "a list goes here". */
+    const TEXT_AREA_MIN_ROWS = 4
     const textAreaStyle = {
       boxSizing: 'border-box',
       width: '100%',
       resize: 'none',
+      // `overflow: hidden` + auto-height: the field grows with its content and
+      // never shows its own scrollbar. It is a settings list, not an editor.
       overflow: 'hidden',
+      // A collapsed textarea reads as a one-line input, which hides the fact
+      // that it takes several entries at all — so hold a minimum instead.
+      minHeight: `${TEXT_AREA_MIN_ROWS * 20 + 12}px`,
       border: '0.5px solid var(--dsw-alias-border-l4)',
       borderRadius: 'var(--dsw-radius-md)',
       background: 'var(--dsw-alias-bg-layer-1)',
@@ -468,6 +484,7 @@ window.__ModuleLoader__.load({
         react.createElement(TextAreaField, {
           id: 'plugin-config-mem-bridge-full-context',
           label: t('fullContext'),
+          placeholder: t('fullContextPlaceholder'),
           hint: state.fullContext.invalid ? t('fullContextInvalid') : t('fullContextHint'),
           value: state.fullContext.text,
           invalid: state.fullContext.invalid,
@@ -604,6 +621,9 @@ window.__ModuleLoader__.load({
     exports.inject = inject
     // Exported for the unit tests that pin this bundle's contract.
     exports.NS = NS
+    // Dictionaries, so a test can assert the example shipped in the UI is itself
+    // valid input (the render path only sees translation keys).
+    exports.dictionaries = { zh, en }
     exports.SETTINGS_NAMESPACE = SETTINGS_NAMESPACE
     exports.ROW_CONFIG_KEY = ROW_CONFIG_KEY
     exports.TOKEN_FIELD = TOKEN_FIELD
