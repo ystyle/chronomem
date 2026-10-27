@@ -13,6 +13,9 @@ import tang.compose.ComposeDistributor
 // 忆时塔入口：`chronomem.cli serve` —— 常驻 streamable HTTP MCP 守护进程。
 // 单端口合并：MCP 挂 /mcp，Web UI（cjxt）占根路径空间（fallback）。
 main() {
+    // 版本先行打印：没有 --version 参数解析（配置全走环境变量），但启动日志里
+    // 必须有版本，否则从日志排查"线上跑的是哪一版"只能靠猜。
+    println(appVersionText())
     let cfg = ChronomemConfig.fromEnv()
     // GC 阈值调优（防长期运行堆逼近 256MB 上限导致写路径 OOM，见 fix/gc-heap-oom）：
     // 默认 64MB —— GC 提前触发回收，堆水位稳定在低位（实测 125~135MB，余量 120MB+），

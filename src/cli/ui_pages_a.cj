@@ -18,7 +18,8 @@ import std.sort.*
 
 // ==================== 布局 ====================
 
-public let UI_VERSION = "1.1"
+// 界面版本改用 APP_VERSION（编译期从 cjpm.toml 读）：原来这里是手写的 "1.1"，
+// 与项目版本两条线各走各的，发布后界面上的数字和制品对不上。
 
 public let UI_NAV: Array<(String, String, String)> = [
     ("/", "overview", "总览"),
@@ -80,7 +81,7 @@ func uiHeader(): IComponent {
     } else {
         status.add(htmlSpan("<span class=\"ui-pill\"><span class=\"dot warn\"></span>LLM 未配置（总结不可用）</span>"))
     }
-    status.add(htmlSpan("<span class=\"ui-pill\">UI v" + UI_VERSION + "</span>"))
+    status.add(htmlSpan("<span class=\"ui-pill\">v" + esc(APP_VERSION) + "</span>"))
     let brand = ArrayList<IComponent>()
     brand.add(htmlSpan("<svg width=\"30\" height=\"30\" viewBox=\"0 0 30 30\" fill=\"none\"><path d=\"M15 2 L19 7 H11 Z\" fill=\"#3ec5e8\"/><rect x=\"7\" y=\"9\" width=\"16\" height=\"5\" rx=\"1.4\" fill=\"#5a8df0\"/><rect x=\"4\" y=\"16\" width=\"22\" height=\"6\" rx=\"1.6\" fill=\"#8a7af0\"/><rect x=\"1\" y=\"24\" width=\"28\" height=\"6\" rx=\"1.8\" fill=\"#e0a15a\"/></svg>"))
     brand.add(htmlSpan("<span class=\"cn\">忆时塔</span> <span class=\"en\">chronomem</span><div class=\"sub\">分层时间记忆 · Web 控制台</div>"))
