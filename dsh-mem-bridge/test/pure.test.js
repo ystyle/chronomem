@@ -43,6 +43,7 @@ import {
   typeReviveArgs,
   typeSpecs,
   toolEntry,
+  toolSummaryOf,
   turnEntry,
   userEntry,
   userTextOf,
@@ -606,20 +607,23 @@ test('toolEntry records nothing in mode none', () => {
   assert.equal(toolEntry(subject, { turn: 1, step: 1, callId: 'c1', name: 'bash', mode: 'none', noteMax: 100 }), null)
 })
 
-test('toolEntry names mode drops arguments and result but keeps the name', () => {
+test('toolEntry names mode keeps a summary but drops arguments and result', () => {
   const entry = toolEntry(subject, {
     turn: 1,
     step: 2,
     callId: 'call-1',
     name: 'bash',
-    args: { command: 'rm -rf /tmp/x' },
+    args: { command: 'rm -rf /tmp/x', description: '清掉临时目录' },
     result: 'x'.repeat(5000),
     isError: false,
     mode: 'names',
     noteMax: 100,
   })
   assert.equal(entry.payload.title, '工具 bash')
-  assert.equal(entry.payload.note, '')
+  // The description survives; neither the command nor the output does.
+  assert.equal(entry.payload.note, '清掉临时目录')
+  assert.ok(!entry.payload.note.includes('rm -rf'), 'names mode must not leak the command')
+  assert.ok(!entry.payload.note.includes('xxx'), 'names mode must not leak the result')
   assert.equal(entry.payload.outcome, 'bash')
   assert.equal(entry.tags.kind, 'tool')
   assert.equal(entry.tags.tool, 'bash')
@@ -740,4 +744,79 @@ test('resolveConfig exposes the transcript type with its own default', () => {
   assert.equal(resolveConfig({}, {}).chatType, TYPE_CHAT)
   assert.equal(resolveConfig({}, { DSH_MEM_BRIDGE_CHAT_TYPE: 'env/chat' }).chatType, 'env/chat')
   assert.equal(resolveConfig({ chatType: 'cfg/chat' }, {}).chatType, 'cfg/chat')
+})
+
+// ---------------------------------------------------------------------------
+// Tool-call summaries
+//
+// `names` mode used to record the tool name and nothing else, which turned a
+// turn into twenty identical "工具 bash" entries with no way to tell what any
+// of them did. The arguments are still not stored (that is `full`'s job), but
+// the one human-readable field among them is — measured on a real session,
+// every `bash` call carried a `description`, and `read`/`edit` carry `file_path`.
+// ---------------------------------------------------------------------------
+
+test('toolSummaryOf prefers the human-written description', () => {
+  assert.equal(
+    toolSummaryOf({ command: 'ls -la ~/x && cat y', description: '查看插件目录结构' }, 'bash'),
+    '查看插件目录结构',
+  )
+  // The command is never the summary: it is the noisy part `full` exists for.
+  assert.ok(!toolSummaryOf({ command: 'rm -rf /tmp/x', description: '清掉临时目录' }, 'bash').includes('rm -rf'))
+})
+
+test('toolSummaryOf falls back through the short identifying fields', () => {
+  assert.equal(toolSummaryOf({ file_path: '/a/b/README.md' }, 'read'), '/a/b/README.md')
+  assert.equal(toolSummaryOf({ title: '修一下卡片' }, 'create_card'), '修一下卡片')
+  assert.equal(toolSummaryOf({ name: 'cangjie-std' }, 'skill'), 'cangjie-std')
+  assert.equal(toolSummaryOf({ type: 'dsh/lesson', limit: 10 }, 'mem_query'), 'type=dsh/lesson')
+  assert.equal(toolSummaryOf({ status: 'active' }, 'set_status'), 'status=active')
+})
+
+test('toolSummaryOf never renders a huge blob', () => {
+  // `edit` carries old_string/new_string bodies; a summary must not be one.
+  const summary = toolSummaryOf({
+    file_path: '/a/b.cj',
+    old_string: 'x'.repeat(5000),
+    new_string: 'y'.repeat(5000),
+  }, 'edit')
+  assert.equal(summary, '/a/b.cj')
+})
+
+test('toolSummaryOf returns empty for arguments it cannot describe', () => {
+  assert.equal(toolSummaryOf(null, 'bash'), '')
+  assert.equal(toolSummaryOf(undefined, 'bash'), '')
+  assert.equal(toolSummaryOf({}, 'bash'), '')
+  assert.equal(toolSummaryOf('not-json', 'bash'), '')
+  assert.equal(toolSummaryOf([1, 2, 3], 'bash'), '')
+})
+
+test('toolSummaryOf tolerates arguments arriving as a JSON string', () => {
+  // `tool/call` delivers `arguments` as a JSON *string* in dsh's own session log.
+  assert.equal(toolSummaryOf('{"command":"ls","description":"看看目录"}', 'bash'), '看看目录')
+})
+
+test('toolSummaryOf clips an over-long value', () => {
+  const summary = toolSummaryOf({ file_path: '/' + 'a'.repeat(500) }, 'read')
+  assert.ok(summary.length <= 160, `summary was ${summary.length} chars`)
+})
+
+test('toolEntry names mode falls back to a bare entry when nothing is descriptive', () => {
+  const entry = toolEntry(subject, { turn: 1, callId: 'c', name: 'noop', args: { a: 1 }, mode: 'names', noteMax: 100 })
+  assert.equal(entry.payload.note, '', 'no summary is better than a fabricated one')
+})
+
+test('toolEntry full mode does not repeat the summary', () => {
+  const entry = toolEntry(subject, {
+    turn: 1,
+    callId: 'c',
+    name: 'bash',
+    args: { command: 'ls', description: '看看目录' },
+    result: 'a.txt',
+    mode: 'full',
+    noteMax: 500,
+  })
+  // `full` already carries the whole arguments blob, which contains the description.
+  assert.ok(entry.payload.note.startsWith('arguments: '))
+  assert.equal(entry.payload.note.split('看看目录').length - 1, 1, 'description must appear once, inside the arguments')
 })

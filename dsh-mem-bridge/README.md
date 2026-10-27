@@ -59,10 +59,34 @@ journal = none              # 只写目录名，匹配 cwd 的最后一级
 | 级别 | 记什么 |
 |---|---|
 | `none` | 只存对话（`user` + `say`），完全不存工具。聊天场景用这个 |
-| `names` | 加存工具名与出错标记，丢掉入参/出参 |
+| `names` | 加存工具名、出错标记与**一行摘要**（`bash` 的 `description`、`read`/`edit` 的路径、MCP 工具的 `type`/`title` 等），丢掉入参/出参正文 |
 | `full` | 加存工具入参/出参（各自截断）。写代码场景用这个 |
 
 匹配规则：绝对路径按前缀匹配（`/a/notes` 覆盖 `/a/notes` 与 `/a/notes/sub`，但**不**覆盖 `/a/notes-old`）；只有目录名的按最后一级精确匹配。多条命中时**最长路径优先**，所以可以「整个 notes 用 none，但 notes/code 用 full」。
+
+### 工具条目为什么会有一行摘要
+
+`names` 级不存入参，但**完全不留任何说明**会让一个回合变成二十条一模一样的「工具 bash」——事后完全看不出当时在干什么。
+
+所以 `names` 会从入参里挑**一个短字段**当摘要，优先级是：
+
+| 顺序 | 字段 | 典型来源 |
+|---|---|---|
+| 1 | `description` | `bash` 每次调用都带，就是 dsh 界面上命令旁那行灰字 |
+| 2 | `label` / `summary` / `title` | MCP 工具自述 |
+| 3 | `file_path` / `path` | `read` / `edit` |
+| 4 | `name` / `pattern` / `query` / `id` | 其余 |
+| 5 | `type=dsh/lesson` 这类短标量 | MCP 工具的类型/状态参 |
+
+实测效果（450 次真实调用采样）：
+
+```
+bash  → 查看 dsh-mem-bridge 插件目录结构
+bash  → 统计各文件行数
+read  → .../dsh-mem-bridge/README.md
+```
+
+**`command` / `old_string` / `new_string` / `content` 一律不进摘要**——那些正是 `full` 级存在的理由，塞进摘要会让 `names` 变得和 `full` 一样重，却依然不好读。
 
 ### 对话历史为什么是独立类型
 

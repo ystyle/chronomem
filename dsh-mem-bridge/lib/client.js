@@ -288,7 +288,7 @@ window.__ModuleLoader__.load({
       distill: '目标收口蒸馏',
       distillHint: '仅在一个目标（goal）完成时触发，对该会话的塔内活动做一次聚合，产出「做成了什么 / 下一步」。日常问答与闲聊没有目标，不会触发，也不产生任何调用。它与忆时塔按时间窗（今天/本周）的自动总结是两回事：那个按时间切，这个按目标切，互不替代。常用 goal 的话建议开启；不用 goal 可以关掉。',
       fullContext: '全上下文工作区',
-      fullContextHint: '一行一个：路径 = 级别（级别可省略，默认 names）。级别 none=只存对话、names=存工具名、full=存工具入参出参。留空则所有会话都按默认方式记录（每轮只存末条回复）。',
+      fullContextHint: '一行一个：路径 = 级别（级别可省略，默认 names）。级别 none=只存对话、names=存工具名与一行摘要、full=存工具入参出参。留空则所有会话都按默认方式记录（每轮只存末条回复）。',
       // 示例直接写在框里：列表字段的语法只在 hint 里描述时，用户得先照着拼一遍才敢填。
       fullContextPlaceholder: '/home/me/notes = none\n/home/me/notes/code = full\njournal = names',
       fullContextInvalid: '有行的级别写错了，只接受 none / names / full。',
@@ -319,7 +319,7 @@ window.__ModuleLoader__.load({
       distill: 'Goal close-out distillation',
       distillHint: 'Runs only when a goal completes, aggregating that session into \'what was achieved / what is next\'. Everyday Q&A and chat have no goal, so it never runs and costs nothing there. This is not the same as the tower\'s time-window summaries (today/this week): those cut by time, this cuts by goal. Turn it on if you use goals often; off is fine otherwise.',
       fullContext: 'Full-context workspaces',
-      fullContextHint: 'One per line: path = level (level defaults to names). none keeps the conversation only, names keeps tool names, full keeps tool arguments and output. Empty means every session records the default way (final reply per turn).',
+      fullContextHint: 'One per line: path = level (level defaults to names). none keeps the conversation only, names keeps tool names plus a one-line summary, full keeps tool arguments and output. Empty means every session records the default way (final reply per turn).',
       fullContextPlaceholder: '/home/me/notes = none\n/home/me/notes/code = full\njournal = names',
       fullContextInvalid: 'A line has an unknown level; only none / names / full are accepted.',
       privacy: 'When on, this uploads the final reply of each turn, the compaction summary dsh produced, and event-borne scalar fields to 忆时塔. A full-context workspace additionally uploads the messages you typed (human input only, never injected context) and tool calls at its configured level.',

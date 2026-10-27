@@ -549,11 +549,17 @@ export function sayEntry(subject, { turn, step, text, noteMax }) {
 export function toolEntry(subject, { turn, step, callId, name, args, result, isError, mode, noteMax }) {
   if (mode === 'none') return null
   const toolName = typeof name === 'string' && name !== '' ? name : 'unknown'
+  const summary = toolSummaryOf(args, toolName)
   const facts = []
   if (mode === 'full') {
+    // `full` keeps the whole call, so the summary would only repeat it.
     const renderedArgs = renderJson(args)
     if (renderedArgs !== '') facts.push(`arguments: ${clipText(renderedArgs, Math.max(1, Math.trunc(noteMax / 2)))}`)
     if (typeof result === 'string' && result !== '') facts.push(`result: ${clipText(result, noteMax)}`)
+  } else if (summary !== '') {
+    // `names` stores no arguments, but it does keep the one line that says what
+    // the call was for — otherwise every entry in a turn reads "工具 bash".
+    facts.push(summary)
   }
   return {
     payload: {
@@ -569,6 +575,77 @@ export function toolEntry(subject, { turn, step, callId, name, args, result, isE
       ...(isError === true ? { error: 'true' } : {}),
     })),
   }
+}
+
+/**
+ * Which argument field names a summary may quote, in preference order.
+ *
+ * `description` first: dsh asks every `bash` call for one and the UI renders it
+ * beside the command, so it is the tool author's own one-line answer to "what is
+ * this step for". On a measured session all 399 `bash` calls carried one.
+ *
+ * The rest identify *what was touched* rather than what was passed — a path, a
+ * title, a memory type. Deliberately absent: `command`, `old_string`,
+ * `new_string`, `content`, `questions`. Those are the bulky bodies `full` mode
+ * exists for; pulling them into a summary would make `names` as heavy as `full`
+ * while still being unreadable.
+ */
+const SUMMARY_ARG_KEYS = ['description', 'label', 'summary', 'title', 'file_path', 'path', 'name', 'pattern', 'query', 'id']
+
+/** Scalar argument keys rendered as `key=value` when no descriptive field exists. */
+const SCALAR_ARG_KEYS = ['type', 'status', 'action', 'mode', 'level', 'op', 'operation']
+
+/** Cap on a rendered summary, in characters. A summary that needs more is not one. */
+const SUMMARY_MAX = 160
+
+/**
+ * One human-readable line describing a tool call.
+ *
+ * Best-effort and total: it never throws and never returns a body. When the
+ * arguments offer nothing descriptive, `''` is returned and the entry keeps only
+ * the tool name — the same thing `names` mode did before summaries existed.
+ *
+ * @param {unknown} args the call's `arguments`; dsh delivers a JSON string here
+ *   in its own session log, and an already-parsed object in the live event, so
+ *   both are accepted.
+ * @param {unknown} name the tool name (accepted for symmetry with the entry
+ *   builder; no per-tool rules are needed yet).
+ * @returns {string} the summary, or `''`.
+ */
+export function toolSummaryOf(args, name) {
+  const parsed = parseArgs(args)
+  if (parsed === null) return ''
+  for (const key of SUMMARY_ARG_KEYS) {
+    const value = parsed[key]
+    if (typeof value !== 'string') continue
+    const trimmed = value.trim()
+    if (trimmed === '') continue
+    return trimmed.length <= SUMMARY_MAX ? trimmed : trimmed.slice(0, SUMMARY_MAX - 1) + '…'
+  }
+  // No descriptive field: a short scalar still says what kind of operation it was.
+  const scalars = []
+  for (const key of SCALAR_ARG_KEYS) {
+    const value = parsed[key]
+    if (typeof value !== 'string' || value.trim() === '') continue
+    scalars.push(`${key}=${value.trim()}`)
+  }
+  return scalars.join(' ').slice(0, SUMMARY_MAX)
+}
+
+/** Parse `arguments` into a plain object, or `null` when it is not one. */
+function parseArgs(args) {
+  if (typeof args === 'string') {
+    const trimmed = args.trim()
+    if (trimmed === '' || trimmed[0] !== '{') return null
+    try {
+      const parsed = JSON.parse(trimmed)
+      return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null
+    } catch (_) {
+      return null
+    }
+  }
+  if (args === null || args === undefined || typeof args !== 'object' || Array.isArray(args)) return null
+  return args
 }
 
 /** Render a JSON-shaped value for an entry body, tolerating a circular or absent one. */
