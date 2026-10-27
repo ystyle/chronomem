@@ -1,6 +1,6 @@
 [package]
 name = "chronomem"
-version = "0.1.0"
+version = "0.1.1"
 cjc-version = "1.2.0"
 output-type = "static"
 compile-option = "-Woff unused"
