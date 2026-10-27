@@ -62,14 +62,53 @@ func uiApiAppendAndQuery() {
     tags.add(("branch", "main"))
     let r = uiAppend(svc, "worklog", 1788000000000, "{\"task\":\"T\"}", tags)
     @Expect(r.ok, true)
-    let points = uiQuery(svc, "worklog", 0, 0, 20, "", "")
+    let points = uiQuery(svc, "worklog", 0, 0, 20, "").points
     @Expect(points.size, Int64(1))
     let meta = payloadMeta(points[0].payload)
     @Expect(meta.task, "T")
     @Expect(parseTags(points[0].tags).size, Int64(2))
     // tag 过滤命中/未命中
-    @Expect(uiQuery(svc, "worklog", 0, 0, 20, "proj", "ct").size, Int64(1))
-    @Expect(uiQuery(svc, "worklog", 0, 0, 20, "proj", "other").size, Int64(0))
+    @Expect(uiQuery(svc, "worklog", 0, 0, 20, "proj=ct").points.size, Int64(1))
+    @Expect(uiQuery(svc, "worklog", 0, 0, 20, "proj=other").points.size, Int64(0))
+    svc.close()
+}
+
+// UI 的 tag 过滤必须与 MCP 同语法：空格 AND、逗号 IN。
+// 此前页面自己按第一个 '=' 切一刀，把 "proj=ct kind=x" 当成 proj == "ct kind=x"，
+// 于是多条件恒空——用户看到的"语法写了不生效"。
+@Test
+func uiApiQueryMultiConditionSameAsMcp() {
+    let svc = MemoryService.openFile(freshTestDir())
+    let levels = ArrayList<String>()
+    levels.add("day")
+    uiCreateType(svc, TypeMeta("chat", "d", None, levels, None, false, None, 1))
+    // 三种 kind，两种 proj
+    for ((ts, kind, proj) in [
+        (1788000000000, "user", "im"),
+        (1788000001000, "say", "im"),
+        (1788000002000, "tool", "im"),
+        (1788000003000, "user", "other"),
+    ]) {
+        let tags = ArrayList<(String, String)>()
+        tags.add(("kind", kind))
+        tags.add(("proj", proj))
+        let r = uiAppend(svc, "chat", ts, "{\"task\":\"T\"}", tags)
+        @Expect(r.ok, true)
+    }
+    // 单条件
+    @Expect(uiQuery(svc, "chat", 0, 0, 20, "kind=user").points.size, Int64(2))
+    // 空格 AND
+    @Expect(uiQuery(svc, "chat", 0, 0, 20, "proj=im kind=user").points.size, Int64(1))
+    // 逗号 IN（同 tag 多值）
+    @Expect(uiQuery(svc, "chat", 0, 0, 20, "kind=user,say").points.size, Int64(3))
+    // IN 与 AND 组合
+    @Expect(uiQuery(svc, "chat", 0, 0, 20, "kind=user,say proj=im").points.size, Int64(2))
+    // 语法错误必须报错，不能静默返回空列表
+    let bad = uiQuery(svc, "chat", 0, 0, 20, "kind")
+    @Expect(bad.isOk(), false)
+    @Expect(bad.points.size, Int64(0))
+    let bad2 = uiQuery(svc, "chat", 0, 0, 20, "kind=user,")
+    @Expect(bad2.isOk(), false)
     svc.close()
 }
 

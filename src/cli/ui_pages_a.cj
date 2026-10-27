@@ -167,7 +167,7 @@ public class OverviewPage <: Component {
         var added = Int64(0)
         for (m in types) {
             if (added >= 10) { break }
-            let pts = uiQuery(svc, m.name, 0, 0, 10 - added, "", "")
+            let pts = uiQuery(svc, m.name, 0, 0, 10 - added, "").points
             for (p in pts) {
                 if (added >= 10) { break }
                 let meta = payloadMeta(p.payload)
@@ -396,18 +396,11 @@ public class RecallPage <: Component {
     func renderRaw(svc: MemoryService): IComponent {
         let fromMs = parseEpochArg(this.qFrom.get())
         let toMs = parseEpochArg(this.qTo.get())
-        var tagKey = ""
-        var tagVal = ""
-        if (this.qTag.get().contains("=")) {
-            let idx = this.qTag.get().indexOf("=")
-            match (idx) {
-                case Some(i) => tagKey = this.qTag.get()[0..i]; tagVal = this.qTag.get()[i + 1..this.qTag.get().size]
-                case None => ()
-            }
-        }
         var limit = Int64(20)
         try { limit = Int64.parse(this.qLimit.get(), radix: 10) } catch (_) { }
-        let pts = uiQuery(svc, this.qType.get(), fromMs, toMs, limit, tagKey, tagVal)
+        // 原始串直接交给 uiQuery 解析：空格 AND / 逗号 IN 与 MCP 同一套语法。
+        let queried = uiQuery(svc, this.qType.get(), fromMs, toMs, limit, this.qTag.get())
+        let pts = queried.points
 
         let typeOptions = ArrayList<IComponent>()
         for (t in uiListTypes(svc)) {
@@ -418,7 +411,7 @@ public class RecallPage <: Component {
         filter.add(div([FormItem([Select(typeOptions.toArray()).placeholder("记忆类型").bind(this.qType)]).label("记忆类型")], attrs: Some(a("ui-fcell"))))
         filter.add(div([FormItem([Input().placeholder("epoch ms，空=不限").bind(this.qFrom)]).label("时间范围 · 从")], attrs: Some(a("ui-fcell"))))
         filter.add(div([FormItem([Input().placeholder("epoch ms，空=不限").bind(this.qTo)]).label("时间范围 · 至")], attrs: Some(a("ui-fcell"))))
-        filter.add(div([FormItem([Input().placeholder("key=value，如 proj=cjreg").bind(this.qTag)]).label("tag 过滤")], attrs: Some(a("ui-fcell"))))
+        filter.add(div([FormItem([Input().placeholder("key=value；多条件空格 AND，多值逗号 IN，如 proj=cjreg kind=turn").bind(this.qTag)]).label("tag 过滤")], attrs: Some(a("ui-fcell"))))
         let limitOptions = ArrayList<IComponent>()
         limitOptions.add(SelectOption([text("10")], "10"))
         limitOptions.add(SelectOption([text("20")], "20"))
@@ -429,7 +422,11 @@ public class RecallPage <: Component {
 
         let results = ArrayList<IComponent>()
         results.add(cardTitle("查询结果", pts.size.toString() + " 条 · 结构回想（零 LLM）"))
-        if (pts.size == 0) {
+        if (!queried.isOk()) {
+            // 语法错必须显式说出来：静默给空列表会让人以为"没有数据"，
+            // 真实原因是条件写法不对（与 MCP 层同一约定）。
+            results.add(emptyBox("tag 条件有误：" + queried.error))
+        } else if (pts.size == 0) {
             results.add(emptyBox("无匹配条目"))
         } else {
             var i = Int64(0)

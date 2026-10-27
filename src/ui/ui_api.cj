@@ -87,18 +87,40 @@ public func uiTypeInfo(svc: MemoryService, name: String): Option<UiTypeInfo> {
 
 // ---------- 条目 ----------
 
-// queryPoints 直接返回（带存在性校验）；类型不存在返回空列表（页面按空数据渲染）
+// queryPoints 直接返回（带存在性校验）；类型不存在返回空列表（页面按空数据渲染）。
+// tagText 是**原始输入串**（与 MCP 的 tag 参数同语法）：空格 AND、逗号 IN 都由
+// parseTagFilters 解析。此前页面自己按第一个 '=' 切一刀，把多条件当成单条件的值，
+// 于是 "proj=im kind=user" 被查成 proj == "im kind=user"（恒空）——
+// 两处行为不一致，用户看到的"语法写了不生效"就是这么来的。
 public func uiQuery(svc: MemoryService, name: String, from: Int64, to: Int64,
-    limit: Int64, tagKey: String, tagValue: String): ArrayList<Point> {
-    if (svc.registry.timelineOf(name).isNone()) { return ArrayList<Point>() }
-    // UI 目前只提供单 tag 输入，构造成单条件列表（多条件语法留给 MCP 层）
-    let tagFilters = ArrayList<TagFilter>()
-    if (tagKey != "" && tagValue != "") {
-        tagFilters.add(TagFilter(tagKey, ArrayList<String>([tagValue])))
+    limit: Int64, tagText: String): UiQueryResult {
+    let parsed = parseTagFilters(tagText)
+    if (!parsed.isOk()) {
+        return UiQueryResult(ArrayList<Point>(), parsed.error)
+    }
+    if (svc.registry.timelineOf(name).isNone()) {
+        return UiQueryResult(ArrayList<Point>(), "")
     }
     let fromArg = if (from > 0) { from } else { 0 }
     let toArg = if (to > 0) { to } else { 0 }
-    svc.registry.timelineOf(name).getOrThrow().queryPoints(fromArg, toArg, limit, tagFilters)
+    let points = svc.registry.timelineOf(name).getOrThrow()
+        .queryPoints(fromArg, toArg, limit, parsed.filters)
+    UiQueryResult(points, "")
+}
+
+// UI 查询结果：points 与语法错误二选一。
+// 语法错误必须能传到页面上——静默返回空列表会让用户以为"没有数据"，
+// 而真实原因是条件写错了（与 MCP 层"解析失败必须报错"的约定一致）。
+public class UiQueryResult {
+    public let points: ArrayList<Point>
+    public let error: String
+
+    public init(points: ArrayList<Point>, error: String) {
+        this.points = points
+        this.error = error
+    }
+
+    public func isOk(): Bool { this.error == "" }
 }
 
 public func uiCount(svc: MemoryService, name: String): Int64 {
