@@ -64,10 +64,17 @@ export const name = 'dsh-mem-bridge'
  * returned by a plugin body as part of loading, so `fiber.await()` — and the
  * host boot that waits on it — would then wait for the tower, which is the one
  * thing the fire-and-forget exists to prevent. Publishing on the context
- * instead keeps the mount non-blocking while making the work observable:
- * whoever owns the mount's lifetime — a test that swaps `globalThis.fetch`, an
- * unload path that wants a quiet shutdown, a supervisor that reports readiness
- * — can wait for it instead of guessing with a timer.
+ * instead keeps the mount non-blocking while making the work observable to
+ * whoever holds **that same context object** — in practice a test that mounts
+ * the plugin with a plain object and then swaps `globalThis.fetch`.
+ *
+ * Reach is narrower than "the context" suggests, and the limit is worth stating
+ * because it is easy to overestimate: Cordis hands the plugin a *derived*
+ * context, so a very real `Context` instance and the plugin's `ctx` are not the
+ * same object (`root !== ctx`, and `ctx[key]` is not visible from the root).
+ * Writing the handle therefore cannot make it readable by a host, a supervisor
+ * or an unload path that only has the fiber. Do not grow a consumer for it
+ * outside tests without re-checking that it can actually see the value.
  *
  * A `Symbol.for` key is required, not just a nicety: every other property name
  * goes through the context proxy's reflection layer, which rejects assignment
@@ -78,6 +85,11 @@ const TYPES_READY = Symbol.for('dsh-mem-bridge.types-ready')
 /**
  * The type bootstrap a mount started on `ctx`, or `null` when the context was
  * never mounted (or was mounted with the plugin disabled).
+ *
+ * `ctx` must be the **same object the plugin received**, not the root context
+ * its fiber was created from: Cordis gives the plugin a derived context, and a
+ * handle published on one is not visible from the other. Passing the root
+ * therefore yields `null` — see the note on `TYPES_READY`.
  *
  * Resolves once every type is ensured or has failed and been logged — it never
  * rejects, so a caller may await it unconditionally.

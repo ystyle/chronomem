@@ -1275,3 +1275,18 @@ test('a type bootstrap still in flight cannot land in the next tower', async () 
     )
   }
 })
+
+// The handle's reach is narrower than "the context" sounds, and a consumer that
+// assumes otherwise would read `null` and silently skip its wait. Cordis gives a
+// plugin a *derived* context: writing the handle there does not make it readable
+// from the root context the fiber was created from. Stated as a test so nobody
+// builds a supervisor on the wrong assumption.
+test('the handle is published on the plugin context, not on a root context', async () => {
+  const ctx = fakeCtx()
+  applyPlugin(ctx, { url: 'http://tower.test' })
+  // Same object the plugin saw → readable.
+  assert.notEqual(typesReadyOf(ctx), null, 'the mounting context must expose its own bootstrap')
+  // A different object standing in for another scope → not readable, and that
+  // must be a clean `null` rather than a throw.
+  assert.equal(typesReadyOf(fakeCtx()), null, 'another context must not inherit the handle')
+})
