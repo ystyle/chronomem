@@ -176,8 +176,10 @@ mem/query { type: "worklog", tag: "session=<dsh SessionId>" }
 
 本包是标准 dsh 插件包：`package.json` 的 `dsh.bundle.patch` 指向 `cordis.patch.yml`，后者只有一行 `insert`。
 
+已发布到 npm（[dsh-mem-bridge](https://www.npmjs.com/package/dsh-mem-bridge)，`latest` 即最新版）。
+
 ```bash
-# 方式一：官方 CLI（自动把包加进 profile 的 dsh.profile.bundles）
+# 方式一：官方 CLI（转发给 pnpm，并自动把包加进 profile 的 dsh.profile.bundles）
 dsh plugin --profile web add dsh-mem-bridge
 
 # 方式二：手动 —— 在 profile 的 package.json 加依赖，并把它加进 dsh.profile.bundles
@@ -187,11 +189,9 @@ dsh plugin --profile web add dsh-mem-bridge
 
 profile 变更需要**重启该 profile 的 dsh 进程**才生效。
 
-> **前置条件（重要）**：桥的"类型自愈"调用序是 `mem/type_create` →（若返回"类型已存在"）→ `mem/type_update`。
-> 后者是忆时塔 `feat/type-update` 分支新增的工具；**运行中的容器镜像若早于该提交，就没有这个工具**，
-> 自愈的第二条腿会失败（首次创建仍然成功）。部署方式见 chronomem `README.md` §2：
-> 宿主 `cjpm build` 产出静态二进制 → `~/docker/chronomem` 下 `docker compose up -d --build`。
-> 检查当前塔是否具备：`mem/list_types` 之外再看 `tools/list` 里是否有 `mem/type_update`。
+> **前置条件**：需要一个能访问的忆时塔（`mem/type_update` 自 v0.1.0 起已内置，
+> 无需额外分支；仅在对接更早的旧部署时需要 `tools/list` 里能查到它）。
+> 起塔方式见 chronomem 主 README 的「安装」一节。
 
 ## 配置
 
