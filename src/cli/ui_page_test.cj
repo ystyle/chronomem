@@ -277,3 +277,60 @@ func uiPreviewKeepsNewlinesInFull() {
     @Expect(pv.text, "第一行 第二行")
     @Expect(pv.full, "第一行\n第二行")
 }
+
+// 语义回顾面板必须有类型选择器：类型是粒度与分组的来源，缺了它就只能看 types[0]。
+// RecallPage.render() 里两个 tab 的内容都是**当场构造**的，但 Tabs 只把激活的
+// pane 渲进 DOM —— 所以整页序列化看不到语义回顾那边的东西，必须直接渲染该方法。
+@Test
+func uiSummaryModeHasTypeSelector() {
+    let svc = uiPageTestSvc()
+    let page = RecallPage()
+    let json = toJsonString(RenderContext.expandTree(page.renderSummaryMode(svc), ""))
+    // 两个 el-select：记忆类型 + 分组过滤；粒度是单选组
+    @Expect(json.contains("记忆类型"), true)
+    @Expect(countOfStr(json, "el-select\""), Int64(2))
+    @Expect(json.contains("el-radio-group"), true)
+    svc.close()
+}
+
+// 换类型后粒度必须落在新类型的 levels 里：工作的类型是 day/week，
+// 对话类常配 1h/day/week —— 留旧值会对着不存在的物化桶查空。
+@Test
+func uiSummaryModeGranularityFollowsType() {
+    let svc = uiPageTestSvc()
+    let chatLevels = ArrayList<String>()
+    chatLevels.add("1h")
+    chatLevels.add("day")
+    chatLevels.add("week")
+    @Expect(uiCreateType(svc, TypeMeta("chat", "对话", Option<String>.None, chatLevels,
+        Option<String>.None, true, Option<ArrayList<String>>.None, 2)).ok, true)
+
+    let page = RecallPage()
+    // worklog 没有 1h：首档应是 day
+    page.qType.set("worklog")
+    let logJson = toJsonString(RenderContext.expandTree(page.renderSummaryMode(svc), ""))
+    @Expect(logJson.contains("el-radio-group"), true)
+    @Expect(page.sGran.get(), "day")
+
+    // 换到 chat（有 1h）：粒度必须重新收敛到它的首档，而不是沿用 day
+    page.qType.set("chat")
+    page.sGran.set("day")
+    let chatJson = toJsonString(RenderContext.expandTree(page.renderSummaryMode(svc), ""))
+    @Expect(chatJson.contains("1h"), true)
+    @Expect(page.sGran.get(), "day")
+    svc.close()
+}
+
+func countOfStr(hay: String, needle: String): Int64 {
+    var n = Int64(0)
+    var i = Int64(0)
+    while (true) {
+        match (hay.indexOf(needle, i)) {
+            case Some(p) =>
+                n += 1
+                i = p + 1
+            case None => break
+        }
+    }
+    n
+}
