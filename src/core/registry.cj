@@ -3,7 +3,49 @@ package chronomem.core
 import tsdb.*
 import std.collection.*
 import std.sync.Mutex
+import std.convert.*
 import stdx.encoding.json.stream.*
+
+// 保留期字符串 → 毫秒。支持 <数字><单位>，单位 s/m/h/d/w；空串或无法解析返回 0（= 不设保留）。
+// 只接受单个单位段，不做 "1d12h" 这类复合式：类型配置里它应当一眼可读，
+// 复合表达式反而容易被误读成两种含义。
+public func parseRetentionMs(text: Option<String>): Int64 {
+    match (text) {
+        case None => 0
+        case Some(raw) =>
+            let t = stripAscii(raw)
+            if (t.size < 2) { return 0 }
+            let unit = t[t.size - 1]
+            let numberText = t[0..t.size - 1].toString()
+            let n = match (Int64.tryParse(numberText)) {
+                case Some(v) => v
+                case None => return 0
+            }
+            if (n <= 0) { return 0 }
+            let unitMs = match (unit) {
+                case 's' => 1000
+                case 'm' => 60 * 1000
+                case 'h' => 60 * 60 * 1000
+                case 'd' => 24 * 60 * 60 * 1000
+                case 'w' => 7 * 24 * 60 * 60 * 1000
+                case _ => 0
+            }
+            if (unitMs <= 0) { 0 } else { n * unitMs }
+    }
+}
+
+// 去掉首尾 ASCII 空白（String 无 trim()）
+func stripAscii(s: String): String {
+    var start = 0
+    var end = s.size
+    while (start < end && (s[start] == b' ' || s[start] == b'\t' || s[start] == b'\n' || s[start] == b'\r')) {
+        start += 1
+    }
+    while (end > start && (s[end - 1] == b' ' || s[end - 1] == b'\t' || s[end - 1] == b'\n' || s[end - 1] == b'\r')) {
+        end -= 1
+    }
+    s[start..end].toString()
+}
 
 // 记忆类型元数据（固定结构，json.stream 序列化；schema/retention/summaryLevels/summaryGroupBy 可空）。
 // 落库于 tsdb `meta` series（tag=name 定位），重启时重建注册表。
@@ -12,7 +54,7 @@ public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
     public let description: String
     public let schema: Option<String>       // 可选字段描述（JSON 字符串；宽松模式，仅作文档/LLM 提示）
     public let levels: ArrayList<String>    // 粒度链（§5.1）
-    public let retention: Option<String>    // 可选保留期（如 "30d"，后续接入 tsdb setRetention）
+    public let retention: Option<String>    // 可选保留期（如 "30d"）；create/update/重启恢复时应用到该类型的两个 series
     public let autoSummarize: Bool          // 后台自动语义总结（默认 false，opt-in；§7.3）
     public let summaryLevels: Option<ArrayList<String>>  // 自动总结粒度（缺省 = 最粗 2 档）
     public let summaryGroupBy: Option<ArrayList<String>> // 总结分组维度（tag 键列表，如 ["proj"]，上限 2 个；None=不分）
@@ -103,7 +145,18 @@ public class MemoryTypeRegistry {
             // 不恢复则重启后物化桶链/句柄创建只覆盖新类型的类型——old 类型能读点但永不物化）
             this.store.timeline(meta.name, "记忆类型 " + meta.name, meta.levels)
             this.store.timeline(MemoryTypeRegistry.summarySeriesOf(meta.name), "总结 " + meta.name, meta.levels)
+            applyRetentionOf(meta)
         }
+    }
+
+    // 把 meta.retention 应用到该类型的两个 series（主 + summary）。
+    // retention 是 tsdb 的 series 级配置，一个忆时塔类型横跨两个 series，
+    // 漏掉任何一个都会让那部分数据永不回收。
+    private func applyRetentionOf(meta: TypeMeta): Unit {
+        let ms = parseRetentionMs(meta.retention)
+        if (ms <= 0) { return }
+        this.store.applyRetention(meta.name, ms)
+        this.store.applyRetention(MemoryTypeRegistry.summarySeriesOf(meta.name), ms)
     }
 
     // 创建记忆类型：校验 → 注册两个 series → 持久化 meta。
@@ -119,6 +172,7 @@ public class MemoryTypeRegistry {
             // 注册 series（主 series + summary series，同 levels）
             this.store.timeline(meta.name, "记忆类型 " + meta.name, meta.levels)
             this.store.timeline(MemoryTypeRegistry.summarySeriesOf(meta.name), "总结 " + meta.name, meta.levels)
+            applyRetentionOf(meta)
             // 持久化 meta（tag=name 定位）
             let tags = HashMap<String, String>()
             tags["name"] = meta.name
@@ -154,6 +208,8 @@ public class MemoryTypeRegistry {
             this.store.rawTsdb().append(MemoryTypeRegistry.META_SERIES, nowMs(),
                 toJsonString(meta), tags)
             this.types[meta.name] = meta
+            // retention 变更立即生效（写时 TTL 只影响后续写入，存量由 clean() 清理）
+            applyRetentionOf(meta)
         }
     }
 

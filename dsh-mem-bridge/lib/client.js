@@ -55,6 +55,12 @@ window.__ModuleLoader__.load({
     const ROW_CONFIG_KEY = PACKAGE_NAME + '#' + SETTINGS_NAMESPACE
     /** The one field the Host redacts, and therefore the one write-only control. */
     const TOKEN_FIELD = 'token'
+    /** The workspace list: stored as an object array, edited as lines of text. */
+    const FULL_CONTEXT_FIELD = 'fullContextWorkspaces'
+    /** Levels a workspace line may carry; kept in step with the Host schema union. */
+    const WORKSPACE_LEVELS = ['none', 'names', 'full']
+    /** Level a line without one takes, matching the Host-side parser's default. */
+    const DEFAULT_LEVEL = 'names'
 
     //#endregion constants
 
@@ -109,6 +115,153 @@ window.__ModuleLoader__.load({
       return secrets.some((secret) => secret.path.length === 1 && secret.path[0] === field && secret.set === true)
     }
 
+    /**
+     * A text-area field over a value the settings model stores as JSON.
+     *
+     * The shipped helpers are `settingsTextField` and `settingsNumberField`, and
+     * there is no text-area spec or multi-line control among the primitives
+     * (`SettingsValueField` renders a single-line `<input>`). A workspace list is
+     * a list, not a scalar, so it needs one — and keeping it a single text field
+     * is what lets it stay on the shared form model: the model writes
+     * `{op:'set', path:[field], value}` with whatever `parse` returns, which is
+     * exactly the object array the Host schema declares.
+     *
+     * The conversion contract is the shared one: format in, parse out, and an
+     * `undefined` parse blocks the save. That is how a mistyped level is caught
+     * in the form instead of being silently defaulted in the Host.
+     *
+     * @param field - field name inside the namespace section.
+     * @param format - structured value → text.
+     * @param parse - text → structured value, or `undefined` to reject.
+     * @returns the field's conversion spec.
+     */
+    function settingsJsonField(field, format, parse) {
+      return {
+        field,
+        format: (value) => format(value),
+        parse: (text) => {
+          const trimmed = text.trim()
+          if (trimmed === '') return { kind: 'clear' }
+          const value = parse(trimmed)
+          return value === undefined ? undefined : { kind: 'set', value }
+        },
+      }
+    }
+
+    /**
+     * Parse the workspace text-area value into the array the Host schema stores.
+     *
+     * A copy of `parseWorkspaceListStrict` from `lib/pure.js`, not an import: the
+     * browser bundle is loaded through `window.__ModuleLoader__.load` and a
+     * relative `require` would be read as a package-local chunk request and fail
+     * (see this file's header). The two are kept in step by
+     * `test/client.test.js`, which compares them over the same inputs.
+     *
+     * Returns `undefined` for an unknown level so the shared form model rejects
+     * the save instead of writing a value the Host would have to guess at.
+     *
+     * @param text - the text-area value.
+     * @returns the rows, or `undefined` when a level is not recognised.
+     */
+    function parseWorkspaceText(text) {
+      if (text === '') return []
+      const out = []
+      const seen = new Set()
+      for (const raw of text.split('\n')) {
+        const line = raw.trim()
+        if (line === '' || line.startsWith('#')) continue
+        const eq = line.indexOf('=')
+        const pathText = eq < 0 ? line : line.slice(0, eq)
+        const path = trimTrailingSlash(pathText.trim())
+        if (path === '') continue
+        const levelText = eq < 0 ? '' : line.slice(eq + 1).trim()
+        if (levelText !== '' && !WORKSPACE_LEVELS.includes(levelText)) return undefined
+        const level = levelText === '' ? DEFAULT_LEVEL : levelText
+        if (seen.has(path)) continue
+        seen.add(path)
+        out.push({ path, level })
+      }
+      return out
+    }
+
+    /** Trim a hand-typed path the way the Host does, keeping a lone `/`. */
+    function trimTrailingSlash(value) {
+      if (value === '') return ''
+      const stripped = value.replace(/\/+$/, '')
+      return stripped === '' ? '/' : stripped
+    }
+
+    /**
+     * Render the stored array back into the text-area form.
+     *
+     * @param rows - the structured value from the settings section.
+     * @returns one `路径 = 级别` per line.
+     */
+    function formatWorkspaceRows(rows) {
+      if (!Array.isArray(rows)) return ''
+      const lines = []
+      for (const row of rows) {
+        if (row === null || typeof row !== 'object') continue
+        const path = trimTrailingSlash(typeof row.path === 'string' ? row.path.trim() : '')
+        if (path === '') continue
+        const level = WORKSPACE_LEVELS.includes(row.level) ? row.level : DEFAULT_LEVEL
+        lines.push(path + ' = ' + level)
+      }
+      return lines.join('\n')
+    }
+
+    /**
+     * One multi-line text setting.
+     *
+     * Grows with its content the way the composer does: a fixed `rows` would
+     * either clip a long list or leave a mostly empty box for a short one.
+     *
+     * @param props.id - input id, so the label can point at it.
+     * @param props.label - visible label.
+     * @param props.hint - explanation under the control.
+     * @param props.value - current staged text.
+     * @param props.invalid - whether the staged text fails to parse.
+     * @param props.disabled - whether the control refuses input.
+     * @param props.onEdit - stages the edited text.
+     * @returns the labelled text-area.
+     */
+    function TextAreaField(props) {
+      const ref = react.useRef(null)
+      react.useLayoutEffect(() => {
+        const node = ref.current
+        if (node === null) return undefined
+        const resize = () => {
+          node.style.height = 'auto'
+          node.style.height = `${node.scrollHeight + node.offsetHeight - node.clientHeight}px`
+        }
+        resize()
+        const observer = new ResizeObserver(resize)
+        observer.observe(node)
+        return () => {
+          observer.disconnect()
+        }
+      }, [props.value])
+      return react.createElement(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
+        react.createElement('label', { style: labelStyle, htmlFor: props.id }, props.label),
+        react.createElement('textarea', {
+          id: props.id,
+          ref,
+          rows: 1,
+          value: props.value,
+          disabled: props.disabled,
+          spellCheck: false,
+          style: {
+            ...textAreaStyle,
+            ...(props.invalid ? textAreaInvalidStyle : {}),
+          },
+          onChange: (event) => props.onEdit(event.target.value),
+        }),
+        react.createElement('p', { style: props.invalid ? hintInvalidStyle : hintStyle }, props.hint),
+      )
+    }
+
     //#endregion field specs
 
     //#region locales
@@ -126,9 +279,12 @@ window.__ModuleLoader__.load({
       tokenUnset: '未配置密钥',
       enabled: '总开关',
       enabledHint: '关闭后不再写入任何条目。',
-      distill: '聚合蒸馏',
-      distillHint: '关闭后 close 只写骨架，不调用 LLM 生成摘要。',
-      privacy: '开启后会向忆时塔上报：轮次末条回复、dsh 已产生的压缩摘要，以及事件自带的标量字段。',
+      distill: '目标收口蒸馏',
+      distillHint: '仅在一个目标（goal）完成时触发，对该会话的塔内活动做一次聚合，产出「做成了什么 / 下一步」。日常问答与闲聊没有目标，不会触发，也不产生任何调用。它与忆时塔按时间窗（今天/本周）的自动总结是两回事：那个按时间切，这个按目标切，互不替代。常用 goal 的话建议开启；不用 goal 可以关掉。',
+      fullContext: '全上下文工作区',
+      fullContextHint: '一行一个：路径 = 级别（级别可省略，默认 names）。级别 none=只存对话、names=存工具名、full=存工具入参出参。留空则所有会话都按默认方式记录（每轮只存末条回复）。',
+      fullContextInvalid: '有行的级别写错了，只接受 none / names / full。',
+      privacy: '开启后会向忆时塔上报：轮次末条回复、dsh 已产生的压缩摘要，以及事件自带的标量字段。全上下文工作区还会额外上报你输入的消息（仅真人输入，不含注入内容）与按级别的工具调用。',
       overridden: '已覆盖',
       reset: '恢复默认',
       invalidText: '该值无效，保存已被阻止。',
@@ -152,9 +308,12 @@ window.__ModuleLoader__.load({
       tokenUnset: 'No key configured',
       enabled: 'Enabled',
       enabledHint: 'When off, no entry is written at all.',
-      distill: 'Aggregate distillation',
-      distillHint: 'When off, close writes only the skeleton and calls no LLM.',
-      privacy: 'When on, this uploads the final reply of each turn, the compaction summary dsh produced, and event-borne scalar fields to 忆时塔.',
+      distill: 'Goal close-out distillation',
+      distillHint: 'Runs only when a goal completes, aggregating that session into \'what was achieved / what is next\'. Everyday Q&A and chat have no goal, so it never runs and costs nothing there. This is not the same as the tower\'s time-window summaries (today/this week): those cut by time, this cuts by goal. Turn it on if you use goals often; off is fine otherwise.',
+      fullContext: 'Full-context workspaces',
+      fullContextHint: 'One per line: path = level (level defaults to names). none keeps the conversation only, names keeps tool names, full keeps tool arguments and output. Empty means every session records the default way (final reply per turn).',
+      fullContextInvalid: 'A line has an unknown level; only none / names / full are accepted.',
+      privacy: 'When on, this uploads the final reply of each turn, the compaction summary dsh produced, and event-borne scalar fields to 忆时塔. A full-context workspace additionally uploads the messages you typed (human input only, never injected context) and tool calls at its configured level.',
       overridden: 'Overridden',
       reset: 'Reset to default',
       invalidText: 'This value is not accepted, so the save is blocked.',
@@ -181,6 +340,28 @@ window.__ModuleLoader__.load({
       fontSize: '12px',
       lineHeight: '18px',
       color: 'var(--dsw-alias-label-tertiary)',
+    }
+    /** The text-area mirrors the shared input's metrics so the form stays aligned. */
+    const textAreaStyle = {
+      boxSizing: 'border-box',
+      width: '100%',
+      resize: 'none',
+      overflow: 'hidden',
+      border: '0.5px solid var(--dsw-alias-border-l4)',
+      borderRadius: 'var(--dsw-radius-md)',
+      background: 'var(--dsw-alias-bg-layer-1)',
+      color: 'var(--dsw-alias-label-primary)',
+      padding: '6px 10px',
+      fontFamily: 'var(--ds-font-family-code)',
+      fontSize: '13px',
+      lineHeight: '20px',
+    }
+    const textAreaInvalidStyle = { borderColor: 'var(--dsw-alias-state-error-primary)' }
+    const hintInvalidStyle = {
+      margin: 0,
+      fontSize: '12px',
+      lineHeight: '18px',
+      color: 'var(--dsw-alias-state-error-primary)',
     }
 
     /**
@@ -284,6 +465,15 @@ window.__ModuleLoader__.load({
           disabled,
           onToggle: (next) => props.edit('distill', next ? 'true' : 'false'),
         }),
+        react.createElement(TextAreaField, {
+          id: 'plugin-config-mem-bridge-full-context',
+          label: t('fullContext'),
+          hint: state.fullContext.invalid ? t('fullContextInvalid') : t('fullContextHint'),
+          value: state.fullContext.text,
+          invalid: state.fullContext.invalid,
+          disabled,
+          onEdit: (text) => props.edit(FULL_CONTEXT_FIELD, text),
+        }),
         react.createElement('p', { style: hintStyle }, t('privacy')),
       )
     }
@@ -315,6 +505,7 @@ window.__ModuleLoader__.load({
             primitives.settingsTextField('url'),
             settingsBooleanField('enabled'),
             settingsBooleanField('distill'),
+            settingsJsonField(FULL_CONTEXT_FIELD, formatWorkspaceRows, parseWorkspaceText),
           ],
           [{ field: TOKEN_FIELD, write: (text) => this.writeToken(text) }],
         )
@@ -333,6 +524,7 @@ window.__ModuleLoader__.load({
           token: this.form.field(TOKEN_FIELD),
           enabled: this.form.field('enabled'),
           distill: this.form.field('distill'),
+          fullContext: this.form.field(FULL_CONTEXT_FIELD),
           tokenConfigured: secretConfigured(this.describeFace.getSnapshot().view, TOKEN_FIELD),
         }
       }
@@ -415,7 +607,13 @@ window.__ModuleLoader__.load({
     exports.SETTINGS_NAMESPACE = SETTINGS_NAMESPACE
     exports.ROW_CONFIG_KEY = ROW_CONFIG_KEY
     exports.TOKEN_FIELD = TOKEN_FIELD
+    exports.FULL_CONTEXT_FIELD = FULL_CONTEXT_FIELD
+    exports.settingsJsonField = settingsJsonField
+    exports.TextAreaField = TextAreaField
     exports.settingsBooleanField = settingsBooleanField
+    // Exported for the unit tests that pin this bundle's parsing against pure.js.
+    exports.parseWorkspaceText = parseWorkspaceText
+    exports.formatWorkspaceRows = formatWorkspaceRows
     exports.secretConfigured = secretConfigured
     exports.MemBridgeCardController = MemBridgeCardController
     exports.MemBridgeCard = MemBridgeCard

@@ -59,12 +59,19 @@ function stubModel(provider = 'stub-provider', model = 'stub-model') {
   return { currentSelection: () => ({ provider, model }) }
 }
 
-/** Capture the requests a plugin run issues. */
-function withStubbedFetch(run) {
+/**
+ * Capture the requests a plugin run issues.
+ *
+ * Mounting the plugin also fires a one-shot type self-heal (`mem/type_create` /
+ * `mem/type_update`), which must not inflate the entry counts these tests assert
+ * on — so only `mem/append` is collected unless a test asks for everything.
+ */
+function withStubbedFetch(run, { all = false } = {}) {
   const calls = []
   const original = globalThis.fetch
   globalThis.fetch = async (url, init) => {
-    calls.push({ url, body: JSON.parse(init.body) })
+    const body = JSON.parse(init.body)
+    if (all || body.params.name === 'mem/append') calls.push({ url, body })
     return {
       ok: true,
       status: 200,
@@ -97,6 +104,10 @@ function assistantEvent(turn, text) {
 
 function toolCallEvent(turn) {
   return { type: 'tool/call', seq: 2, time: 1704110400001, data: { turn, step: 1, name: 'bash' } }
+}
+
+function turnStartEvent(turn) {
+  return { type: 'turn/start', seq: 0, time: 1704110399999, data: { turn } }
 }
 
 function turnEndEvent(turn, reason = 'completed') {
@@ -376,8 +387,9 @@ test('an ambiguous timeout is NOT retried — a duplicate is worse than a miss',
   apply(ctx, { url: 'http://tower.test', retryMax: 5, retryBackoffMs: 0 })
   const original = globalThis.fetch
   let attempts = 0
-  globalThis.fetch = async () => {
-    attempts += 1
+  globalThis.fetch = async (url, init) => {
+    // Only the append counts: the mount-time type self-heal is a separate path.
+    if (JSON.parse(init.body).params.name === 'mem/append') attempts += 1
     const error = new Error('This operation was aborted')
     error.name = 'AbortError'
     throw error
@@ -402,8 +414,8 @@ test('a connect failure IS retried up to retryMax', async () => {
   apply(ctx, { url: 'http://tower.test', retryMax: 3, retryBackoffMs: 0 })
   const original = globalThis.fetch
   let attempts = 0
-  globalThis.fetch = async () => {
-    attempts += 1
+  globalThis.fetch = async (url, init) => {
+    if (JSON.parse(init.body).params.name === 'mem/append') attempts += 1
     const error = new TypeError('fetch failed')
     error.cause = { code: 'ECONNREFUSED' }
     throw error
@@ -616,13 +628,15 @@ function fieldMeta(schema, field) {
   return (json.refs ?? {})[ref]?.meta ?? {}
 }
 
-test('Config declares exactly the four fields the settings form shows', () => {
-  // design doc D16②/§282 pins these four: service address, auth key, master
-  // switch, distillation switch. Everything else stays off the form on purpose.
+test('Config declares exactly the five fields the settings form shows', () => {
+  // D16②/§282 pinned four: service address, auth key, master switch,
+  // distillation switch. `fullContextWorkspaces` is the fifth, added because
+  // choosing *which* workspaces keep a transcript is a deployment decision a
+  // user has to be able to make from the UI. Every other knob stays off the form.
   assert.deepEqual(
     schemaFieldNames(plugin.Config).sort(),
-    ['distill', 'enabled', 'token', 'url'],
-    'only the four designed fields belong on the settings form',
+    ['distill', 'enabled', 'fullContextWorkspaces', 'token', 'url'],
+    'only the designed fields belong on the settings form',
   )
 })
 
@@ -699,4 +713,396 @@ test('disabled through a volatile reference stops all recording', () => {
   apply(ctx, cfg)
   // apply() returns early when disabled, so it registers no listeners at all.
   assert.equal(ctx.listeners.size, 0, 'a disabled plugin must register nothing')
+})
+
+// ---------------------------------------------------------------------------
+// Full-context workspaces
+//
+// The regression that matters most is the default one: with an empty workspace
+// list a session must keep producing exactly what it produced before this
+// feature existed. These tests pin both halves of that.
+// ---------------------------------------------------------------------------
+
+const FULL_CTX_CWD = '/home/ystyle/notes'
+const fullCtxSession = { id: 'session-2', header: { cwd: FULL_CTX_CWD } }
+
+function userEvent(text, kind = 'user', surfaceOp = 'append') {
+  return {
+    type: 'user/message',
+    seq: 4,
+    time: 1704110400003,
+    surfaceOp,
+    data: { source: { kind }, content: [{ type: 'text', text }] },
+  }
+}
+
+function assistantStepEvent(turn, step, text) {
+  return {
+    type: 'assistant/message',
+    seq: 5,
+    time: 1704110400004,
+    data: { turn, step, message: { content: [{ type: 'text', text }] } },
+  }
+}
+
+function toolCallEventWithId(turn, callId, name, args) {
+  return {
+    type: 'tool/call',
+    seq: 6,
+    time: 1704110400005,
+    data: { turn, step: 2, callId, name, arguments: args },
+  }
+}
+
+function toolResultEvent(turn, callId, text, isError = false) {
+  return {
+    type: 'tool/result',
+    seq: 7,
+    time: 1704110400006,
+    data: {
+      turn,
+      step: 2,
+      message: { source: { kind: 'tool', callId }, content: [{ type: 'text', text }] },
+      ...(isError ? { error: { message: 'boom' } } : {}),
+    },
+  }
+}
+
+/** Collect the `kind` of every appended entry, in order. */
+function kindsOf(calls) {
+  return calls.map((call) => call.body.params.arguments.tags.kind)
+}
+
+test('an empty workspace list records no user message at all (default profile)', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test', projMap: {} })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', session, userEvent('你好'))
+    await settled()
+  })
+  assert.deepEqual(kindsOf(calls), [])
+})
+
+test('the default profile still writes exactly one turn entry per completed turn', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test', projMap: {}, turnMinTools: 1, turnMinLen: 120 })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', session, userEvent('你好'))
+    ctx.emit('session/event', session, assistantEvent(7, '结论：可以开始'))
+    ctx.emit('session/event', session, toolCallEvent(7))
+    ctx.emit('session/event', session, turnEndEvent(7))
+    await settled()
+  })
+  // Same single entry as before the feature: the user message is ignored and the
+  // turn entry still comes from `turn/end`.
+  assert.deepEqual(kindsOf(calls), ['turn'])
+})
+
+test('a full-context workspace records the transcript in order', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, {
+    url: 'http://tower.test',
+    projMap: {},
+    fullContextWorkspaces: `${FULL_CTX_CWD} = none`,
+    sayNoteMax: 20000,
+  })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', fullCtxSession, turnStartEvent(1))
+    ctx.emit('session/event', fullCtxSession, userEvent('帮我看看这个配置'))
+    ctx.emit('session/event', fullCtxSession, assistantStepEvent(1, 1, '我先读一下文件。'))
+    ctx.emit('session/event', fullCtxSession, assistantStepEvent(1, 2, '读完了，配置没问题。'))
+    ctx.emit('session/event', fullCtxSession, turnEndEvent(1))
+    await settled()
+  })
+
+  assert.deepEqual(kindsOf(calls), ['user', 'say', 'say'])
+  const args = calls.map((call) => call.body.params.arguments)
+  assert.equal(args[0].payload.note, '帮我看看这个配置')
+  assert.equal(args[1].payload.note, '我先读一下文件。')
+  assert.equal(args[2].payload.note, '读完了，配置没问题。')
+  assert.equal(args[0].tags.turn, '1')
+  assert.equal(args[1].tags.step, '1')
+  assert.equal(args[2].tags.step, '2')
+  // `turn/end` must not add a duplicate of the last say entry.
+  assert.ok(!kindsOf(calls).includes('turn'))
+})
+
+test('a full-context workspace ignores injected user-role messages', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test', projMap: {}, fullContextWorkspaces: `${FULL_CTX_CWD} = none` })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', fullCtxSession, userEvent('真的问题'))
+    ctx.emit('session/event', fullCtxSession, userEvent('x'.repeat(5000), 'runtime-context'))
+    ctx.emit('session/event', fullCtxSession, userEvent('x'.repeat(5000), 'skill-catalog'))
+    ctx.emit('session/event', fullCtxSession, userEvent('x'.repeat(5000), 'time-context'))
+    ctx.emit('session/event', fullCtxSession, userEvent('checkpoint', 'compact-checkpoint', { op: 'replace', startSeq: 1, endSeq: 9 }))
+    await settled()
+  })
+  assert.deepEqual(kindsOf(calls), ['user'])
+  assert.equal(calls[0].body.params.arguments.payload.note, '真的问题')
+})
+
+test('tool level none writes no tool entries', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test', projMap: {}, fullContextWorkspaces: `${FULL_CTX_CWD} = none` })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', fullCtxSession, toolCallEventWithId(1, 'call-1', 'bash', { command: 'ls' }))
+    ctx.emit('session/event', fullCtxSession, toolResultEvent(1, 'call-1', 'a.txt'))
+    await settled()
+  })
+  assert.deepEqual(kindsOf(calls), [])
+})
+
+test('tool level names records the name but drops arguments and output', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test', projMap: {}, fullContextWorkspaces: `${FULL_CTX_CWD} = names`, toolNoteMax: 2000 })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', fullCtxSession, toolCallEventWithId(1, 'call-2', 'bash', { command: 'rm -rf /tmp/x' }))
+    ctx.emit('session/event', fullCtxSession, toolResultEvent(1, 'call-2', 'x'.repeat(3000)))
+    await settled()
+  })
+  assert.deepEqual(kindsOf(calls), ['tool'])
+  const args = calls[0].body.params.arguments
+  assert.equal(args.tags.tool, 'bash')
+  assert.equal(args.tags.call, 'call-2')
+  assert.equal(args.tags.turn, '1')
+  assert.equal(args.payload.note, '', 'names mode must not leak arguments or output')
+})
+
+test('tool level full records clipped arguments and output', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test', projMap: {}, fullContextWorkspaces: `${FULL_CTX_CWD} = full`, toolNoteMax: 100 })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', fullCtxSession, toolCallEventWithId(1, 'call-3', 'read', { path: '/tmp/a.txt' }))
+    ctx.emit('session/event', fullCtxSession, toolResultEvent(1, 'call-3', 'y'.repeat(300)))
+    await settled()
+  })
+  assert.deepEqual(kindsOf(calls), ['tool'])
+  const note = calls[0].body.params.arguments.payload.note
+  assert.ok(note.includes('/tmp/a.txt'))
+  assert.ok(note.includes('省略'), 'the output must be clipped, not stored whole')
+})
+
+test('a tool entry keeps the call timestamp rather than the result timestamp', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, { url: 'http://tower.test', projMap: {}, fullContextWorkspaces: `${FULL_CTX_CWD} = names` })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', fullCtxSession, toolCallEventWithId(1, 'call-4', 'bash', {}))
+    ctx.emit('session/event', fullCtxSession, toolResultEvent(1, 'call-4', 'done'))
+    await settled()
+  })
+  // The call happened at ...005, its result at ...006: the entry belongs to the call.
+  assert.equal(calls[0].body.params.arguments.ts, 1704110400005)
+})
+
+test('the workspace match uses the session cwd, not the agent id', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, {
+    url: 'http://tower.test',
+    projMap: {},
+    // Matches by last segment, so an absolute-cwd session under a different
+    // root would not be picked up.
+    fullContextWorkspaces: 'other-place = full',
+  })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', fullCtxSession, userEvent('不该被记录'))
+    await settled()
+  })
+  assert.deepEqual(kindsOf(calls), [])
+})
+
+// ---------------------------------------------------------------------------
+// Type self-healing and the transcript type split
+//
+// A deployment that names a type 忆时塔 does not have records *nothing* before
+// this: every append fails with "类型不存在" and is dropped after the retry
+// budget, with only a counter to show for it. These tests pin the bootstrap and
+// the split between the activity type and the transcript type.
+// ---------------------------------------------------------------------------
+
+/** A fetch stub that answers each tools/call by name, recording every request. */
+function withScriptedTower(script) {
+  const calls = []
+  const original = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body)
+    calls.push(body)
+    const name = body.params.name
+    const answer = script[name]
+    if (answer === undefined) {
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => JSON.stringify({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: 'ok' }] } }),
+      }
+    }
+    return answer
+  }
+  return {
+    calls,
+    restore: () => {
+      globalThis.fetch = original
+    },
+  }
+}
+
+const okBody = () => ({
+  ok: true,
+  status: 200,
+  statusText: 'OK',
+  text: async () => JSON.stringify({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: 'ok' }] } }),
+})
+const toolErrorBody = (message) => ({
+  ok: true,
+  status: 200,
+  statusText: 'OK',
+  text: async () => JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    result: { content: [{ type: 'text', text: message }], isError: true },
+  }),
+})
+
+test('mount creates both types on a fresh tower', async () => {
+  const tower = withScriptedTower({ 'mem/type_create': okBody() })
+  try {
+    apply(fakeCtx(), { url: 'http://tower.test' })
+    await settled()
+    await settled()
+  } finally {
+    tower.restore()
+  }
+  const created = tower.calls.filter((call) => call.params.name === 'mem/type_create')
+  assert.deepEqual(
+    created.map((call) => call.params.arguments.name),
+    ['dsh/activity', 'dsh/chat'],
+  )
+})
+
+test('the transcript type is created with the hour-level chain', async () => {
+  const tower = withScriptedTower({ 'mem/type_create': okBody() })
+  try {
+    apply(fakeCtx(), { url: 'http://tower.test' })
+    await settled()
+    await settled()
+  } finally {
+    tower.restore()
+  }
+  const chat = tower.calls.find(
+    (call) => call.params.name === 'mem/type_create' && call.params.arguments.name === 'dsh/chat',
+  )
+  assert.deepEqual(chat.params.arguments.levels, ['1h', 'day', 'week'])
+  assert.equal(chat.params.arguments.auto_summarize, true)
+  assert.deepEqual(chat.params.arguments.summary_group_by, ['proj'])
+})
+
+test('an existing type falls through to type_update, without levels', async () => {
+  const tower = withScriptedTower({
+    'mem/type_create': toolErrorBody('类型已存在: dsh/chat（要改配置用 mem/type_update）'),
+    'mem/type_update': okBody(),
+  })
+  try {
+    apply(fakeCtx(), { url: 'http://tower.test' })
+    await settled()
+    await settled()
+  } finally {
+    tower.restore()
+  }
+  const updated = tower.calls.filter((call) => call.params.name === 'mem/type_update')
+  assert.equal(updated.length, 2, 'both types should be revived')
+  for (const call of updated) {
+    assert.equal(
+      call.params.arguments.levels,
+      undefined,
+      'levels must never be sent: 忆时塔 refuses to change it',
+    )
+  }
+})
+
+test('a tower without mem/type_update does not break the mount', async () => {
+  const tower = withScriptedTower({
+    'mem/type_create': toolErrorBody('类型已存在: dsh/activity'),
+    'mem/type_update': toolErrorBody('未知工具: mem/type_update'),
+  })
+  try {
+    assert.doesNotThrow(() => apply(fakeCtx(), { url: 'http://tower.test' }))
+    await settled()
+    await settled()
+  } finally {
+    tower.restore()
+  }
+})
+
+test('a tower that cannot be reached does not break the mount', async () => {
+  const original = globalThis.fetch
+  globalThis.fetch = async () => {
+    throw new TypeError('fetch failed')
+  }
+  try {
+    assert.doesNotThrow(() => apply(fakeCtx(), { url: 'http://tower.test' }))
+    await settled()
+    await settled()
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('transcript entries go to the chat type, activity entries to the activity type', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, {
+    url: 'http://tower.test',
+    projMap: {},
+    type: 'dsh/activity',
+    chatType: 'dsh/chat',
+    fullContextWorkspaces: '/home/ystyle/notes = names',
+  })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', fullCtxSession, turnStartEvent(1))
+    ctx.emit('session/event', fullCtxSession, userEvent('问题'))
+    ctx.emit('session/event', fullCtxSession, assistantStepEvent(1, 1, '回答'))
+    ctx.emit('session/event', fullCtxSession, toolCallEventWithId(1, 'c1', 'bash', {}))
+    ctx.emit('session/event', fullCtxSession, toolResultEvent(1, 'c1', 'out'))
+    ctx.emit('session/event', fullCtxSession, turnEndEvent(1))
+    // A separate default-profile session still writes the activity type.
+    ctx.emit('session/event', session, assistantEvent(4, 'x'.repeat(200)))
+    ctx.emit('session/event', session, turnEndEvent(4))
+    await settled()
+  })
+
+  const byType = calls.map((call) => [call.body.params.arguments.type, call.body.params.arguments.tags.kind])
+  assert.deepEqual(byType, [
+    ['dsh/chat', 'user'],
+    ['dsh/chat', 'say'],
+    ['dsh/chat', 'tool'],
+    ['dsh/activity', 'turn'],
+  ])
+})
+
+test('the chat type is configurable', async () => {
+  const ctx = fakeCtx()
+  apply(ctx, {
+    url: 'http://tower.test',
+    projMap: {},
+    chatType: 'my/transcript',
+    fullContextWorkspaces: '/home/ystyle/notes = none',
+  })
+  const calls = await withStubbedFetch(async () => {
+    ctx.emit('session/event', fullCtxSession, userEvent('hi'))
+    await settled()
+  })
+  assert.equal(calls[0].body.params.arguments.type, 'my/transcript')
+})
+
+test('the mount log names both types', async () => {
+  const messages = []
+  const original = console.log
+  console.log = (message) => messages.push(String(message))
+  const ctx = fakeCtx()
+  try {
+    apply(ctx, { url: 'http://tower.test', type: 'a/one', chatType: 'a/two' })
+  } finally {
+    console.log = original
+  }
+  assert.ok(messages.some((line) => line.includes('type=a/one') && line.includes('chat=a/two')))
 })

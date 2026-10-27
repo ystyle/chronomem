@@ -5,6 +5,7 @@ import {
   DISTILL_SYSTEM,
   KIND,
   TYPE_ACTIVITY,
+  TYPE_CHAT,
   appendRequest,
   blockKinds,
   buildDistillPrompt,
@@ -16,7 +17,12 @@ import {
   errorEntry,
   firstLine,
   goalEntry,
+  DEFAULT_WORKSPACE_LEVEL,
+  TOOL_MODES,
+  formatWorkspaceList,
+  isFullContextWorkspace,
   isRetryableWriteFailure,
+  isTypeExistsFailure,
   isSubstantiveTurn,
   lifecycleEntry,
   mcpHeaders,
@@ -24,14 +30,25 @@ import {
   milestoneEntry,
   parseDistillReply,
   parseMcpBody,
+  parseWorkspaceList,
+  parseWorkspaceListStrict,
   projFromCwd,
   resolveConfig,
   resultText,
   rpcFailure,
+  sayEntry,
   textOfBlocks,
   titleEntry,
+  typeCreateArgs,
+  typeReviveArgs,
+  typeSpecs,
+  toolEntry,
   turnEntry,
+  userEntry,
+  userTextOf,
   workflowEntry,
+  workspaceLevelFor,
+  workspaceRuleFor,
 } from '../lib/pure.js'
 
 const subject = { session: 'session-1', agent: 'session-1', proj: 'Cangjie' }
@@ -427,4 +444,300 @@ test('isRetryableWriteFailure retries only provably-undelivered requests', () =>
   assert.equal(isRetryableWriteFailure(new Error('tool error: 类型不存在: t')), false)
   assert.equal(isRetryableWriteFailure(null), false)
   assert.equal(isRetryableWriteFailure('boom'), false)
+})
+
+// ---------------------------------------------------------------------------
+// Full-context workspaces (feat/full-context-mode)
+//
+// A full-context workspace records the whole exchange — what the human typed,
+// every assistant message, and (per `fullContextTools`) the tool traffic. The
+// default profile keeps none of that, so every function below has to be a no-op
+// on an empty list; that is asserted first in each case.
+// ---------------------------------------------------------------------------
+
+test('parseWorkspaceList reads 路径 = 级别 lines into rows', () => {
+  assert.deepEqual(parseWorkspaceList(''), [])
+  assert.deepEqual(parseWorkspaceList(null), [])
+  assert.deepEqual(parseWorkspaceList('   '), [])
+
+  const text = [
+    '  /home/me/notes = none  ',
+    '',
+    '# a comment line is ignored',
+    'journal',
+    '/home/me/notes = full', // duplicate path: the first line wins
+    '   journal   ', // duplicate of the bare name
+    '/home/me/work/ = full',
+  ].join('\n')
+  assert.deepEqual(parseWorkspaceList(text), [
+    { path: '/home/me/notes', level: 'none' },
+    { path: 'journal', level: 'names' },
+    { path: '/home/me/work', level: 'full' },
+  ])
+})
+
+test('parseWorkspaceList defaults a missing level to names', () => {
+  assert.deepEqual(parseWorkspaceList('/a'), [{ path: '/a', level: DEFAULT_WORKSPACE_LEVEL }])
+  assert.deepEqual(parseWorkspaceList('/a =   '), [{ path: '/a', level: 'names' }])
+})
+
+test('parseWorkspaceList tolerates a path containing spaces', () => {
+  assert.deepEqual(parseWorkspaceList('/home/me/my notes = full'), [{ path: '/home/me/my notes', level: 'full' }])
+})
+
+test('parseWorkspaceListStrict reports an unknown level so the save is blocked', () => {
+  assert.equal(parseWorkspaceListStrict('/a = bogus'), undefined)
+  assert.equal(parseWorkspaceListStrict('/a = none\n/b = bogus'), undefined)
+  // The tolerant variant still keeps the workspace, at the default level.
+  assert.deepEqual(parseWorkspaceList('/a = bogus'), [{ path: '/a', level: 'names' }])
+})
+
+test('parseWorkspaceList accepts an already-structured array', () => {
+  assert.deepEqual(
+    parseWorkspaceList([{ path: '/a', level: 'full' }, { path: '/b' }, { path: '/a', level: 'none' }]),
+    [{ path: '/a', level: 'full' }, { path: '/b', level: 'names' }],
+  )
+  assert.deepEqual(parseWorkspaceList([]), [])
+  assert.deepEqual(parseWorkspaceList([null, 3, 'x']), [])
+})
+
+test('formatWorkspaceList round-trips through parseWorkspaceList', () => {
+  const rows = [{ path: '/a', level: 'full' }, { path: 'journal', level: 'none' }]
+  assert.equal(formatWorkspaceList(rows), '/a = full\njournal = none')
+  assert.deepEqual(parseWorkspaceList(formatWorkspaceList(rows)), rows)
+  assert.equal(formatWorkspaceList(null), '')
+  // A bad level renders as the default rather than as a lie.
+  assert.equal(formatWorkspaceList([{ path: '/a', level: 'bogus' }]), '/a = names')
+})
+
+test('workspaceRuleFor is null for an empty list (the default profile)', () => {
+  for (const workspaces of [[], undefined, null]) {
+    assert.equal(workspaceRuleFor('/home/ystyle/notes', workspaces), null)
+  }
+  assert.equal(workspaceRuleFor('', [{ path: '/home/ystyle/notes', level: 'full' }]), null)
+  assert.equal(workspaceRuleFor(null, [{ path: '/home/ystyle/notes', level: 'full' }]), null)
+})
+
+test('workspaceRuleFor matches an absolute entry as a path prefix on a segment boundary', () => {
+  const workspaces = [{ path: '/home/ystyle/notes', level: 'full' }]
+  assert.equal(workspaceRuleFor('/home/ystyle/notes', workspaces).level, 'full')
+  assert.equal(workspaceRuleFor('/home/ystyle/notes/', workspaces).level, 'full')
+  assert.equal(workspaceRuleFor('/home/ystyle/notes/2026', workspaces).level, 'full')
+  // The segment boundary is what keeps a sibling directory out.
+  assert.equal(workspaceRuleFor('/home/ystyle/notes-old', workspaces), null)
+  assert.equal(workspaceRuleFor('/home/ystyle/other', workspaces), null)
+})
+
+test('workspaceRuleFor matches a bare entry against the last path segment only', () => {
+  const workspaces = [{ path: 'notes', level: 'none' }]
+  assert.equal(workspaceRuleFor('/home/ystyle/notes', workspaces).level, 'none')
+  assert.equal(workspaceRuleFor('/tmp/elsewhere/notes/', workspaces).level, 'none')
+  assert.equal(workspaceRuleFor('/home/ystyle/notes/deeper', workspaces), null)
+  assert.equal(workspaceRuleFor('/home/ystyle/notes2', workspaces), null)
+})
+
+test('workspaceRuleFor lets a narrow entry beat a broad one', () => {
+  // A broad chat workspace with one code subdirectory carved out of it: the
+  // longest matching path has to win, or the carve-out would never apply.
+  const workspaces = parseWorkspaceList('/home/me/notes = none\n/home/me/notes/code = full')
+  assert.equal(workspaceRuleFor('/home/me/notes/2026', workspaces).level, 'none')
+  assert.equal(workspaceRuleFor('/home/me/notes/code', workspaces).level, 'full')
+  assert.equal(workspaceRuleFor('/home/me/notes/code/src', workspaces).level, 'full')
+})
+
+test('workspaceLevelFor distinguishes "not configured" from "none"', () => {
+  const cfg = resolveConfig({ fullContextWorkspaces: '/home/me/notes = none' }, {})
+  // null means the default profile — every caller then behaves as before.
+  assert.equal(workspaceLevelFor('/home/me/work', cfg), null)
+  // 'none' is a real answer: the transcript is recorded, the tools are not.
+  assert.equal(workspaceLevelFor('/home/me/notes', cfg), 'none')
+})
+
+test('userTextOf records only what a human typed', () => {
+  const typed = { content: [{ type: 'text', text: '你好' }], source: { kind: 'user' } }
+  assert.equal(userTextOf(typed, 'append'), '你好')
+
+  // Injected user-role messages: measured at 17x the size of the human text in
+  // one real session, so none of these may reach the tower.
+  for (const kind of ['runtime-context', 'skill-catalog', 'time-context', 'tool-jobs', 'compact-checkpoint', 'model-selection', 'system']) {
+    const injected = { content: [{ type: 'text', text: 'x'.repeat(500) }], source: { kind } }
+    assert.equal(userTextOf(injected, 'append'), '', `${kind} must not be recorded`)
+  }
+})
+
+test('userTextOf refuses a compaction replacement copy', () => {
+  const checkpoint = { content: [{ type: 'text', text: 'compaction checkpoint' }], source: { kind: 'user' } }
+  // Compaction re-adds a user message with a replace marker to shadow the range
+  // it summarised. That is not a new thing anyone said.
+  assert.equal(userTextOf(checkpoint, { op: 'replace', startSeq: 1, endSeq: 9 }), '')
+  assert.equal(userTextOf(checkpoint, undefined), '')
+  assert.equal(userTextOf(checkpoint, 'append'), 'compaction checkpoint')
+})
+
+test('userTextOf tolerates a malformed event', () => {
+  assert.equal(userTextOf(null, 'append'), '')
+  assert.equal(userTextOf(undefined, 'append'), '')
+  assert.equal(userTextOf({}, 'append'), '')
+  assert.equal(userTextOf({ content: [], source: { kind: 'user' } }, 'append'), '')
+})
+
+test('userEntry clips the text and tags the turn', () => {
+  const entry = userEntry(subject, { turn: 3, text: '帮我看看这个配置', noteMax: 6000 })
+  assert.equal(entry.payload.title, '帮我看看这个配置')
+  assert.equal(entry.payload.note, '帮我看看这个配置')
+  assert.equal(entry.tags.kind, 'user')
+  assert.equal(entry.tags.turn, '3')
+  assert.equal(entry.tags.session, 'session-1')
+  assert.equal(entry.tags.proj, 'Cangjie')
+
+  const long = userEntry(subject, { turn: 1, text: 'x'.repeat(50), noteMax: 10 })
+  assert.ok(long.payload.note.includes('省略 40 字'))
+})
+
+test('sayEntry keeps the step so the exchange stays ordered', () => {
+  const entry = sayEntry(subject, { turn: 2, step: 7, text: '我看看。', noteMax: 100 })
+  assert.equal(entry.payload.note, '我看看。')
+  assert.equal(entry.tags.kind, 'say')
+  assert.equal(entry.tags.turn, '2')
+  assert.equal(entry.tags.step, '7')
+})
+
+test('toolEntry records nothing in mode none', () => {
+  assert.equal(toolEntry(subject, { turn: 1, step: 1, callId: 'c1', name: 'bash', mode: 'none', noteMax: 100 }), null)
+})
+
+test('toolEntry names mode drops arguments and result but keeps the name', () => {
+  const entry = toolEntry(subject, {
+    turn: 1,
+    step: 2,
+    callId: 'call-1',
+    name: 'bash',
+    args: { command: 'rm -rf /tmp/x' },
+    result: 'x'.repeat(5000),
+    isError: false,
+    mode: 'names',
+    noteMax: 100,
+  })
+  assert.equal(entry.payload.title, '工具 bash')
+  assert.equal(entry.payload.note, '')
+  assert.equal(entry.payload.outcome, 'bash')
+  assert.equal(entry.tags.kind, 'tool')
+  assert.equal(entry.tags.tool, 'bash')
+  assert.equal(entry.tags.call, 'call-1')
+  assert.equal(entry.tags.error, undefined)
+})
+
+test('toolEntry full mode keeps clipped arguments and result', () => {
+  const entry = toolEntry(subject, {
+    turn: 1,
+    step: 2,
+    callId: 'call-2',
+    name: 'read',
+    args: { path: '/tmp/a.txt' },
+    result: 'y'.repeat(400),
+    isError: true,
+    mode: 'full',
+    noteMax: 200,
+  })
+  assert.ok(entry.payload.note.includes('arguments: '))
+  assert.ok(entry.payload.note.includes('/tmp/a.txt'))
+  assert.ok(entry.payload.note.includes('result: '))
+  assert.ok(entry.payload.note.length <= 400, 'note must respect the cap')
+  assert.equal(entry.tags.error, 'true')
+  assert.ok(entry.payload.title.includes('出错'))
+})
+
+test('toolEntry full mode survives absent or circular arguments', () => {
+  const noArgs = toolEntry(subject, { turn: 1, callId: 'c', name: 'noop', mode: 'full', noteMax: 100 })
+  assert.equal(noArgs.payload.note, '')
+
+  const circular = { a: 1 }
+  circular.self = circular
+  const entry = toolEntry(subject, { turn: 1, callId: 'c', name: 'loop', args: circular, mode: 'full', noteMax: 100 })
+  assert.equal(entry.payload.note, '')
+})
+
+test('resolveConfig defaults to an empty workspace list', () => {
+  const cfg = resolveConfig({}, {})
+  assert.deepEqual(cfg.fullContextWorkspaces, [])
+  assert.equal(cfg.sayNoteMax, 20000)
+  assert.equal(cfg.toolNoteMax, 2000)
+  assert.equal(isFullContextWorkspace('/home/ystyle/notes', cfg), false)
+  assert.equal(workspaceLevelFor('/home/ystyle/notes', cfg), null)
+})
+
+test('resolveConfig reads the workspace list from config and env', () => {
+  const fromConfig = resolveConfig({ fullContextWorkspaces: '/a = full\nb' }, {})
+  assert.deepEqual(fromConfig.fullContextWorkspaces, [
+    { path: '/a', level: 'full' },
+    { path: 'b', level: 'names' },
+  ])
+  assert.equal(workspaceLevelFor('/x/b', fromConfig), 'names')
+
+  const fromEnv = resolveConfig({}, { DSH_MEM_BRIDGE_FULL_CONTEXT: '/env/only = none' })
+  assert.deepEqual(fromEnv.fullContextWorkspaces, [{ path: '/env/only', level: 'none' }])
+  assert.equal(workspaceLevelFor('/env/only', fromEnv), 'none')
+})
+
+test('resolveConfig accepts an already-structured array from the settings page', () => {
+  const cfg = resolveConfig({ fullContextWorkspaces: [{ path: '/a', level: 'full' }] }, {})
+  assert.deepEqual(cfg.fullContextWorkspaces, [{ path: '/a', level: 'full' }])
+})
+
+test('resolveConfig keeps a workspace whose level was mistyped', () => {
+  // Losing the whole workspace over a typo would silently stop recording a
+  // session the user meant to record; recording one level off is the cheaper error.
+  const cfg = resolveConfig({ fullContextWorkspaces: '/a = evreything' }, {})
+  assert.deepEqual(cfg.fullContextWorkspaces, [{ path: '/a', level: 'names' }])
+  assert.equal(workspaceLevelFor('/a', cfg), 'names')
+})
+
+
+// ---------------------------------------------------------------------------
+// Type specs and self-healing arguments
+// ---------------------------------------------------------------------------
+
+test('typeSpecs covers the activity type and the transcript type', () => {
+  const cfg = resolveConfig({}, {})
+  const specs = typeSpecs(cfg)
+  assert.deepEqual(specs.map((spec) => spec.name), ['dsh/activity', 'dsh/chat'])
+  assert.deepEqual(specs[0].levels, ['day', 'week'])
+  // A transcript is high-frequency, so it keeps sub-day windows.
+  assert.deepEqual(specs[1].levels, ['1h', 'day', 'week'])
+  assert.equal(specs[1].autoSummarize, true)
+  assert.deepEqual(specs[1].summaryGroupBy, ['proj'])
+})
+
+test('typeSpecs follows the configured type names', () => {
+  const cfg = resolveConfig({ type: 'x/act', chatType: 'x/chat' }, {})
+  assert.deepEqual(typeSpecs(cfg).map((spec) => spec.name), ['x/act', 'x/chat'])
+})
+
+test('typeCreateArgs sends levels, update does not', () => {
+  const spec = typeSpecs(resolveConfig({}, {}))[1]
+  const create = typeCreateArgs(spec)
+  assert.deepEqual(create.levels, ['1h', 'day', 'week'])
+
+  const revive = typeReviveArgs(spec)
+  assert.equal(revive.levels, undefined, 'mem/type_update refuses to change levels')
+  assert.equal(revive.name, create.name)
+  assert.equal(revive.auto_summarize, true)
+})
+
+test('isTypeExistsFailure recognises the tower wording and nothing else', () => {
+  assert.equal(isTypeExistsFailure('tool error: 类型已存在: dsh/chat（要改配置用 mem/type_update）'), true)
+  assert.equal(isTypeExistsFailure('类型已存在'), true)
+  assert.equal(isTypeExistsFailure('Type dsh/chat already exists'), true)
+  // Anything else must not be mistaken for "already there": treating a real
+  // failure as success would leave the type missing and every write dropped.
+  assert.equal(isTypeExistsFailure('tool error: 类型不存在: dsh/chat'), false)
+  assert.equal(isTypeExistsFailure('HTTP 500 Internal Server Error'), false)
+  assert.equal(isTypeExistsFailure(''), false)
+  assert.equal(isTypeExistsFailure(null), false)
+})
+
+test('resolveConfig exposes the transcript type with its own default', () => {
+  assert.equal(resolveConfig({}, {}).chatType, TYPE_CHAT)
+  assert.equal(resolveConfig({}, { DSH_MEM_BRIDGE_CHAT_TYPE: 'env/chat' }).chatType, 'env/chat')
+  assert.equal(resolveConfig({ chatType: 'cfg/chat' }, {}).chatType, 'cfg/chat')
 })

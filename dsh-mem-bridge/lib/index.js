@@ -38,10 +38,19 @@ import {
   resolveConfig,
   resultText,
   rpcFailure,
+  sayEntry,
   textOfBlocks,
   titleEntry,
+  toolEntry,
   turnEntry,
+  isTypeExistsFailure,
+  typeCreateArgs,
+  typeReviveArgs,
+  typeSpecs,
+  userEntry,
+  userTextOf,
   workflowEntry,
+  workspaceLevelFor,
 } from './pure.js'
 
 export const name = 'dsh-mem-bridge'
@@ -73,9 +82,24 @@ const Config = z.object({
   token: z.string().role('secret').volatile(),
   enabled: z.boolean().default(true).volatile(),
   distill: z.boolean().default(true).volatile(),
+  // Which workspaces get the transcript treatment, and how much tool traffic
+  // each one keeps. An empty list (the default) leaves every session on the
+  // pre-existing behaviour: the last assistant reply per turn, and nothing that
+  // a human typed. See `parseWorkspaceList` for the text-area form.
+  fullContextWorkspaces: z.array(z.object({
+    path: z.string(),
+    level: z.union(['none', 'names', 'full']),
+  })).default([]).volatile(),
 })
 
 const MAX_SESSIONS = 200
+/**
+ * Cap on tool calls remembered per full-context session while waiting for their
+ * result. A call normally resolves on the next `tool/result`; this only bounds
+ * the pathological case (results that never arrive) so one long session cannot
+ * grow the map forever.
+ */
+const MAX_PENDING_TOOL_CALLS = 500
 const REQUEST_TIMEOUT_MS = 5000
 
 /**
@@ -178,11 +202,39 @@ export function apply(ctx, config) {
         wroteOpen: false,
         wroteResume: false,
         pendingResumeAt: null,
+        // Full-context level for this session: `null` means "default profile",
+        // and every branch below must then behave exactly as before the feature
+        // existed. Resolved once from the cwd, never re-read.
+        workspaceLevel: undefined,
+        // Tool calls already recorded, so a result can find its entry. Only
+        // populated for a full-context session that records tool names at all.
+        toolCalls: null,
+        // The turn the session is in, tracked from `turn/start` because a
+        // `user/message` event carries no turn number of its own.
+        currentTurn: undefined,
       }
       if (sessions.size >= MAX_SESSIONS) sessions.delete(sessions.keys().next().value)
       sessions.set(id, state)
     }
     return state
+  }
+
+  /**
+   * The session's full-context level, resolved lazily from its cwd.
+   *
+   * Resolved lazily rather than at session-start because `agent/session-start`
+   * does not always carry a readable cwd (see `cwdFromStore`), and a session
+   * must not lose its transcript because the first event arrived early.
+   *
+   * @returns {string | null} `'none'` / `'names'` / `'full'`, or `null`.
+   */
+  function levelOf(state, session) {
+    if (state.workspaceLevel !== undefined) return state.workspaceLevel
+    const cwd = session === undefined || session === null ? null : sessionCwdOf(session)
+    if (cwd === null) return undefined // still unknown: try again on the next event
+    state.workspaceLevel = workspaceLevelFor(cwd, cfg)
+    if (state.workspaceLevel !== null && state.workspaceLevel !== 'none') state.toolCalls = new Map()
+    return state.workspaceLevel
   }
 
   function sessionState(session) {
@@ -219,12 +271,12 @@ export function apply(ctx, config) {
     setTimeout(resolve, ms)
   })
 
-  async function append(entry, at) {
+  async function append(entry, at, type) {
     rpcId += 1
     const response = await fetch(mcpUrl(cfg.url), {
       method: 'POST',
       headers: mcpHeaders(cfg.token),
-      body: JSON.stringify(appendRequest(rpcId, cfg.type, entry, at)),
+      body: JSON.stringify(appendRequest(rpcId, type, entry, at)),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     })
     if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`)
@@ -246,6 +298,63 @@ export function apply(ctx, config) {
     const failure = rpcFailure(body)
     if (failure !== null) throw new Error(failure)
     return resultText(body.result)
+  }
+
+  /**
+   * Make sure every type the bridge writes to exists in the tower.
+   *
+   * Without this a deployment that names a new type records nothing at all: the
+   * append fails with "类型不存在" and, after the retry budget, the entry is
+   * dropped — silently, because the failure count is the only trace. That is
+   * the wrong default for a bridge whose whole job is to record.
+   *
+   * The sequence is create → (on "already exists") → update, because
+   * `mem/type_create` is not idempotent and `mem/type_update` is not an upsert.
+   * `levels` is never sent to update: 忆时塔 forbids changing it.
+   *
+   * Runs once at mount, off the event path, and never blocks a write: a type
+   * that cannot be ensured only logs, and the first append then fails the way
+   * it always did.
+   */
+  async function ensureTypes() {
+    for (const spec of typeSpecs(cfg)) {
+      try {
+        const create = await callToolResult('mem/type_create', typeCreateArgs(spec))
+        if (create === null) continue
+        if (!isTypeExistsFailure(create)) {
+          warn(`type_create ${spec.name} failed: ${create}`)
+          continue
+        }
+        const revive = await callToolResult('mem/type_update', typeReviveArgs(spec))
+        if (revive !== null && !isRetryableWriteFailure(revive)) {
+          // Not fatal: an older tower without `mem/type_update` still has the
+          // type, which is all the writer needs.
+          log(`type_update ${spec.name} skipped: ${revive}`)
+        }
+      } catch (error) {
+        warn(`ensuring type ${spec.name} failed: ${describeError(error)}`)
+      }
+    }
+  }
+
+  /**
+   * One `tools/call`, returning the tool's failure text or `null` on success.
+   *
+   * `callTool` throws on a tool error; type self-healing needs to read the
+   * message instead ("类型已存在" is the expected answer, not a failure), so this
+   * variant returns it.
+   */
+  async function callToolResult(name, args) {
+    rpcId += 1
+    const response = await fetch(mcpUrl(cfg.url), {
+      method: 'POST',
+      headers: mcpHeaders(cfg.token),
+      body: JSON.stringify(callRequest(rpcId, name, args)),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    })
+    if (!response.ok) return `HTTP ${response.status} ${response.statusText}`
+    const body = parseMcpBody(await response.text())
+    return rpcFailure(body)
   }
 
   /** The host's default model route, used when the bridge has no explicit one. */
@@ -358,9 +467,17 @@ export function apply(ctx, config) {
     }), undefined)
   }
 
-  function enqueue(entry, at) {
+  /**
+   * Queue one entry.
+   *
+   * @param entry - the `{payload, tags}` to append.
+   * @param at - timestamp in ms, or `undefined` for "now".
+   * @param type - target 忆时塔 type; defaults to the activity type. Transcript
+   *   entries pass the chat type so the two timelines stay separate.
+   */
+  function enqueue(entry, at, type = cfg.type) {
     if (entry === null || entry === undefined || stopping) return
-    queue.push({ entry, at: typeof at === 'number' ? at : Date.now() })
+    queue.push({ entry, at: typeof at === 'number' ? at : Date.now(), type })
     if (queue.length > cfg.queueMax) {
       queue.shift()
       stats.dropped += 1
@@ -381,7 +498,7 @@ export function apply(ctx, config) {
           const retryMax = cfg.retryMax >= 1 ? Math.trunc(cfg.retryMax) : 1
           for (let attempt = 1; attempt <= retryMax; attempt += 1) {
             try {
-              await append(item.entry, item.at)
+              await append(item.entry, item.at, item.type)
               lastError = null
               break
             } catch (error) {
@@ -442,8 +559,47 @@ export function apply(ctx, config) {
     }
 
     switch (event.type) {
+      case 'turn/start': {
+        // A `user/message` carries no turn number of its own (its `data` is just
+        // `{id, role, source, content}`), so remember the turn the session moved
+        // into and stamp the transcript entries with it.
+        if (typeof data.turn === 'number') state.currentTurn = data.turn
+        return
+      }
+      case 'user/message': {
+        // Only a full-context session records what was typed; `userTextOf` also
+        // rejects the injected user-role messages and compaction's replacement
+        // copy, neither of which anyone wrote.
+        const level = levelOf(state, session)
+        if (level === undefined || level === null) return
+        const text = userTextOf(data, event.surfaceOp)
+        if (text === '') return
+        enqueue(userEntry(state.subject, {
+          turn: state.currentTurn,
+          text,
+          noteMax: cfg.sayNoteMax,
+        }), at, cfg.chatType)
+        return
+      }
       case 'assistant/message': {
         if (typeof data.turn !== 'number') return
+        const level = levelOf(state, session)
+        if (level !== undefined && level !== null) {
+          // Full context keeps every text-bearing message, so the exchange keeps
+          // its shape; the last one is still the turn's final answer and is
+          // recorded below by `turn/end` as well.
+          const message = data.message
+          const text = textOfBlocks(message === null || message === undefined ? null : message.content)
+          if (text !== '') {
+            enqueue(sayEntry(state.subject, {
+              turn: data.turn,
+              step: typeof data.step === 'number' ? data.step : undefined,
+              text,
+              noteMax: cfg.sayNoteMax,
+            }), at, cfg.chatType)
+          }
+          return
+        }
         // Keep the LAST text-bearing assistant message of the turn. The probe
         // (§9.3) showed intermediate steps are usually textless tool-call
         // messages or short narration, while the turn's last message is the
@@ -455,11 +611,54 @@ export function apply(ctx, config) {
       }
       case 'tool/call': {
         if (typeof data.turn !== 'number') return
+        const level = levelOf(state, session)
+        if (level !== undefined && level !== null) {
+          if (level === 'none') return
+          // Remember the call so its result can be attached when it lands. The
+          // map is per session and bounded by the session's own tool traffic;
+          // drop the oldest rather than grow without limit on a long session.
+          if (state.toolCalls !== null && state.toolCalls.size >= MAX_PENDING_TOOL_CALLS) {
+            state.toolCalls.delete(state.toolCalls.keys().next().value)
+          }
+          if (state.toolCalls !== null && typeof data.callId === 'string') {
+            state.toolCalls.set(data.callId, {
+              turn: data.turn,
+              step: typeof data.step === 'number' ? data.step : undefined,
+              name: typeof data.name === 'string' ? data.name : undefined,
+              args: data.arguments,
+              at,
+            })
+          }
+          return
+        }
         turnOf(state, data.turn).toolCalls += 1
         return
       }
       case 'tool/result': {
         if (typeof data.turn !== 'number') return
+        const level = levelOf(state, session)
+        if (level !== undefined && level !== null) {
+          if (level === 'none' || state.toolCalls === null) return
+          const message = data.message
+          const callId = message !== null && message !== undefined && message.source !== null && typeof message.source === 'object'
+            ? message.source.callId
+            : undefined
+          const pending = typeof callId === 'string' ? state.toolCalls.get(callId) : undefined
+          if (typeof callId === 'string') state.toolCalls.delete(callId)
+          const entry = toolEntry(state.subject, {
+            turn: pending === undefined ? data.turn : pending.turn,
+            step: pending === undefined ? undefined : pending.step,
+            callId,
+            name: pending === undefined ? undefined : pending.name,
+            args: pending === undefined ? undefined : pending.args,
+            result: textOfBlocks(message === null || message === undefined ? null : message.content),
+            isError: data.error !== undefined && data.error !== null,
+            mode: level,
+            noteMax: cfg.toolNoteMax,
+          })
+          if (entry !== null) enqueue(entry, pending === undefined ? at : pending.at, cfg.chatType)
+          return
+        }
         if (data.error !== undefined && data.error !== null) turnOf(state, data.turn).toolErrors += 1
         return
       }
@@ -470,6 +669,12 @@ export function apply(ctx, config) {
         const acc = state.turn !== null && state.turn.turn === turn ? state.turn : turnOf(state, turn)
         state.turn = null
         if (reason !== 'completed') return
+        // A full-context session already recorded each assistant message as it
+        // arrived, so a `turn` entry here would be a duplicate of the last
+        // `say` entry. The substantive-turn threshold is a filter for the
+        // default profile; a transcript does not filter anything out.
+        const level = levelOf(state, session)
+        if (level !== undefined && level !== null) return
         if (!isSubstantiveTurn({ toolCalls: acc.toolCalls, text: acc.lastText }, cfg)) return
         enqueue(turnEntry(state.subject, {
           turn,
@@ -602,7 +807,10 @@ export function apply(ctx, config) {
     }), undefined)
   })
 
-  log(`enabled → ${mcpUrl(cfg.url)} (type=${cfg.type})`)
+  // Fire and forget: a slow or unreachable tower must not delay the mount.
+  void ensureTypes()
+
+  log(`enabled → ${mcpUrl(cfg.url)} (type=${cfg.type}, chat=${cfg.chatType})`)
 }
 
 export { Config }

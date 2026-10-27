@@ -4,6 +4,7 @@
 > 目标形态：**dsh 会话全程无需 agent 自觉记录，记忆自动落库忆时塔**（结构层零 LLM；语义层尽量免 LLM——核心洞察见 §0）。
 > v3 变更：**dsh/turn + dsh/session + dsh/goal 三类型合一为 `dsh/activity`**（2026-09-05 讨论定案），类型收敛为三本账：`dsh/activity`（活动时间线）+ `dsh/lesson`（教训）+ 既有 `worklog`（项目账）。
 > v4 变更（2026-09-12 源码级复核）：**D1（插件形态）/ D7（写入通道）/ D12（压缩事件口径）三项"待验证"已定案**（见 §3.0、§3.4、§9）；M1 瘦身并新增 M0 前置；§2.1 `phase` 枚举修正；补 `mem/type_create` 非幂等的硬约束。其余决策点（D2-D6 / D8 / D10）仍待逐一讨论。
+> v5 变更（2026-10-27）：新增 **§2.1b `dsh/chat`**——对话历史拆为独立类型（`levels: 1h/day/week`），由配置项 `fullContextWorkspaces` 按工作区开启；补类型自愈（create → update，不动 levels）。
 
 ## 0. 结论摘要
 
@@ -50,7 +51,7 @@
 | 三种事件频率差异大（turn 每天几十条 vs goal 每条状态变更 vs session 每会话几条） | 体量由 turn 主导属正常——它就是"流水账主体"；低频条目靠 kind tag 仍可单独过滤 |
 | schema 会变宽（各 kind 字段不同） | 宽松模式 + 按 kind 分节的 schema 文档（union 风格，见下） |
 | goal 想单独出周报 | 周摘要整体覆盖目标状态；需要单出时用显式窗口手动 summarize |
-| turn 万一要单独 retention / 10min 档 / 单独关总结 | 随时可拆新类型（旧条目带 kind tag，零迁移零丢失）——**没有沉没成本** |
+| turn 万一要单独 retention / 10min 档 / 单独关总结 | 随时可拆新类型（旧条目带 kind tag，零迁移零丢失）——**没有沉没成本**。已在 2026-10-27 实际拆出 `dsh/chat`（§2.1b）：对话流需要 `1h` 档而 activity 只需要 `day/week` |
 
 - **合一的收益**：一次 `recall mode=summary` 就是"今天/本周 dsh 全貌"；时间线叙事连贯（轮次流水中嵌会话开合、压缩、goal 变化）；类型管理、UI、自动总结都收敛。
 - 配置：`levels: ["day","week"]`、`auto_summarize: true`、`summary_group_by: ["proj"]`、**无 retention（v4 D13：先不设 + 体积监控）**。
@@ -98,6 +99,18 @@
 | `error` | L1 自动 | `agent/error` / `turn/end` reason=error（去重：session+turn+step，只记事实骨架） | 无 |
 
 - 摘要分节：类型 description 与 schema 固化指引——**day/week 自动总结按「轮次流水 / 生命周期与压缩 / 目标状态」三节组织**（条目自带 kind tag，LLM 可自然分组）；必要时手动 summarize 时在 `instructions` 里重申。
+
+### 2.1b `dsh/chat` — 对话历史（全上下文工作区专用，2026-10-27 新增）
+
+- 描述：dsh 对话历史：全上下文工作区里逐条记录的真人输入、assistant 回复与工具调用；供按小时/天/周回想一次具体交谈。
+- **为什么拆出来**（对应 §2.1 表格里「随时可拆新类型」那条）：`dsh/activity` 是**低频运营时间线**（每会话几条生命周期事件、每轮一条末条回复、goal 状态变更），而对话流是**高频逐条**。两者对 `levels` 的要求相反——activity 的 `day/week` 对对话流太粗（当天内无法按小时回想），对话流的 `1h` 对 activity 又纯粹是空桶。
+- **决定性理由**：忆时塔的 `levels` **建了不能改**（`mem/type_update` 拒绝修改，物化桶链不可逆）。一旦混在一个类型里，必然有一半内容用错粒度且无法补救——所以只能一开始就分开，没有事后调整的余地。
+- 配置：`levels: ["1h","day","week"]`（取 `1h` 而非默认 `10min` 起：聊天消息间隔几分钟到十几分钟，10min 桶基本是空的）、`auto_summarize: true`、`summary_group_by: ["proj"]`、无 retention。
+- kind：`user`（真人输入，`source.kind === 'user'` 且 `surfaceOp === 'append'`）、`say`（每条 assistant 文本，带 `turn`/`step`）、`tool`（工具调用，按工作区级别 `none`/`names`/`full` 决定存多少）。
+- **触发面**：只由配置项 `fullContextWorkspaces` 命中的会话写入；列表为空（默认）时该类型不产生任何条目。
+- **体积实测依据**（1265 KB 真实会话）：工具出参 736 KB + 入参 334 KB = 86.9%，assistant 全部 144 KB，真人输入仅 4.4 KB（0.34%）。故工具必须分级录入，不能一刀切全存。
+
+**类型自愈**：桥挂载时确保两个类型存在，调用序 `mem/type_create` →（「类型已存在」）→ `mem/type_update`。update **只补** `description` / `auto_summarize` / `summary_group_by`，**不带 `levels`**（不可逆，已存在类型保持自身粒度链）。此前 README 描述过这段自愈但代码并未实现——给一个不存在的类型名会静默丢数据（每条 append 失败并丢弃，只有计数日志）。
 
 ### 2.2 `dsh/lesson` — 教训/决策（半自动，不并入 activity）
 
