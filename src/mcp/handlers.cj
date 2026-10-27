@@ -210,8 +210,10 @@ func requireGranularity(svc: MemoryService, name: String, granularity: String): 
 
 // ---------- 语义总结核心（mem/summarize 与 recall mode=summary 共用） ----------
 
-// 未分组（条目无任何分组维度 tag）的 groupKey 值
-public let UNGROUPED_GROUP = "\u{0000}未分组"
+// 未分组（条目无任何分组维度 tag）的 groupKey 值。
+// 定义在 core（summary.cj）：UI 的窗口摘要与分组过滤要按同一个哨兵比对，
+// 两处各拼一份字面量的结果是「显示的【未分组】永远过滤不到」。
+public let UNGROUPED_GROUP = UNGROUPED_GROUP_KEY
 
 // 从 Point 的 tags JSON 解析出指定 tag 的值（无则 None）
 func tagValueOf(p: Point, tag: String): Option<String> {
@@ -247,12 +249,9 @@ func groupKeyOf(meta: TypeMeta, p: Point): Option<String> {
     }
 }
 
-// groupKey 的展示名：None → "整窗"；未分组 → "未分组"；否则原值
+// groupKey 的展示名（口径与 UI 共用，见 core.summaryGroupLabel）
 func groupLabel(key: Option<String>): String {
-    match (key) {
-        case None => "整窗"
-        case Some(v) => if (v == UNGROUPED_GROUP) { "未分组" } else { v }
-    }
+    summaryGroupLabel(key)
 }
 
 // 分批流式入桶累积器（lambda 不能捕获可变局部变量，捕获本对象引用改内部字段）：

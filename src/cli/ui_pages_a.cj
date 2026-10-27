@@ -481,9 +481,32 @@ public class RecallPage <: Component {
             case Some(m) => sortLevels(m.levels)
             case None => ArrayList<String>()
         }
+        // 粒度与分组都是**类型的属性**，所以类型一变就必须重新收敛：
+        // 旧类型的粒度很可能不在新类型的 levels 里（levels 建了不可改但类型之间不同），
+        // 旧类型的分组键也不一定是新类型的 summary_group_by。留在旧值上的表现是
+        // 空桶 + 空摘要，看着像"这个类型没有数据"。
         if (this.sGran.get() == "" || !levels.contains(this.sGran.get())) {
             this.sGran.set(if (levels.size > 0) { levels[0] } else { "day" })
+            this.sBucket.set("")
+            this.sGroup.set("all")
         }
+
+        // 类型选择器：语义回顾原来**没有**这个入口，只能借「精确回想」tab 里的那个，
+        // 于是打开本 tab 的人看到的是 types[0] 的桶，且无法换类型。
+        let typeOptions = ArrayList<IComponent>()
+        for (t in uiListTypes(svc)) {
+            typeOptions.add(SelectOption([text(t.name)], t.name))
+        }
+        let typeSelect = Select(typeOptions.toArray())
+            .placeholder("记忆类型")
+            .bind(this.qType)
+            .onChange({ ctx =>
+                // 换类型 → 窗口与分组都作废（选中的桶属于旧类型的物化桶）
+                this.sGran.set("")
+                this.sBucket.set("")
+                this.sGroup.set("all")
+                PatchResult.ReRender
+            })
 
         let granRadio = ArrayList<IComponent>()
         for (l in levels) {
@@ -491,22 +514,40 @@ public class RecallPage <: Component {
         }
 
         let buckets = uiListBucketMetas(svc, this.qType.get(), this.sGran.get())
-        let groupOptions = ArrayList<IComponent>()
-        groupOptions.add(SelectOption([text("全部")], "all"))
+        // 选中的桶必须仍在当前「类型 + 粒度」的桶列表里。切类型或切粒度后旧的桶 key
+        // 在新列表里不存在（day 是日期、1h 带小时，形态本就不同），留在信号里会一直
+        // 查空窗口、顶部却仍显示那个旧窗口标题 —— 看着像"这个窗口没有摘要"。
+        if (this.sBucket.get() != "" && !bucketExists(buckets, this.sBucket.get())) {
+            this.sBucket.set("")
+            this.sGroup.set("all")
+        }
+        let groupValues = ArrayList<String>()
+        groupValues.add("all")
         if (this.sBucket.get() != "") {
             let sums = uiSummariesOfWindow(svc, this.qType.get(), this.bucketFromMs(buckets), this.bucketToMs(buckets))
             let seen = HashSet<String>()
             for (s0 in sums) {
-                let g = match (s0.groupKey) { case Some(x) => x case None => "未分组" }
+                // 展示名与过滤键都取 summaryGroupLabel：两处各拼一份字面量会导致
+                // 下拉里显示着【未分组】却永远过滤不到它（哨兵值含 NUL，与展示名不等）。
+                let g = summaryGroupLabel(s0.groupKey)
                 if (!seen.contains(g)) {
                     seen.add(g)
-                    groupOptions.add(SelectOption([text("【" + g + "】")], g))
+                    groupValues.add(g)
                 }
             }
         }
+        // 分组过滤的候选来自「当前窗口已有的摘要」。窗口没选或已经换掉时，旧的分组值
+        // 留在信号里会让结果恒空且下拉里看不到它（选项是按当前窗口重建的）——收敛回全部。
+        if (!groupOptionExists(groupValues, this.sGroup.get())) { this.sGroup.set("all") }
 
         let form = ArrayList<IComponent>()
+        form.add(div([FormItem([typeSelect]).label("记忆类型")], attrs: Some(a("ui-gcell"))))
         form.add(div([FormItem([RadioGroup(granRadio.toArray()).bind(this.sGran)]).label("粒度（类型 levels 内）")], attrs: Some(a("ui-gcell"))))
+        let groupOptions = ArrayList<IComponent>()
+        for (v in groupValues) {
+            let lbl = if (v == "all") { "全部" } else { "【" + v + "】" }
+            groupOptions.add(SelectOption([text(lbl)], v))
+        }
         form.add(div([FormItem([Select(groupOptions.toArray()).bind(this.sGroup)]).label("分组过滤（summary_group_by）")], attrs: Some(a("ui-gcell"))))
 
         let bucketChildren = ArrayList<IComponent>()
@@ -535,8 +576,7 @@ public class RecallPage <: Component {
             for (s0 in sums) { shown.add(s0) }
         } else {
             for (s0 in sums) {
-                let g = match (s0.groupKey) { case Some(x) => x case None => "未分组" }
-                if (g == this.sGroup.get()) { shown.add(s0) }
+                if (summaryGroupLabel(s0.groupKey) == this.sGroup.get()) { shown.add(s0) }
             }
         }
         res.add(cardTitle(title, sums.size.toString() + " 条总结记录 · 语义回顾（读已生成摘要）"))
@@ -610,4 +650,25 @@ public func parseEpochArg(s: String): Int64 {
 func payloadTaskOf(p: Point): String {
     let m = payloadMeta(p.payload)
     if (m.task != "") { m.task.clone() } else { fmtTime(p.ts, svc().store.timeZoneOf()) }
+}
+
+// 选中的桶是否仍在当前「类型 + 粒度」的桶列表里。
+// 语义回顾把「选中的窗口」存在页面的 Signal 上，而类型/粒度都能换——换过之后
+// 旧的桶 key 在新列表里不存在（day 的 key 是日期，1h 的 key 还带小时），
+// 留着它只会对着一批不存在的物化桶查摘要：界面空着，标题却还写着那个旧窗口。
+func bucketExists(buckets: ArrayList<BucketMeta>, key: String): Bool {
+    for (b in buckets) {
+        if (b.bucketKey == key) { return true }
+    }
+    false
+}
+
+// 分组过滤的候选里是否还有 value（"all" 恒真）。
+// 候选项是按**当前窗口**重建的，而被选中的分组存在页面上会跨窗口存活：
+// 不清掉就会选中一个下拉里已经看不到、也匹配不到任何摘要的值。
+func groupOptionExists(values: ArrayList<String>, value: String): Bool {
+    for (v in values) {
+        if (v == value) { return true }
+    }
+    false
 }

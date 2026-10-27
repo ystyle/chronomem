@@ -96,3 +96,23 @@ public struct SummaryRecord <: JsonSerializable & JsonDeserializable<SummaryReco
             strategy: strategy, chunks: chunks, inputTokens: inputTokens, clippedEntries: clippedEntries)
     }
 }
+
+// ---------- 分组的展示口径 ----------
+//
+// 语义总结的 groupKey 有两个特殊值，它们的「给人看的名字」必须只有一处定义：
+// 写入侧（summarize）与读取侧（UI 的窗口摘要、分组过滤下拉）若各拼一份字面量，
+// 过滤条件就会因为少一个前缀字符而恒空 —— 屏幕上显示着【未分组】却永远查不到它。
+//
+// 未分组 = 条目缺少任一分组维度 tag。存的是一个含 NUL 的哨兵串：真实的 tag 值
+// 不可能包含 NUL，所以它不会与任何真实分组重名，也不会被误当成某个项目。
+
+/** 未分组（条目缺分组维度 tag）的 groupKey 哨兵值。 */
+public let UNGROUPED_GROUP_KEY = "\u{0000}未分组"
+
+/** groupKey → 展示名：None = 整窗总结（类型未配分组维度）；哨兵 = 未分组；否则原值。 */
+public func summaryGroupLabel(key: Option<String>): String {
+    match (key) {
+        case None => "整窗"
+        case Some(v) => if (v == UNGROUPED_GROUP_KEY) { "未分组" } else { v }
+    }
+}

@@ -237,3 +237,64 @@ func uiApiTruncateAndDeleteGuard() {
     @Expect(uiListTypes(svc).size, Int64(0))
     svc.close()
 }
+
+// ---------- 语义回顾：类型 / 粒度 / 分组三者必须跟着走 ----------
+//
+// 语义回顾页原来没有类型选择器：只能借「精确回想」tab 里的那个选类型，
+// 直接打开本 tab 的人看到的是 types[0] 的桶，且无法换。
+// 这几条钉住的是「类型是粒度与分组的来源」这一条链。
+
+@Test
+func uiApiSummaryGroupLabelCoversSentinelAndWindow() {
+    // 未分组是一个含 NUL 的哨兵值（真实 tag 不可能含 NUL，所以不会与项目名重名）。
+    // 展示名与写入/过滤口径必须来自同一处：两处各拼一个字面量的结果是
+    // 下拉里显示【未分组】却永远过滤不到它。
+    @Expect(summaryGroupLabel(None), "整窗")
+    @Expect(summaryGroupLabel(Some(UNGROUPED_GROUP_KEY)), "未分组")
+    @Expect(summaryGroupLabel(Some("chronomem")), "chronomem")
+    // 哨兵值不能等于它的展示名，否则「按展示名过滤」会误中真实分组
+    @Expect(UNGROUPED_GROUP_KEY != "未分组", true)
+}
+
+@Test
+func uiApiSummaryWindowGroupsUseSentinelLabel() {
+    let svc = uiTestSvcWithWorklog([])
+    let stl = svc.registry.summaryTimelineOf("worklog").getOrThrow()
+    let grouped = SummaryRecord(100, 1788019200000, 1788105600000, "m",
+        ArrayList<Int64>(), "", "决策：\n- a", groupKey: Some("chronomem"))
+    let ungrouped = SummaryRecord(200, 1788019200000, 1788105600000, "m",
+        ArrayList<Int64>(), "", "决策：\n- b", groupKey: Some(UNGROUPED_GROUP_KEY))
+    stl.append(grouped.ts, toJsonString(grouped), HashMap<String, String>())
+    stl.append(ungrouped.ts, toJsonString(ungrouped), HashMap<String, String>())
+    let items = uiSummariesOfWindow(svc, "worklog", 1788019200000, 1788105600000)
+    @Expect(items.size, Int64(2))
+    // 按展示名分组时，未分组那条必须能被「未分组」这个标签命中
+    var hits = Int64(0)
+    for (it in items) {
+        if (summaryGroupLabel(it.groupKey) == "未分组") { hits += 1 }
+    }
+    @Expect(hits, Int64(1))
+    svc.close()
+}
+
+@Test
+func uiApiSummaryLevelsDifferPerType() {
+    // 粒度链是**类型级**配置且建了不可改：不同类型的 levels 可以完全不同
+    // （worklog 是 day→week，对话类是 1h→day→week）。语义回顾的粒度档位必须
+    // 跟着当前类型走，否则换类型后选中的粒度不在新 levels 里 → 恒空桶。
+    let svc = uiTestSvcWithWorklog([])
+    let chatLevels = ArrayList<String>()
+    chatLevels.add("1h")
+    chatLevels.add("day")
+    chatLevels.add("week")
+    let r = uiCreateType(svc, TypeMeta("chat", "对话", None, chatLevels, None, true, None, 2))
+    @Expect(r.ok, true)
+
+    let worklogLevels = sortLevels(uiGetType(svc, "worklog").getOrThrow().levels)
+    let chatSorted = sortLevels(uiGetType(svc, "chat").getOrThrow().levels)
+    @Expect(worklogLevels.contains("1h"), false)
+    @Expect(chatSorted.contains("1h"), true)
+    // 两边的首档不同 → 页面按 types[0] 兜底时必然给错粒度
+    @Expect(worklogLevels[0] != chatSorted[0], true)
+    svc.close()
+}
