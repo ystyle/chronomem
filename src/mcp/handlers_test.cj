@@ -245,6 +245,22 @@ func handlers_appendAndQuery() {
     // 超界页码 → 空结果但给出页信息
     let r3p9 = handleQuery(s, argsFromJson("{\"type\":\"worklog\",\"limit\":2,\"page\":9}"))
     @Expect(resultText(r3p9).indexOf("无更多条目") != None, true)
+    // 结构化分页：文本头之外还要给出机器可读字段，agent 不必解析字符串。
+    // 默认 limit=20 时长会话可能远超 20 条，只数返回行数会误判成"就这么多"。
+    let meta1 = structuredOf(r3)
+    @Expect(numField(meta1, "total"), Int64(3))
+    @Expect(numField(meta1, "page"), Int64(1))
+    @Expect(numField(meta1, "pageSize"), Int64(2))
+    @Expect(numField(meta1, "totalPages"), Int64(2))
+    @Expect(numField(meta1, "returned"), Int64(2))
+    @Expect(boolField(meta1, "hasMore"), true)
+    let meta2 = structuredOf(r3p2)
+    @Expect(numField(meta2, "page"), Int64(2))
+    @Expect(boolField(meta2, "hasMore"), false)   // 末页
+    // 超界页：returned=0 且 hasMore=false，与文本头的"无更多条目"一致
+    let meta9 = structuredOf(r3p9)
+    @Expect(numField(meta9, "returned"), Int64(0))
+    @Expect(boolField(meta9, "hasMore"), false)
     // 不存在类型 → error
     let r4 = handleAppend(s, argsFromJson("{\"type\":\"nope\",\"payload\":{}}"))
     @Expect(r4.isError, true)
@@ -700,4 +716,43 @@ func handlers_summarizeLargeWindowBatched() {
     @Expect(txt.indexOf("【p1】") != None, true)
     @Expect(txt.indexOf("【p2】") != None, true)
     s.close()
+}
+
+
+// ---------- structuredContent 读取辅助（分页断言用） ----------
+
+private func structuredOf(result: CallToolResult): HashMap<String, JsonValue> {
+    let sc: Option<JsonValue> = result.structuredContent
+    match (sc) {
+        case Some(v) =>
+            match (v) {
+                case Map(m) => return m
+                case _ => throw Exception("structuredContent 不是对象")
+            }
+        case None => throw Exception("缺 structuredContent")
+    }
+}
+
+private func numField(m: HashMap<String, JsonValue>, key: String): Int64 {
+    let v: Option<JsonValue> = m[key]
+    match (v) {
+        case Some(inner) =>
+            match (inner) {
+                case Number(f) => return Int64(f)
+                case _ => throw Exception("缺数值字段 " + key)
+            }
+        case None => throw Exception("缺字段 " + key)
+    }
+}
+
+private func boolField(m: HashMap<String, JsonValue>, key: String): Bool {
+    let v: Option<JsonValue> = m[key]
+    match (v) {
+        case Some(inner) =>
+            match (inner) {
+                case Boolean(b) => return b
+                case _ => throw Exception("缺布尔字段 " + key)
+            }
+        case None => throw Exception("缺字段 " + key)
+    }
 }

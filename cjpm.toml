@@ -13,14 +13,14 @@ repository = "https://atomgit.com/ystyle/chronomem"
 # 本地开发要改依赖源码时，临时换成 path（勿提交）：
 #   mcp = { path = "../mcp-cj" }
 [dependencies]
-mcp = "2.3.15"
+mcp = "2.3.18"
 tsdb = "0.5.1"
 llm_api = "1.4.1"
 cron = "1.0.1"
 cjxt = "1.2.1"
 tang = "1.0.5"
 jsonvalue = "1.1.1"
-"ystyle::jsonrpc" = "0.7.8"
+"ystyle::jsonrpc" = "0.7.9"
 
 
 [package.package-configuration."chronomem.cli"]

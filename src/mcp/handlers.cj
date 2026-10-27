@@ -774,15 +774,18 @@ public func handleQuery(svc: MemoryService, args: HashMap<String, JsonValue>): C
     // 页码分页（page ≥ 1 时生效，默认第 1 页；limit = 每页条数）：
     // 响应头给出总数/总页数，AI 可据此翻页取完，不遗漏（此前单次全量取 limit 条）。
     let (points, total) = tl.queryPointsPage(from, to, page, pageSize, tagFilters)
-    if (total == 0) { return CallToolResult.text("（无匹配条目）") }
-    let sb = StringBuilder()
-    // 分页头：共 N 条 · 第 p/totalPages 页 · 每页 L 条
-    let totalPages = (total + pageSize - 1) / pageSize
+    let totalPages = if (total == 0) { 0 } else { (total + pageSize - 1) / pageSize }
     let curPage = if (page > 0) { page } else { 1 }
+    // 结构化分页：文本头是给人看的，这里是给程序读的。
+    // 此前只有文本头「共 N 条 · 第 p/t 页」，agent 只数返回行数时会误判成
+    // 「就是这么多」（默认 limit=20，长会话远不止 20 条），于是漏读且不自知。
+    let meta = paginationMeta(total, curPage, pageSize, totalPages, points.size)
+    if (total == 0) { return CallToolResult.text("（无匹配条目）", meta) }
+    let sb = StringBuilder()
     if (points.size == 0) {
         sb.append("（无更多条目：共 " + total.toString() + " 条 · 第 " + curPage.toString() + "/"
             + totalPages.toString() + " 页 · 每页 " + pageSize.toString() + " 条）")
-        return CallToolResult.text(sb.toString())
+        return CallToolResult.text(sb.toString(), meta)
     }
     sb.append("共 " + total.toString() + " 条 · 第 " + curPage.toString() + "/" + totalPages.toString()
         + " 页 · 每页 " + pageSize.toString() + " 条")
@@ -791,7 +794,21 @@ public func handleQuery(svc: MemoryService, args: HashMap<String, JsonValue>): C
     }
     sb.append("\n")
     sb.append(formatPoints(points, svc.store.timeZoneOf()))
-    CallToolResult.text(sb.toString())
+    CallToolResult.text(sb.toString(), meta)
+}
+
+// 分页信息的结构化视图（mem/query 的 structuredContent）。
+// 字段名与文本头一一对应，便于调用方不解析字符串就能决定要不要继续翻页。
+func paginationMeta(total: Int64, page: Int64, pageSize: Int64, totalPages: Int64,
+    returned: Int64): JsonValue {
+    let m = HashMap<String, JsonValue>()
+    m["total"] = JsonValue.Number(Float64(total))
+    m["page"] = JsonValue.Number(Float64(page))
+    m["pageSize"] = JsonValue.Number(Float64(pageSize))
+    m["totalPages"] = JsonValue.Number(Float64(totalPages))
+    m["returned"] = JsonValue.Number(Float64(returned))
+    m["hasMore"] = JsonValue.Boolean(page < totalPages)
+    JsonValue.Map(m)
 }
 
 public func handleRecall(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
