@@ -213,3 +213,86 @@ func registry_updateMetaValidatesBeforeWrite() {
     }
     store.close()
 }
+
+// ---------- retention：解析 + 真正生效 ----------
+
+@Test
+func parseRetentionMs_units() {
+    @Expect(parseRetentionMs(None), Int64(0))
+    @Expect(parseRetentionMs(Some("")), Int64(0))
+    @Expect(parseRetentionMs(Some("30d")), Int64(30 * 24 * 60 * 60 * 1000))
+    @Expect(parseRetentionMs(Some("12h")), Int64(12 * 60 * 60 * 1000))
+    @Expect(parseRetentionMs(Some("90m")), Int64(90 * 60 * 1000))
+    @Expect(parseRetentionMs(Some("45s")), Int64(45 * 1000))
+    @Expect(parseRetentionMs(Some("4w")), Int64(4 * 7 * 24 * 60 * 60 * 1000))
+    // 首尾空白容忍
+    @Expect(parseRetentionMs(Some(" 30d ")), Int64(30 * 24 * 60 * 60 * 1000))
+}
+
+@Test
+func parseRetentionMs_invalid() {
+    // 无法解析一律 0（= 不设保留），绝不猜一个默认期限去删数据
+    @Expect(parseRetentionMs(Some("30")), Int64(0))       // 缺单位
+    @Expect(parseRetentionMs(Some("abc")), Int64(0))
+    @Expect(parseRetentionMs(Some("d")), Int64(0))        // 缺数字
+    @Expect(parseRetentionMs(Some("0d")), Int64(0))
+    @Expect(parseRetentionMs(Some("-5d")), Int64(0))
+    @Expect(parseRetentionMs(Some("30x")), Int64(0))      // 未知单位
+    @Expect(parseRetentionMs(Some("1d12h")), Int64(0))    // 复合式不支持
+}
+
+@Test
+func registry_createAppliesRetentionToBothSeries() {
+    let store = fileStore()
+    let reg = MemoryTypeRegistry(store)
+    let meta = TypeMeta("withret", "desc", None, dayWeekLevels(), Some("30d"), false, None, TEST_BASE)
+    reg.create(meta)
+    // 主 series 与 summary series 都应带上 TTL：漏掉 summary 会让总结数据永不回收。
+    let expected = 30 * 24 * 60 * 60 * 1000
+    @Expect(store.rawTsdb().retentionMsOf("withret"), expected)
+    @Expect(store.rawTsdb().retentionMsOf("withret.summary"), expected)
+    store.close()
+}
+
+@Test
+func registry_withoutRetentionLeavesNoTtl() {
+    let store = fileStore()
+    let reg = MemoryTypeRegistry(store)
+    reg.create(testMeta("noret", dayWeekLevels()))
+    @Expect(store.rawTsdb().retentionMsOf("noret"), Int64(0))
+    store.close()
+}
+
+@Test
+func registry_updateRetentionTakesEffect() {
+    let store = fileStore()
+    let reg = MemoryTypeRegistry(store)
+    reg.create(testMeta("upd", dayWeekLevels()))
+    @Expect(store.rawTsdb().retentionMsOf("upd"), Int64(0))
+    // 加上保留期
+    let withRet = TypeMeta("upd", "desc", None, dayWeekLevels(), Some("7d"), false, None, TEST_BASE)
+    reg.updateMeta(withRet)
+    let expected = 7 * 24 * 60 * 60 * 1000
+    @Expect(store.rawTsdb().retentionMsOf("upd"), expected)
+    @Expect(store.rawTsdb().retentionMsOf("upd.summary"), expected)
+    store.close()
+}
+
+@Test
+func registry_retentionSurvivesReload() {
+    let path = "/tmp/chronomem_registry_ret_" + getProcessId().toString()
+    let store = TimelineStore.open(path)
+    let reg = MemoryTypeRegistry(store)
+    let meta = TypeMeta("persist", "desc", None, dayWeekLevels(), Some("14d"), false, None, TEST_BASE)
+    reg.create(meta)
+    store.close()
+
+    // 重开：load() 应把 retention 重新应用到两个 series
+    let store2 = TimelineStore.open(path)
+    let reg2 = MemoryTypeRegistry(store2)
+    let expected = 14 * 24 * 60 * 60 * 1000
+    @Expect(reg2.has("persist"), true)
+    @Expect(store2.rawTsdb().retentionMsOf("persist"), expected)
+    @Expect(store2.rawTsdb().retentionMsOf("persist.summary"), expected)
+    store2.close()
+}

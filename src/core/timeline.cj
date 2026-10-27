@@ -542,6 +542,16 @@ public class TimelineStore {
         Timeline(this.tsdb, series, levels, this.timeZone)
     }
 
+    // 把类型的 retention 应用到它的两个 series（主 + summary）。
+    // retention 是 tsdb 的 series 级配置，而忆时塔的一个类型横跨两个 series，
+    // 故必须逐个设置——漏掉 summary series 会让总结数据永不回收。
+    // retentionMs <= 0 表示不设（清空策略：已有 TTL 无法撤销，只能停止后续写入带 TTL）。
+    public func applyRetention(series: String, retentionMs: Int64): Unit {
+        if (retentionMs > 0) {
+            this.tsdb.setRetention(series, Duration.millisecond * retentionMs)
+        }
+    }
+
     // 全部已注册 series 统一分层物化（MaterializeScheduler 每 60s 调用；幂等、空窗口零成本）。
     // backWindows > 0：同时补齐最近 backWindows 个已闭合窗口缺失的桶（重启恢复历史桶，§8.6）。
     public func materializeAll(now: Int64, backWindows!: Int64 = 0): Unit {
