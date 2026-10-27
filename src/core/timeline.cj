@@ -225,6 +225,61 @@ public class Timeline {
         (points, total)
     }
 
+    // 关键词 + tag 过滤的分页查询：返回 (本页点, 命中总数)。
+    //
+    // 为什么不能沿用 queryPointsPage：那个方法把 offset/limit 下推给 tsdb，
+    // 靠的正是「命中数 = 库里条数」这个前提。一旦加了内容条件，命中数只有扫完
+    // 才知道 —— 下推 limit 会得到"前 N 条里命中的那几条"，总数也变成"容器里多少条"，
+    // 于是分页与 total 同时失真。
+    //
+    // 所以这里**内部**用游标逐批扫、逐批丢弃（配合 forEachWindowPoint 的
+    // keyset 翻页，内存峰值是 O(单批) 而不是 O(窗口)），**对外**仍返回
+    // 「本页条目 + 命中总数」——与 queryPointsPage 的调用契约保持一致，
+    // 上层不必为两种分页写两套逻辑。
+    //
+    // 代价是每次都要扫完整个候选范围（拿不到短路）。这是有意的取舍：关键词搜索
+    // 本来就没有索引，与其假装能提前停，不如把 O(窗口) 的扫描做成"不驻留内存"。
+    public func queryPointsPageFiltered(from: Int64, to: Int64, page: Int64, pageSize: Int64,
+        tagFilters: ArrayList<TagFilter>, keywords: ArrayList<String>): (ArrayList<Point>, Int64) {
+        let size = if (pageSize > 0) { pageSize } else { 20 }
+        let p = if (page > 0) { page } else { 1 }
+        let skip = (p - 1) * size
+        let pageOut = ArrayList<Point>()
+        var matched = Int64(0)
+        let fromArg = if (from > 0) { from } else { 0 }
+        let toArg = if (to > 0) { to } else { Int64.Max }
+        let hasTag = tagFilters.size > 0
+        if (hasTag) {
+            // tag 过滤走索引，无法与 keyset 游标同时下推（游标按点 key 翻，索引按 tag 翻）。
+            // 这条路径先取得 tag 命中的点，再在内存里做内容过滤；条数由索引收窄，
+            // 通常远小于全量，故可接受。真正的大范围扫描走下面的无 tag 路径。
+            var q = this.tsdb.query(this.series)
+            if (from > 0 || to > 0) {
+                q = q.range(from, toArg)
+            }
+            q = applyTagFilters(q, tagFilters).reverse()
+            for (pt in q.find()) {
+                if (!matchesKeywords(pt.payload, keywords)) { continue }
+                matched += 1
+                if (matched > skip && pageOut.size < size) { pageOut.add(pt) }
+            }
+        } else {
+            // 无 tag：keyset 游标分批扫，只保留本页需要的，其余批次即弃。
+            let acc = KeywordsPageAccumulator(skip, size)
+            this.forEachWindowPoint(fromArg, toArg, 500, { batch =>
+                for (pt in batch) {
+                    if (!matchesKeywords(pt.payload, keywords)) { continue }
+                    this.absorbInto(pt, acc)
+                }
+            })
+            matched = acc.matched
+            return (acc.rows, matched)
+        }
+        (pageOut, matched)
+    }
+
+    func absorbInto(pt: Point, acc: KeywordsPageAccumulator): Unit { acc.absorb(pt) }
+
     // 窗口内全部 ts（ts-only 扫描，不读 payload）——物化/补齐引用链用
     public func windowTimestamps(from: Int64, to: Int64): ArrayList<Int64> {
         this.tsdb.query(this.series).range(from, to).timestamps()
@@ -625,4 +680,32 @@ public func addCronEntry(c: Cron, spec: String, cmd: () -> Unit): Unit {
     } else {
         c.addFunc(spec, cmd)
     }
+}
+
+/**
+ * 关键词分页的累加器。
+ *
+ * 存在的理由：lambda 不能捕获可变局部变量（仓颉限制），而分批扫描的回调需要
+ * 跨批累计"已命中多少条"和"本页已收哪些"。把状态放进对象、回调里改对象字段，
+ * 是这仓里 summarize 累加器用过的同一写法。
+ */
+public class KeywordsPageAccumulator {
+    let skip: Int64
+    let size: Int64
+    public var matched: Int64 = 0
+    public let rows = ArrayList<Point>()
+
+    public init(skip: Int64, size: Int64) {
+        this.skip = skip
+        this.size = size
+    }
+
+    public func absorb(p: Point): Unit {
+        this.matched += 1
+        if (this.matched > this.skip && this.rows.size < this.size) {
+            this.rows.add(p)
+        }
+    }
+
+    public func done(): Bool { this.rows.size >= this.size }
 }

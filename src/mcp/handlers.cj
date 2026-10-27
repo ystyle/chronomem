@@ -768,11 +768,26 @@ public func handleQuery(svc: MemoryService, args: HashMap<String, JsonValue>): C
         return toolError(tagParsed.error)
     }
     let tagFilters = tagParsed.filters
+    // 关键词：空格分隔多个词（AND），不区分大小写；不填 = 不过滤（按时间/tag 列条目）。
+    // 与 tag 同样的安全约束：拆词结果里的空段报错，否则「搜两个词」会静默变成全量。
+    let kwParsed = parseKeywords(argStr(args, "keyword"))
+    if (!kwParsed.isOk()) {
+        return toolError(kwParsed.error)
+    }
+    let keywords = kwParsed.keywords
     let tl = svc.registry.timelineOf(name).getOrThrow()
     let pageSize = if (limit > 0) { limit } else { 20 }
     // 页码分页（page ≥ 1 时生效，默认第 1 页；limit = 每页条数）：
     // 响应头给出总数/总页数，AI 可据此翻页取完，不遗漏（此前单次全量取 limit 条）。
-    let (points, total) = tl.queryPointsPage(from, to, page, pageSize, tagFilters)
+    //
+    // 有关键词时走 filtered 版本：内容条件没有索引，命中数只有扫完才知道，
+    // 不能把 offset/limit 下推给 tsdb（那会让 total 变成"容器里多少条"、
+    // 本页变成"前 N 条里命中的几条"）。无关键词时两条路径等价，仍走原方法。
+    let (points, total) = if (keywords.size == 0) {
+        tl.queryPointsPage(from, to, page, pageSize, tagFilters)
+    } else {
+        tl.queryPointsPageFiltered(from, to, page, pageSize, tagFilters, keywords)
+    }
     let totalPages = if (total == 0) { 0 } else { (total + pageSize - 1) / pageSize }
     let curPage = if (page > 0) { page } else { 1 }
     // 结构化分页：文本头是给人看的，这里是给程序读的。
@@ -788,6 +803,17 @@ public func handleQuery(svc: MemoryService, args: HashMap<String, JsonValue>): C
     }
     sb.append("共 " + total.toString() + " 条 · 第 " + curPage.toString() + "/" + totalPages.toString()
         + " 页 · 每页 " + pageSize.toString() + " 条")
+    if (keywords.size > 0) {
+        // 命中口径必须写出来：同一个 total 在"有关键词"和"无关键词"下含义不同
+        // （前者是内容命中数，后者是该范围内全部条数），不标会让调用方误读。
+        sb.append(" · 关键词命中：")
+        var firstKw = true
+        for (k in keywords) {
+            if (!firstKw) { sb.append(" + ") }
+            sb.append(k)
+            firstKw = false
+        }
+    }
     if (curPage < totalPages) {
         sb.append("（下一页请带 page=" + (curPage + 1).toString() + "）")
     }
@@ -1052,7 +1078,8 @@ public func registerTools(server: McpServer, svc: MemoryService): Unit {
     s5.addField("limit", "integer", "每页条数（默认 20；响应头给总数/总页数，翻页用 page）")
     s5.addField("page", "integer", "页码（1 起，默认 1；首页响应会提示下一页的 page 值）")
     s5.addField("tag", "string", "标签过滤。" + TAG_SYNTAX_HINT)
-    let t5 = Tool("mem/query", "结构回想：最近/时间范围/tag 过滤原始条目（零 LLM）；分页返回（响应头含 总数·第x/y页，按提示翻页取完，勿一次拉超大 limit）", s5)
+    s5.addField("keyword", "string", "内容关键词过滤。" + KEYWORD_SYNTAX_HINT)
+    let t5 = Tool("mem/query", "结构回想：最近/时间范围/tag/关键词 过滤原始条目（零 LLM）；分页返回（响应头含 总数·第x/y页，按提示翻页取完，勿一次拉超大 limit）。不填 keyword 即按时间/tag 列条目；填了则按内容命中过滤（无索引，需全范围扫描，大类型上较慢）", s5)
     server.addTool(t5, { params => handleQuery(svc, params.arguments) })
 
     // mem/recall

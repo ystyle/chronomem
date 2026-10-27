@@ -756,3 +756,127 @@ private func boolField(m: HashMap<String, JsonValue>, key: String): Bool {
         case None => throw Exception("缺字段 " + key)
     }
 }
+
+// ---------- mem/query 的 keyword ----------
+
+@Test
+func handlers_queryKeywordFiltersContent() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"chat\"}"))
+    handleAppend(s, argsFromJson("{\"type\":\"chat\",\"payload\":{\"note\":\"图片上传时报错\"},\"ts\":1704110400000}"))
+    handleAppend(s, argsFromJson("{\"type\":\"chat\",\"payload\":{\"note\":\"图片上传成功\"},\"ts\":1704110460000}"))
+    handleAppend(s, argsFromJson("{\"type\":\"chat\",\"payload\":{\"note\":\"无关内容\"},\"ts\":1704110520000}"))
+
+    // 单个关键词
+    let r1 = handleQuery(s, argsFromJson("{\"type\":\"chat\",\"keyword\":\"报错\"}"))
+    let t1 = resultText(r1)
+    @Expect(t1.indexOf("共 1 条") != None, true)
+    @Expect(t1.indexOf("图片上传时报错") != None, true)
+    @Expect(t1.indexOf("无关内容") == None, true)
+
+    // 多个关键词 = AND
+    let r2 = handleQuery(s, argsFromJson("{\"type\":\"chat\",\"keyword\":\"图片 报错\"}"))
+    @Expect(resultText(r2).indexOf("共 1 条") != None, true)
+    let r3 = handleQuery(s, argsFromJson("{\"type\":\"chat\",\"keyword\":\"图片 不存在\"}"))
+    @Expect(resultText(r3).indexOf("共 0 条") == None, true)
+    @Expect(resultText(r3).indexOf("无匹配条目") != None, true)
+    s.close()
+}
+
+// 不填 keyword 必须与旧行为完全一致（默认路径不受影响）
+@Test
+func handlers_queryWithoutKeywordIsUnchanged() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"chat\"}"))
+    for (i in 0..5) {
+        let ts = 1704110400000 + Int64(i) * 60000
+        handleAppend(s, argsFromJson("{\"type\":\"chat\",\"payload\":{\"note\":\"n" + i.toString() + "\"},\"ts\":" + ts.toString() + "}"))
+    }
+    let r = handleQuery(s, argsFromJson("{\"type\":\"chat\",\"limit\":2}"))
+    @Expect(resultText(r).indexOf("共 5 条") != None, true)
+    let meta = structuredOf(r)
+    match (meta.get("total")) {
+        case Some(Number(n)) => @Expect(Int64(n), Int64(5))
+        case _ => @Expect("total 缺失", "有值")
+    }
+    s.close()
+}
+
+// 关键词 + 分页：total 必须是**命中数**，不是容器总条数；
+// 且分页要在过滤之后做（先把命中的全部找出来，再切页），否则每页内容会错位。
+@Test
+func handlers_queryKeywordPagingCountsHits() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"chat\"}"))
+    // 10 条，其中 5 条含 hit（交替分布，确保分页切在命中集合上而不是原始集合上）
+    for (i in 0..10) {
+        let ts = 1704110400000 + Int64(i) * 60000
+        let note = if (i % 2 == 0) { "hit " + i.toString() } else { "miss " + i.toString() }
+        handleAppend(s, argsFromJson("{\"type\":\"chat\",\"payload\":{\"note\":\"" + note + "\"},\"ts\":" + ts.toString() + "}"))
+    }
+    // 每页 2 条，共 5 条命中 → 3 页
+    let p1 = handleQuery(s, argsFromJson("{\"type\":\"chat\",\"keyword\":\"hit\",\"limit\":2,\"page\":1}"))
+    let t1 = resultText(p1)
+    @Expect(t1.indexOf("共 5 条") != None, true)
+    @Expect(t1.indexOf("第 1/3 页") != None, true)
+    // 第 1 页是最新 2 条命中：i=8, i=6
+    @Expect(t1.indexOf("hit 8") != None, true)
+    @Expect(t1.indexOf("hit 6") != None, true)
+    @Expect(t1.indexOf("miss") == None, true)
+
+    // 第 3 页是最旧的 1 条命中：i=0（命中集合 8,6,4,2,0，每页 2 条 → 末页只剩 1 条）
+    let p3 = handleQuery(s, argsFromJson("{\"type\":\"chat\",\"keyword\":\"hit\",\"limit\":2,\"page\":3}"))
+    let t3 = resultText(p3)
+    @Expect(t3.indexOf("第 3/3 页") != None, true)
+    @Expect(t3.indexOf("hit 0") != None, true)
+    @Expect(t3.indexOf("hit 2") == None, true)
+    // 第 2 页才是 4,2
+    let p2 = handleQuery(s, argsFromJson("{\"type\":\"chat\",\"keyword\":\"hit\",\"limit\":2,\"page\":2}"))
+    let t2 = resultText(p2)
+    @Expect(t2.indexOf("hit 4") != None, true)
+    @Expect(t2.indexOf("hit 2") != None, true)
+
+    // 结构化 total = 命中数
+    let meta = structuredOf(p1)
+    match (meta.get("total")) {
+        case Some(Number(n)) => @Expect(Int64(n), Int64(5))
+        case _ => @Expect("total 缺失", "有值")
+    }
+    match (meta.get("totalPages")) {
+        case Some(Number(n)) => @Expect(Int64(n), Int64(3))
+        case _ => @Expect("totalPages 缺失", "有值")
+    }
+    s.close()
+}
+
+// keyword 与 tag 可同时用：先按 tag 走索引收窄，再按内容过滤
+@Test
+func handlers_queryKeywordCombinesWithTag() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"chat\"}"))
+    handleAppend(s, argsFromJson("{\"type\":\"chat\",\"payload\":{\"note\":\"hit a\"},\"tags\":{\"proj\":\"im\"},\"ts\":1704110400000}"))
+    handleAppend(s, argsFromJson("{\"type\":\"chat\",\"payload\":{\"note\":\"hit b\"},\"tags\":{\"proj\":\"other\"},\"ts\":1704110460000}"))
+    handleAppend(s, argsFromJson("{\"type\":\"chat\",\"payload\":{\"note\":\"miss\"},\"tags\":{\"proj\":\"im\"},\"ts\":1704110520000}"))
+
+    let r = handleQuery(s, argsFromJson("{\"type\":\"chat\",\"tag\":\"proj=im\",\"keyword\":\"hit\"}"))
+    let t = resultText(r)
+    @Expect(t.indexOf("共 1 条") != None, true)
+    @Expect(t.indexOf("hit a") != None, true)
+    @Expect(t.indexOf("hit b") == None, true)   // tag 不符
+    @Expect(t.indexOf("miss") == None, true)     // 内容不符
+    s.close()
+}
+
+// 关键词大小写不敏感，且响应头标出命中口径
+@Test
+func handlers_queryKeywordIsCaseInsensitiveAndLabelled() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"chat\"}"))
+    handleAppend(s, argsFromJson("{\"type\":\"chat\",\"payload\":{\"note\":\"用 NFTables 配规则\"},\"ts\":1704110400000}"))
+    let r = handleQuery(s, argsFromJson("{\"type\":\"chat\",\"keyword\":\"nftables\"}"))
+    let t = resultText(r)
+    @Expect(t.indexOf("共 1 条") != None, true)
+    // 命中口径必须写出来，否则 same total 在有无关键词下含义不同
+    @Expect(t.indexOf("关键词命中：nftables") != None, true)
+    s.close()
+}
