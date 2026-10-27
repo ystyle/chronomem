@@ -56,6 +56,46 @@ import {
 export const name = 'dsh-mem-bridge'
 
 /**
+ * The context key under which a mounted plugin publishes its one-shot type
+ * bootstrap (`ctx[TYPES_READY]` is a promise that settles when every type is
+ * ensured).
+ *
+ * The promise must not be *returned* from `apply()`: Cordis treats a promise
+ * returned by a plugin body as part of loading, so `fiber.await()` — and the
+ * host boot that waits on it — would then wait for the tower, which is the one
+ * thing the fire-and-forget exists to prevent. Publishing on the context
+ * instead keeps the mount non-blocking while making the work observable:
+ * whoever owns the mount's lifetime — a test that swaps `globalThis.fetch`, an
+ * unload path that wants a quiet shutdown, a supervisor that reports readiness
+ * — can wait for it instead of guessing with a timer.
+ *
+ * A `Symbol.for` key is required, not just a nicety: every other property name
+ * goes through the context proxy's reflection layer, which rejects assignment
+ * to names it does not know ("cannot set property … without provide").
+ */
+const TYPES_READY = Symbol.for('dsh-mem-bridge.types-ready')
+
+/**
+ * The type bootstrap a mount started on `ctx`, or `null` when the context was
+ * never mounted (or was mounted with the plugin disabled).
+ *
+ * Resolves once every type is ensured or has failed and been logged — it never
+ * rejects, so a caller may await it unconditionally.
+ *
+ * @returns {Promise<void> | null}
+ */
+export function typesReady(ctx) {
+  if (ctx === null || typeof ctx !== 'object') return null
+  let handle
+  try {
+    handle = ctx[TYPES_READY]
+  } catch (_) {
+    return null
+  }
+  return typeof handle?.then === 'function' ? handle : null
+}
+
+/**
  * Config schema (design doc D16② / §282).
  *
  * Only the four fields a user actually needs to reach are `.volatile()`: the
@@ -184,6 +224,13 @@ export function apply(ctx, config) {
 
   ctx.effect(() => () => {
     stopping = true
+    // The handle described a mount that no longer exists; a later reader (a
+    // test, an unload path) must not wait on a bootstrap of the dead instance.
+    try {
+      delete ctx[TYPES_READY]
+    } catch (_) {
+      // A context that refuses the delete keeps a settled promise: harmless.
+    }
   })
 
   // ---------------------------------------------------------------- session state
@@ -808,7 +855,13 @@ export function apply(ctx, config) {
   })
 
   // Fire and forget: a slow or unreachable tower must not delay the mount.
-  void ensureTypes()
+  // The promise is published on the context instead of returned — a returned
+  // promise becomes part of the mount (Cordis waits on it), which is exactly
+  // the delay this line exists to avoid. See `TYPES_READY`.
+  const typesReadyPromise = ensureTypes().catch((error) => {
+    warn(`type bootstrap failed: ${describeError(error)}`)
+  })
+  ctx[TYPES_READY] = typesReadyPromise
 
   log(`enabled → ${mcpUrl(cfg.url)} (type=${cfg.type}, chat=${cfg.chatType})`)
 }

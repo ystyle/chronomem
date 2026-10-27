@@ -8,11 +8,67 @@
  * append, that the noise is filtered, and that a disabled plugin does nothing.
  */
 
-import { test } from 'node:test'
+import { afterEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import plugin, { apply } from '../lib/index.js'
+import * as bridge from '../lib/index.js'
 import { mcpHeaders, resolveConfig } from '../lib/pure.js'
+
+const plugin = bridge.default
+const applyPlugin = bridge.apply
+
+/**
+ * The type bootstrap `ctx`'s mount started, or `null` when it never began.
+ *
+ * Read through the namespace with `?.` on purpose: without the export the file
+ * still loads and runs, so a build lacking the handle fails these tests on
+ * their behaviour (a stray request reaching the next tower) rather than on a
+ * missing-binding import error.
+ */
+function typesReadyOf(ctx) {
+  return bridge.typesReady?.(ctx) ?? null
+}
+
+/**
+ * Type bootstraps the mounts in this file left in flight, so no test inherits
+ * one.
+ *
+ * `apply()` publishes its type self-heal instead of returning it (a returned
+ * promise becomes part of the mount — see `TYPES_READY` in `lib/index.js`),
+ * so that work outlives the call. A test that finishes while the bootstrap is
+ * still running leaves a request to be dispatched later, into whatever `fetch`
+ * is installed *then* — and the next test's tower would record it as its own.
+ * Draining here, with a tower that fails at once, answers every such leftover
+ * while no test is asserting, so it can reach neither the network nor a later
+ * stub. Returns what the leftover requests were, for the regression test.
+ */
+async function drainBootstraps() {
+  const pending = bootstraps.splice(0).filter((promise) => promise !== null)
+  if (pending.length === 0) return []
+  const strayed = []
+  const original = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    strayed.push({ url: String(url), body: JSON.parse(init.body) })
+    throw new TypeError('fetch failed')
+  }
+  try {
+    await Promise.all(pending)
+  } finally {
+    globalThis.fetch = original
+  }
+  return strayed
+}
+
+const bootstraps = []
+
+/** Mount the plugin, keeping the bootstrap it leaves behind. */
+function apply(ctx, config) {
+  const returned = applyPlugin(ctx, config)
+  bootstraps.push(typesReadyOf(ctx))
+  return returned
+}
+
+afterEach(drainBootstraps)
 
 /** A fake Cordis context capturing listeners and effects. */
 function fakeCtx(services = {}) {
@@ -923,10 +979,12 @@ test('the workspace match uses the session cwd, not the agent id', async () => {
 /** A fetch stub that answers each tools/call by name, recording every request. */
 function withScriptedTower(script) {
   const calls = []
+  const urls = []
   const original = globalThis.fetch
   globalThis.fetch = async (url, init) => {
     const body = JSON.parse(init.body)
     calls.push(body)
+    urls.push(String(url))
     const name = body.params.name
     const answer = script[name]
     if (answer === undefined) {
@@ -941,6 +999,7 @@ function withScriptedTower(script) {
   }
   return {
     calls,
+    urls,
     restore: () => {
       globalThis.fetch = original
     },
@@ -1105,4 +1164,114 @@ test('the mount log names both types', async () => {
     console.log = original
   }
   assert.ok(messages.some((line) => line.includes('type=a/one') && line.includes('chat=a/two')))
+})
+
+// ---------------------------------------------------------------------------
+// The bootstrap handle
+//
+// The type self-heal runs off the mount, so it outlives `apply()`. Cordis
+// treats a promise *returned* by a plugin body as part of loading (`fiber.await()`
+// waits on it, and the host boot waits on the fiber), so handing the bootstrap
+// back would make a slow tower delay the mount — the one thing the
+// fire-and-forget exists to prevent. These tests pin both halves: the mount
+// stays non-blocking, and the work it leaves behind stays observable.
+// ---------------------------------------------------------------------------
+
+test('apply does not hand the type bootstrap back to the host', async () => {
+  const tower = withScriptedTower({ 'mem/type_create': okBody() })
+  const ctx = fakeCtx()
+  let returned
+  try {
+    returned = applyPlugin(ctx, { url: 'http://tower.test' })
+    // A returned promise is awaited by Cordis as part of loading the plugin.
+    assert.equal(returned, undefined, 'a returned promise would make every mount wait for the tower')
+    const handle = typesReadyOf(ctx)
+    assert.equal(typeof handle?.then, 'function', 'the fire-and-forget work must still be awaitable from the context')
+    // Awaiting the handle means the work is done — that is what makes it a
+    // usable boundary instead of a sleep.
+    await handle
+  } finally {
+    tower.restore()
+  }
+  const created = tower.calls
+    .filter((call) => call.params.name === 'mem/type_create')
+    .map((call) => call.params.arguments.name)
+  assert.deepEqual(created, ['dsh/activity', 'dsh/chat'], 'awaiting the handle must mean the work is done')
+})
+
+test('a type bootstrap still in flight cannot land in the next tower', async () => {
+  // The leak this pins: 忆时塔 type self-healing is issued from `ensureTypes()`
+  // one type after another. A mount whose first request is still on the wire
+  // (a real tower host resolves DNS for tens to hundreds of ms, then fails)
+  // dispatches its *second* request after `apply()` returned — into whatever
+  // `fetch` is installed by then. At a test boundary that is the *next* test's
+  // scripted tower, which records it as one of its own: the failure mode is a
+  // third `mem/type_create` appearing in a test that only mounted once.
+  //
+  // The two mounts use different hosts so a leaked request is identifiable by
+  // where it went, not only by how many arrived.
+  const slowDelayMs = 50
+  const slow = []
+  const original = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    slow.push({ url: String(url), body: JSON.parse(init.body) })
+    await new Promise((resolve) => setTimeout(resolve, slowDelayMs))
+    throw new TypeError('fetch failed')
+  }
+  const first = fakeCtx()
+  apply(first, { url: 'http://first.test' })
+  await Promise.resolve()
+  assert.equal(slow.length, 1, 'the first request is on the wire and the second one is still owed')
+  const handle = typesReadyOf(first)
+
+  // ── the boundary ────────────────────────────────────────────────────────
+  // With a handle, the leftover is waited out *here*, against a tower that
+  // fails at once: the request still owed is dispatched while the next test's
+  // stub is not installed, so it cannot be mistaken for that test's traffic.
+  const strayed = await drainBootstraps()
+
+  // ── the next test ───────────────────────────────────────────────────────
+  const tower = withScriptedTower({ 'mem/type_create': okBody() })
+  try {
+    const second = fakeCtx()
+    apply(second, { url: 'http://second.test', type: 'b/one', chatType: 'b/two' })
+    const secondReady = typesReadyOf(second)
+    if (secondReady !== null) {
+      await secondReady
+    } else {
+      // Without a handle the only remaining option is to sleep — which is
+      // exactly what makes this failure intermittent in the first place.
+      await settled()
+      await settled()
+      await settled()
+    }
+  } finally {
+    tower.restore()
+  }
+
+  const created = tower.calls
+    .filter((call) => call.params.name === 'mem/type_create')
+    .map((call) => call.params.arguments.name)
+  assert.deepEqual(
+    created,
+    ['b/one', 'b/two'],
+    "the second mount's tower must only see the second mount's own requests",
+  )
+  assert.deepEqual(
+    [...new Set(tower.urls)],
+    ['http://second.test/mcp'],
+    'no request may reach a stub belonging to another mount',
+  )
+  if (handle !== null) {
+    assert.deepEqual(
+      strayed.map((call) => call.body.params.arguments.name),
+      ['dsh/chat'],
+      'the request the first mount still owed must be answered at the boundary, not by the next tower',
+    )
+    assert.deepEqual(
+      [...new Set(strayed.map((call) => call.url))],
+      ['http://first.test/mcp'],
+      'the leftover must stay on its own host',
+    )
+  }
 })
