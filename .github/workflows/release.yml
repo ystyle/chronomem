@@ -37,12 +37,16 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME}"
           cjpm build -j 16
-          mkdir -p dist
-          cp target/release/bin/chronomem.cli dist/chronomem
+          # 二进制先放进 staging 再打包：dist/ 是**上传目录**，
+          # 若把裸二进制也放进去，`files: dist/*` 会连它一起上传，
+          # Release 里就会多出一个 35MB 的裸文件（v0.1.0/v0.1.1 都出现过），
+          # 使用者不知道该下哪个。
+          mkdir -p dist staging
+          cp target/release/bin/chronomem.cli staging/chronomem
           # 只发一个 tar：Web 控制台的样式在编译期由 @EmbedString 嵌入二进制，
-          # 运行时不读磁盘上的 public/，所以不再需要单独的 public.tar.gz
+          # 运行时不读磁盘上的 public/，所以不需要单独的 public.tar.gz
           # （曾经需要它，且"解错位置就白屏"是实际踩过的坑）。
-          tar -czf "dist/chronomem_${VERSION}_linux_amd64.tar.gz" -C dist chronomem
+          tar -czf "dist/chronomem_${VERSION}_linux_amd64.tar.gz" -C staging chronomem
           ls -lh dist
 
       - name: 创建/更新 Release 并上传产物
