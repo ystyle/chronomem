@@ -34,3 +34,13 @@ path-option = ["${CANGJIE_STDX_PATH}"]
 
 [target.x86_64-unknown-linux-gnu]
 link-option = "-luring"
+
+# Windows 目标也需要声明 stdx 的位置：源码直接 import stdx.net.http / stdx.log，
+# 而 cjpm 只认**本目标块**里的 bin-dependencies。缺这块时在 Windows 上会报
+# "root package 'chronomem' imports package 'stdx.*' ... but it is not added as a
+# dependency in cjpm.toml"（Linux 上因为本地 cjvs stdx-env 注入过环境，看不出问题）。
+#
+# 不带 -luring：io_uring 是 Linux 专有，badger-cj 的 FFI 已用 @When[os == "Linux"]
+# 守卫，Windows 上自动走同步写路径。
+[target.x86_64-w64-mingw32.bin-dependencies]
+path-option = ["${CANGJIE_STDX_PATH}"]
