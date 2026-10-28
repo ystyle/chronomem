@@ -56,6 +56,58 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
 
+  binary-windows:
+    name: Windows amd64 二进制
+    # 在 Windows runner 上**原生**编译，而不是交叉编译。
+    #
+    # 为什么不用 mingw 交叉编译（cjvs 那种做法）：本项目依赖里的宏包（cjxt / embed）
+    # 永远用宿主工具链编译，而它们的链接行带着 ${CANGJIE_STDX_PATH}。交叉编译时这个
+    # 变量只有「Linux 或 Windows」一个取值：指 Windows 则宏包用 ELF 链接器去链
+    # Windows 的 libboundscheck.a（undefined reference）；指 Linux 则最终目标链接
+    # 阶段报 `unknown file type: xxx.o`（拿到的是 ELF 目标文件）。两头都不通。
+    # 在 Windows 上宿主即目标，这个矛盾根本不存在。
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Zxilly/setup-cangjie@v3
+        with:
+          channel: sts
+          version: auto          # 跟随 cjpm.toml 的 cjc-version
+          components: stdx
+
+      # 不需要 liburing：badger-cj 的 io_uring FFI 用 @When[os == "Linux"] 守卫，
+      # Windows 上自动走同步写路径；cjpm.toml 的 -luring 也只声明在 Linux target 块里。
+      - name: Build
+        # action 只**注入** CANGJIE_STDX_PATH_STATIC / _DYNAMIC，不直接设 CANGJIE_STDX_PATH
+        # （Linux job 里也是自己显式设的）。漏了这一步，cjxt 的
+        # link-option = "-L${CANGJIE_STDX_PATH} -lstdx.crypto.digest" 会展开成空串，
+        # 链接阶段找不到 digest 库。
+        env:
+          CANGJIE_STDX_PATH: ${{ env.CANGJIE_STDX_PATH_STATIC }}/stdx
+        run: |
+          cjpm build -j 4
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          New-Item -ItemType Directory -Force -Path dist, staging | Out-Null
+          # 不写死产物名：可执行文件名由包名决定（chronomem.cli），
+          # 但 CJPM 在不同版本/平台下可能带或不带 .exe 后缀——按目录里找，别猜。
+          $exe = Get-ChildItem target/release/bin/ -Filter *.exe |
+                   Where-Object { $_.Name -notmatch '\.(cjo|dll|pdb)$' } |
+                   Select-Object -First 1
+          if (-not $exe) { Write-Error "no .exe produced"; exit 1 }
+          Write-Host "binary: $($exe.Name) ($([math]::Round($exe.Length/1MB,1)) MB)"
+          Copy-Item $exe.FullName staging/chronomem.exe
+          Compress-Archive -Path staging/chronomem.exe -DestinationPath "dist/chronomem_${env:GITHUB_REF_NAME}_windows_amd64.zip" -Force
+          Get-ChildItem dist
+
+      - name: 上传到 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
+
   container:
     name: 容器镜像（ghcr.io）
     runs-on: ubuntu-24.04
