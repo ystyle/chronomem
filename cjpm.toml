@@ -17,13 +17,12 @@ mcp = "2.3.18"
 tsdb = "0.5.2"
 llm_api = "1.4.1"
 cron = "1.0.1"
-cjxt = "1.2.1"
-tang = "1.0.5"
-cjpminfo = "1.2.0"
-embed = "1.0.7"
+cjxt = "1.2.2"
+tang = "1.0.6"
+cjpminfo = "1.2.1"
+embed = "1.0.8"
 jsonvalue = "1.1.1"
 "ystyle::jsonrpc" = "0.7.9"
-
 
 [package.package-configuration."chronomem.cli"]
 output-type = "executable"
@@ -43,4 +42,10 @@ link-option = "-luring"
 # 不带 -luring：io_uring 是 Linux 专有，badger-cj 的 FFI 已用 @When[os == "Linux"]
 # 守卫，Windows 上自动走同步写路径。
 [target.x86_64-w64-mingw32.bin-dependencies]
+path-option = ["${CANGJIE_STDX_PATH}"]
+
+[target.x86_64-apple-darwin.bin-dependencies]
+path-option = ["${CANGJIE_STDX_PATH}"]
+
+[target.aarch64-apple-darwin.bin-dependencies]
 path-option = ["${CANGJIE_STDX_PATH}"]
