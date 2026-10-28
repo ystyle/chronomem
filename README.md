@@ -80,18 +80,28 @@ docker run -d --name chronomem -p 8900:8900 \
 
 ### 二进制
 
-装到 `~/.local/bin`：
+Linux / macOS 装到 `~/.local/bin`：
 
 ```bash
-VERSION=v0.1.0
+VERSION=v0.1.2
 curl -fsSL "https://github.com/ystyle/chronomem/releases/download/${VERSION}/chronomem_${VERSION}_linux_amd64.tar.gz" \
   | tar -xz -C /tmp && install -m 755 /tmp/chronomem ~/.local/bin/chronomem
 
 chronomem              # 起服务（Web 控制台 + MCP 同端口；不从参数读配置，全用环境变量）
 ```
 
+Windows 下载 zip 解压即得 `chronomem.exe`：
+
+```powershell
+$VERSION = "v0.1.2"
+Invoke-WebRequest "https://github.com/ystyle/chronomem/releases/download/$VERSION/chronomem_${VERSION}_windows_amd64.zip" -OutFile chronomem.zip
+Expand-Archive chronomem.zip -DestinationPath .
+.\chronomem.exe
+```
+
 > 单文件即可运行：**Web 控制台的样式在编译期已嵌入二进制**，不需要额外的 `public/` 目录。
-> 需 `liburing`（`apt install liburing2` / `pacman -S liburing`），其余依赖已静态链接。
+> Linux 需 `liburing`（`apt install liburing2` / `pacman -S liburing`），其余依赖已静态链接；
+> macOS / Windows 无此依赖（io_uring 是 Linux 专有，非 Linux 平台自动走同步写路径）。
 
 ### 源码
 
