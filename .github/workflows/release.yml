@@ -119,11 +119,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           New-Item -ItemType Directory -Force -Path dist, staging | Out-Null
           # 不写死产物名：可执行文件名由包名决定（chronomem.cli），
-          # 但 CJPM 在不同版本/平台下可能带或不带 .exe 后缀——按目录里找，别猜。
-          $exe = Get-ChildItem target/release/bin/ -Filter *.exe |
-                   Where-Object { $_.Name -notmatch '\.(cjo|dll|pdb)$' } |
-                   Select-Object -First 1
-          if (-not $exe) { Write-Error "no .exe produced"; exit 1 }
+          # 但 CJPM 在不同版本/平台下可能带或不带 .exe 后缀——两种都试。
+          #
+          # 必须**按名字精确取**，不能用 Get-ChildItem -Filter *.exe 取第一个：
+          # bin/ 里还有依赖带来的示例程序（badgercj.examples.*.exe，30+ MB），
+          # 它们按字母序排在 chronomem.cli.exe 前面，取第一个就会把示例打进
+          # 发行包，用户下到的不是忆时塔。构建仍然全绿，只是产物错了。
+          $exe = @(
+            Get-ChildItem target/release/bin/ -Filter "chronomem.cli.exe" -ErrorAction SilentlyContinue
+            Get-ChildItem target/release/bin/ -Filter "chronomem.cli" -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -notmatch '\.(cjo|dll|pdb)$' }
+          ) | Select-Object -First 1
+          if (-not $exe) { Write-Error "chronomem.cli(.exe) not found in target/release/bin"; exit 1 }
           Write-Host "binary: $($exe.Name) ($([math]::Round($exe.Length/1MB,1)) MB)"
           Copy-Item $exe.FullName staging/chronomem.exe
           Compress-Archive -Path staging/chronomem.exe -DestinationPath "dist/chronomem_${{ needs.version.outputs.tag }}_windows_amd64.zip" -Force
