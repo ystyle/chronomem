@@ -11,10 +11,33 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # 手动重跑：用于验证构建改动（比如新增平台），不必为此发一个新版本号。
+  # 不传参时跑当前默认分支；要重跑某个已发版的产物，用 gh workflow run 指定 ref。
+  workflow_dispatch:
 
 jobs:
+  # 统一推导版本标识：tag 触发时是 vX.Y.Z；手动重跑时 GITHUB_REF_NAME 会是分支名，
+  # 那种情况明确标成 dev-<branch>，产物名一眼能看出"不是正式发版"，不会混进 Release。
+  version:
+    name: 推导版本标识
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      is_release: ${{ steps.v.outputs.is_release }}
+    steps:
+      - id: v
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=dev-${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
   binary:
     name: Linux amd64 二进制
+    needs: version
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -35,7 +58,7 @@ jobs:
         env:
           CANGJIE_STDX_PATH: ${{ env.CANGJIE_STDX_PATH_STATIC }}/stdx
         run: |
-          VERSION="${GITHUB_REF_NAME}"
+          VERSION="${{ needs.version.outputs.tag }}"
           cjpm build -j 16
           # 二进制先放进 staging 再打包：dist/ 是**上传目录**，
           # 若把裸二进制也放进去，`files: dist/*` 会连它一起上传，
@@ -50,6 +73,9 @@ jobs:
           ls -lh dist
 
       - name: 创建/更新 Release 并上传产物
+        # 手动重跑（非 tag）时只做构建验证，不建 Release —— 否则分支名会变成
+        # 一个莫名其妙的 release tag。
+        if: needs.version.outputs.is_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
@@ -58,6 +84,7 @@ jobs:
 
   binary-windows:
     name: Windows amd64 二进制
+    needs: version
     # 在 Windows runner 上**原生**编译，而不是交叉编译。
     #
     # 为什么不用 mingw 交叉编译（cjvs 那种做法）：本项目依赖里的宏包（cjxt / embed）
@@ -99,10 +126,11 @@ jobs:
           if (-not $exe) { Write-Error "no .exe produced"; exit 1 }
           Write-Host "binary: $($exe.Name) ($([math]::Round($exe.Length/1MB,1)) MB)"
           Copy-Item $exe.FullName staging/chronomem.exe
-          Compress-Archive -Path staging/chronomem.exe -DestinationPath "dist/chronomem_${env:GITHUB_REF_NAME}_windows_amd64.zip" -Force
+          Compress-Archive -Path staging/chronomem.exe -DestinationPath "dist/chronomem_${{ needs.version.outputs.tag }}_windows_amd64.zip" -Force
           Get-ChildItem dist
 
       - name: 上传到 Release
+        if: needs.version.outputs.is_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
