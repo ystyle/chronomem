@@ -14,7 +14,7 @@ repository = "https://atomgit.com/ystyle/chronomem"
 #   mcp = { path = "../mcp-cj" }
 [dependencies]
 mcp = "2.3.18"
-tsdb = "0.5.1"
+tsdb = "0.5.2"
 llm_api = "1.4.1"
 cron = "1.0.1"
 cjxt = "1.2.1"
