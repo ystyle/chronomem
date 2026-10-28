@@ -44,6 +44,12 @@ link-option = "-luring"
 [target.x86_64-w64-mingw32.bin-dependencies]
 path-option = ["${CANGJIE_STDX_PATH}"]
 
+# stdx.net.tls 在 Windows 上走系统证书库，链接期要 CryptoAPI 的三个符号
+# （CertOpenSystemStoreA / CertEnumCertificatesInStore / CertCloseStore）。
+# 不显式带 -lcrypt32 时，编译全过、最后 ld.lld 报 undefined symbol。
+[target.x86_64-w64-mingw32]
+link-option = "-lcrypt32"
+
 [target.x86_64-apple-darwin.bin-dependencies]
 path-option = ["${CANGJIE_STDX_PATH}"]
 
