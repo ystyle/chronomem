@@ -138,6 +138,8 @@ public class TypesPage <: Component {
     var cAuto = Signal<Bool>(true)
     var detailName = Signal<String>("")
     var dangerName = Signal<String>("")
+    // 危险操作的手输确认串（必须与类型名完全一致才允许执行）
+    var dangerConfirm = Signal<String>("")
 
     public init() {}
 
@@ -219,15 +221,21 @@ public class TypesPage <: Component {
             this.detailOpen.set(true)
             PatchResult.ReRender
         }))
+        // 行内「清空」只打开危险操作对话框，不再直接执行：
+        // 清空不可恢复，任何删数据的路径都必须经过手输类型名那道确认。
         let trash = div([text("清空")], attrs: Some(a("ui-btn sm danger")))
         actions.add(trash.onClick({ ctx =>
-            let r = uiTruncate(svc, name)
-            this.notice.set(r.message)
+            this.dangerName.set(name)
+            this.dangerConfirm.set("")
+            this.notice.set("")
+            this.dangerOpen.set(true)
             PatchResult.ReRender
         }))
         let del = div([text("删除")], attrs: Some(a("ui-btn sm danger")))
         actions.add(del.onClick({ ctx =>
             this.dangerName.set(name)
+            this.dangerConfirm.set("")
+            this.notice.set("")
             this.dangerOpen.set(true)
             PatchResult.ReRender
         }))
@@ -328,26 +336,46 @@ public class TypesPage <: Component {
         let name = this.dangerName.get()
         let body = ArrayList<IComponent>()
         body.add(htmlSpan("<div style=\"font-size:12.5px;color:var(--muted);margin-bottom:10px\">DROP 语义：原始 + 总结序列必须为空，请先执行清空。此操作<b style=\"color:var(--danger)\">不可恢复</b>：</div>"))
+        // 二次确认输入框：清空/删除都要求把类型名再打一遍。
+        // 只在对话框里摆一个红按钮不构成确认——误点的成本是整个类型的记忆没了。
+        // 按钮保持可点：点下去若名字不对就报错并显示将删多少条，而不是置灰让人猜为什么点不动。
+        body.add(FormItem([Input().placeholder("手输类型名以确认").bind(this.dangerConfirm)])
+            .label("确认：手输类型名"))
         let foot = ArrayList<IComponent>()
         let cancel = div([text("取消")], attrs: Some(a("ui-btn ghost")))
         foot.add(cancel.onClick({ ctx =>
+            this.dangerConfirm.set("")
+            this.notice.set("")
             this.dangerOpen.set(false)
             PatchResult.ReRender
         }))
         let truncate = div([text("先清空（TRUNCATE）")], attrs: Some(a("ui-btn danger sm")))
         let truncHandled = truncate.onClick({ ctx =>
-            let r = uiTruncate(svc, name)
-            this.notice.set(r.message)
+            // 确认串不匹配就只更新提示，不执行任何删除
+            let confirmOk = this.dangerConfirm.get() == name
+            if (confirmOk) {
+                let r = uiTruncate(svc, name, confirm: this.dangerConfirm.get())
+                this.dangerConfirm.set("")
+                this.notice.set(r.message)
+            } else {
+                this.notice.set("确认失败：清空 " + name + " 需要在输入框里手输该类型名")
+            }
             PatchResult.ReRender
         })
         foot.add(truncHandled)
         let del = div([text("删除（DROP）")], attrs: Some(a("ui-btn danger")))
         let delHandled = del.onClick({ ctx =>
-            let r = uiDeleteType(svc, name)
-            if (r.ok) {
-                this.dangerOpen.set(false)
+            let confirmOk = this.dangerConfirm.get() == name
+            if (confirmOk) {
+                let r = uiDeleteType(svc, name, confirm: this.dangerConfirm.get())
+                if (r.ok) {
+                    this.dangerConfirm.set("")
+                    this.dangerOpen.set(false)
+                }
+                this.notice.set(r.message)
+            } else {
+                this.notice.set("确认失败：删除类型需要在输入框里手输类型名 " + name)
             }
-            this.notice.set(r.message)
             PatchResult.ReRender
         })
         foot.add(delHandled)

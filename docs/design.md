@@ -108,8 +108,9 @@ public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
 | `mem/type_create` | 建类型（+ 自动建 `<type>.summary` series） | `name`(必填), `levels`?(粒度链，默认 §5.1), `description`?, `schema`?, `retention`?, `auto_summarize`?(默认false), `summary_levels`?(缺省=最粗2档), `summary_group_by`?(分组维度 tag 键列表，上限 2；None=整窗总结) |
 | `mem/list_types` | 类型列表（name/description/count/updatedAt） | — |
 | `mem/type_info` | 单类型详情（meta + 条目数 + 各粒度物化桶数） | `name`(必填) |
-| `mem/truncate` | 清空类型全部条目（TRUNCATE 语义，保留类型） | `type`(必填) |
+| `mem/truncate` | 清空类型全部条目（TRUNCATE 语义，保留类型） | `type`(必填), `confirm`(必填，须与 type 逐字相同) |
 | `mem/type_delete` | 删除类型（DROP 语义；**守卫：原始+总结序列必须为空**） | `type`(必填) |
+| `mem/delete` | 删除指定条目：单条（`ts` + `seq`）或按条件批量（`tag`/`keyword`/`from`/`to`）。**默认 `dry_run=true` 只预览**；批量真删还要 `confirm=<预期条数>`，与实际不符则整批回滚 | `type`(必填), `ts`?, `seq`?, `from`?, `to`?, `tag`?, `keyword`?, `dry_run`?(默认 true), `confirm`? |
 | `mem/append` | 追加一条原始条目 | `type`(必填), `payload`(对象,必填), `tags`?, `ts`?(缺省=now) |
 | `mem/query` | 结构回想：最近 / 时间范围 / tag 过滤（多条件） | `type`(必填), `from`?, `to`?, `limit`?(默认20), `tag`?（语法见下） |
 | `mem/recall` | 回想：`mode=exact` 下钻原始条目（零 LLM）；`mode=summary` 返回时段语义摘要（依赖已生成或现算） | `type`(必填), `granularity`(必填，须在类型 levels 内), `windowStartMs`?, `mode`?(exact/summary，默认 exact), `summarize_on_miss`?(默认 false，仅 summary 模式), `group`?(summary 模式按分组过滤，如 proj 值；"未分组"查无 tag 条目) |
@@ -117,7 +118,15 @@ public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
 | `mem/summarize` | 语义总结（见 §7）：**按粒度**总结（须在类型 levels 内）或**按显式窗口**总结（`from/to`，任意不规则时段 = 任务阶段） | `type`(必填), `from`?, `to`?, `granularity`?, `instructions`?, `model`?, `recompute`?, `store`?(默认true) |
 | `mem/summaries` | 查某类型的总结记录（最新在前） | `type`(必填), `from`?, `to`?, `limit`? |
 
-> 前缀统一 `mem/`：语义中立（任何工具的通用记忆），且不与具体客户端命令冲突。**只读工具**（query / recall(mode=exact，或 mode=summary 且 summarize_on_miss=false) / buckets / summaries / list / type_info）不改变任何状态；**写工具**（type_create / append / summarize / recall(mode=summary 且 summarize_on_miss=true)）显式落盘。
+> 前缀统一 `mem/`：语义中立（任何工具的通用记忆），且不与具体客户端命令冲突。**只读工具**（query / recall(mode=exact，或 mode=summary 且 summarize_on_miss=false) / buckets / summaries / list / type_info）不改变任何状态；**写工具**（type_create / append / delete / truncate / type_delete / summarize / recall(mode=summary 且 summarize_on_miss=true)）显式落盘。
+
+> **删除相关的安全语义**（三条，逐层收紧）：
+> 1. **条目身份是 `(ts, seq)`，时间不是主键**——同一毫秒可以有多条（批量导入/并发写都会撞）。
+>    `mem/query` 输出里 `seq>0` 的条目会带 ` #n`；要精确删其中一条就把它带上。
+> 2. **`mem/delete` 默认不删**：`dry_run` 缺省为 `true`，只回显将删条数与样本；
+>    批量真删必须给 `confirm=<预期条数>`，与实际命中数不符则整批回滚（库里事务内校验）。
+> 3. **无条件删不是 `mem/delete` 的职责**：它拒绝"什么条件都不给"的调用；
+>    清空整个类型走 `mem/truncate`，而它要求 `confirm=<类型名>` 二次确认。
 
 ## 7. 语义总结（核心设计）
 

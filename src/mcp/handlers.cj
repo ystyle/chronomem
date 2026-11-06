@@ -36,6 +36,18 @@ func argBool(args: HashMap<String, JsonValue>, name: String, def: Bool): Bool {
     }
 }
 
+// 可空整数：参数缺失时返回 -1（而不是 0）。
+//
+// 为什么需要它：0 在时间过滤里是合法值（"不设边界"），所以 argInt 无法区分
+// "调用方没传"和"调用方传了 0"。删/查这类默认值会影响结果的参数必须能分辨——
+// 把"没传 upper bound"当成"upper bound = 0"会让批量删一条都命中不了。
+func argIntOr(args: HashMap<String, JsonValue>, name: String, def: Int64): Int64 {
+    match (args.get(name)) {
+        case Some(JsonValue.Number(n)) => Int64(n)
+        case _ => def
+    }
+}
+
 func argLevels(args: HashMap<String, JsonValue>, name: String, def: ArrayList<String>): ArrayList<String> {
     match (args.get(name)) {
         case Some(JsonValue.Array(arr)) =>
@@ -176,7 +188,11 @@ func pointTags(p: Point): String {
 }
 
 func formatPoint(p: Point, tz: TimeZone): String {
-    "[" + fmtTs(p.ts, tz) + "] " + p.payload + pointTags(p)
+    // seq 只在 >0 时显示：绝大多数条目 seq 恒为 0（同一毫秒只有一条），
+    // 无条件打上 "#0" 会把每行都加长一段噪音。但同 ts 多点时必须显示——
+    // 那是 mem/delete 精确删一条的唯一凭据，不显示就无从指定。
+    let seqMark = if (p.seq > 0) { " #" + p.seq.toString() } else { "" }
+    "[" + fmtTs(p.ts, tz) + seqMark + "] " + p.payload + pointTags(p)
 }
 
 func formatPoints(points: ArrayList<Point>, tz: TimeZone): String {
@@ -709,10 +725,31 @@ public func handleTypeInfo(svc: MemoryService, args: HashMap<String, JsonValue>)
     CallToolResult.text(sb.toString())
 }
 
-// TRUNCATE：清空类型全部条目（原始 + 总结），保留类型
+// TRUNCATE：清空类型全部条目（原始 + 总结），保留类型。
+//
+// **必须带 confirm=<类型名>**：这个操作删的是整个类型的全部条目（原始 + 总结），
+// 一击不可恢复。之前它只要 type 就执行，等于把「不可逆」压在了一个必填参数的
+// 存在性上——手滑传错类型的代价是整个类型的记忆没了。
+//
+// 二次确认的语义是「你真的知道自己在清哪个类型吗」：confirm 的值必须与 type 逐字相同。
+// 不做模糊匹配、不认 true/yes：让调用方把类型名再打一遍，是这里唯一有效的护栏。
 public func handleTruncate(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
     let name = argStr(args, "type")
     if (let Some(e) <- requireType(svc, name)) { return e }
+    let confirm = argStr(args, "confirm")
+    if (confirm != name) {
+        // 先报将删多少条，让调用方看到规模再决定（dry-run 语义内嵌在拒绝信息里）
+        let raw = svc.registry.countEntries(name)
+        let sum = svc.registry.countSummaries(name)
+        let hint = if (confirm == "") {
+            "缺少参数 confirm"
+        } else {
+            "confirm 与 type 不一致（confirm=" + confirm + "，type=" + name + "）"
+        }
+        return toolError("清空被拒绝：" + hint + "。本操作会删除类型 " + name + " 的全部条目且"
+            + "不可恢复：原始 " + raw.toString() + " 条 + 总结 " + sum.toString() + " 条。"
+            + "确认无误请带 confirm=\"" + name + "\" 重试")
+    }
     let n = svc.registry.truncate(name)
     CallToolResult.text("已清空类型 " + name + "（删除原始条目 " + n.toString() + " 条，类型保留）")
 }
@@ -727,6 +764,165 @@ public func handleTypeDelete(svc: MemoryService, args: HashMap<String, JsonValue
         return toolError(e.toString())
     }
     CallToolResult.text("已删除类型 " + name)
+}
+
+// ---------------------------------------------------------------------------
+// mem/delete：删除指定条目
+//
+// 两种形态，靠参数组合区分：
+//   A) 按身份删一条：给 ts 且 seq 也给了（或 ts 唯一）→ 走 deletePoint
+//   B) 按条件批量删：给 tag / keyword / 时间范围 → 走 deletePointsWhere
+//
+// 判据不是"给了哪些参数"，而是**能不能唯一确定一条**：
+//   ts 给了 + seq 也给了 → 确定一条
+//   ts 给了、seq 没给  → 该 ts 下只有一条时确定一条；有多条则报错（列出 seq 让调用方选）
+//   没有任何条件      → 拒绝（不允许"删全部"，那是 mem/truncate 的职责，且它有独立确认）
+//
+// 安全护栏（三层，逐层收紧）：
+//   1. 默认 dry_run=true：只返回将删条数与样本，不真删。要真删必须显式 dry_run=false；
+//   2. confirm=<预期条数>：实际命中数与它不符就整批回滚（防"我以为删 3 条，结果删了 300 条"）；
+//   3. 不允许无条件删 → 想清空得走 mem/truncate，且它要求 confirm=<类型名>。
+// ---------------------------------------------------------------------------
+
+// 从一条 Point 上取「样本描述」（dry-run 时给人确认用）
+func deleteSample(p: Point, tz: TimeZone): String {
+    "[#" + p.seq.toString() + " " + fmtTs(p.ts, tz) + "] " + truncateForSample(p.payload, 60) + pointTags(p)
+}
+
+// 样本里 payload 截断（按字符，不是字节——直接切字节会把汉字切半个）
+func truncateForSample(s: String, maxChars: Int64): String {
+    let runes = s.toRuneArray()
+    if (Int64(runes.size) <= maxChars) { return s }
+    String(runes[0..maxChars]) + "…"
+}
+
+public func handleDelete(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
+    let name = argStr(args, "type")
+    if (let Some(e) <- requireType(svc, name)) { return e }
+    let tl = svc.registry.timelineOf(name).getOrThrow()
+    let tz = svc.store.timeZoneOf()
+
+    let tsArg = argIntOr(args, "ts", -1)
+    let seqArg = argIntOr(args, "seq", -1)
+    let from = argIntOr(args, "from", 0)
+    let to = argIntOr(args, "to", 0)
+    let tagStr = argStr(args, "tag")
+    let kwStr = argStr(args, "keyword")
+    let dryRun = argBool(args, "dry_run", true)
+    let confirm = argIntOr(args, "confirm", -1)
+
+    // 参数解析失败必须报错，不能降级成"无过滤"——那会把"删某个项目"变成"删全部"
+    let tagParsed = parseTagFilters(tagStr)
+    if (!tagParsed.isOk()) { return toolError(tagParsed.error) }
+    let kwParsed = parseKeywords(kwStr)
+    if (!kwParsed.isOk()) { return toolError(kwParsed.error) }
+    let hasCondition = tagParsed.filters.size > 0 || kwParsed.keywords.size > 0
+
+    // ---- 形态 A：按 ts（+ seq）删一条 ----
+    if (tsArg >= 0) {
+        // 该 ts 下有哪些点？多到少都要看清楚：只给 ts 且多于一条时不能替调用方做选择
+        let hits = tl.queryPoints(tsArg, tsArg, 0, ArrayList<TagFilter>())
+        if (hits.size == 0) {
+            return toolError("类型 " + name + " 在 ts=" + tsArg.toString() + " 没有条目")
+        }
+        if (seqArg < 0) {
+            if (hits.size > 1) {
+                let sb = StringBuilder()
+                sb.append("该 ts 下有 " + hits.size.toString() + " 条条目，请用 seq 指定要删哪一条"
+                    + "（seq 见 mem/query 输出里的 #n）：\n")
+                for (p in hits) { sb.append(deleteSample(p, tz) + "\n") }
+                return toolError(sb.toString())
+            }
+            // 只有一条：ts 已唯一确定，seq 取它自己的
+            let onlySeq = hits[0].seq
+            return deleteOne(svc, tl, name, tsArg, onlySeq, hits[0], dryRun, tz)
+        }
+        // 给了 seq：先确认它存在（避免"删了 0 条"被误读成成功）
+        var found: Option<Point> = None
+        for (p in hits) {
+            if (p.seq == seqArg) { found = Some(p) }
+        }
+        match (found) {
+            case None =>
+                let sb = StringBuilder()
+                sb.append("类型 " + name + " 在 ts=" + tsArg.toString() + " 没有 seq=" + seqArg.toString()
+                    + " 的条目。该 ts 下有 " + hits.size.toString() + " 条：\n")
+                for (p in hits) { sb.append(deleteSample(p, tz) + "\n") }
+                toolError(sb.toString())
+            case Some(p) => deleteOne(svc, tl, name, tsArg, seqArg, p, dryRun, tz)
+        }
+    } else if (!hasCondition && from <= 0 && to <= 0) {
+        // ---- 没有任何条件：拒绝 ----
+        toolError("拒绝执行：mem/delete 至少要给一个定位条件（ts 单条；或 tag / keyword / from / to 批量）。"
+            + "要清空整个类型请用 mem/truncate（它要求 confirm=<类型名>）")
+    } else {
+        // ---- 形态 B：按条件批量删 ----
+        deleteBatch(svc, tl, name, from, to, tagParsed.filters, kwParsed.keywords,
+            dryRun, confirm, tz)
+    }
+}
+
+// 单条删除的公共尾部：dry-run 只回显，真删才落盘。
+func deleteOne(svc: MemoryService, tl: Timeline, name: String, ts: Int64, seq: Int64,
+    p: Point, dryRun: Bool, tz: TimeZone): CallToolResult {
+    if (dryRun) {
+        return CallToolResult.text("【dry-run】将删除 1 条（带 dry_run=false 才真删）：\n"
+            + "类型 " + name + "（" + svc.registry.countEntries(name).toString() + " 条）\n"
+            + deleteSample(p, tz))
+    }
+    let n = tl.deletePointAt(ts, seq)
+    if (n == 0) {
+        return toolError("删除未生效：条目可能已被并发删除（ts=" + ts.toString()
+            + " seq=" + seq.toString() + "）")
+    }
+    CallToolResult.text("已删除 1 条：类型 " + name + " ts=" + ts.toString() + " seq=" + seq.toString())
+}
+
+// 批量删除的公共尾部：dry-run 列样本，真删要求 confirm 与命中数一致。
+func deleteBatch(svc: MemoryService, tl: Timeline, name: String, from: Int64, to: Int64,
+    filters: ArrayList<TagFilter>, keywords: ArrayList<String>,
+    dryRun: Bool, confirm: Int64, tz: TimeZone): CallToolResult {
+    // 先数一遍（dry-run 语义）：这个数字既用于回显，也用于和 confirm 对比
+    let total = tl.deletePointsMatching(from, to, filters, keywords, dryRun: true)
+    if (total == 0) {
+        return CallToolResult.text("没有匹配的条目，未删除任何数据（条件见参数；确认过 tag / 时间范围 / 关键词？）")
+    }
+    // 样本：按同样的条件取前 5 条，让人看到"要删的是哪些"
+    let (page, _) = if (keywords.size == 0) {
+        tl.queryPointsPage(from, to, 1, 5, filters)
+    } else {
+        tl.queryPointsPageFiltered(from, to, 1, 5, filters, keywords)
+    }
+    let sampleLines = StringBuilder()
+    for (p in page) { sampleLines.append(deleteSample(p, tz) + "\n") }
+
+    if (dryRun) {
+        return CallToolResult.text("【dry-run】将删除 " + total.toString() + " 条（带 dry_run=false 才真删）：\n"
+            + "类型 " + name + " 共 " + svc.registry.countEntries(name).toString() + " 条\n"
+            + "前 " + page.size.toString() + " 条样本：\n" + sampleLines.toString()
+            + "\n确认无误请带 dry_run=false" + (if (confirm < 0) {
+                " + confirm=" + total.toString()
+            } else {
+                ""
+            }) + " 重试")
+    }
+    // 真删：默认要求 confirm 与命中数一致。没传就报错让调用方先看 dry-run——
+    // 批量删不可逆，"少一步也能删"等于没有护栏。
+    if (confirm < 0) {
+        return toolError("拒绝执行：批量删除需要 confirm=<预期条数>。本次将删除 " + total.toString()
+            + " 条（样本见上）。请核对该数字后带 confirm=" + total.toString() + " & dry_run=false 重试")
+    }
+    if (confirm != total) {
+        return toolError("删除条数与预期不符：预期 " + confirm.toString() + "，实际命中 "
+            + total.toString() + " 条。已中止，未删除任何数据。请重新核对条件")
+    }
+    try {
+        let n = tl.deletePointsMatching(from, to, filters, keywords, expectCount: confirm)
+        CallToolResult.text("已删除 " + n.toString() + " 条（类型 " + name + "，剩余 "
+            + svc.registry.countEntries(name).toString() + " 条）")
+    } catch (e: Exception) {
+        toolError(e.message)
+    }
 }
 
 public func handleAppend(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
@@ -1049,11 +1245,35 @@ public func registerTools(server: McpServer, svc: MemoryService): Unit {
     let t3 = Tool("mem/type_info", "单类型详情（meta + 条目数 + 各粒度物化桶数）", s3)
     server.addTool(t3, { params => handleTypeInfo(svc, params.arguments) })
 
-    // mem/truncate（TRUNCATE：清空条目，保留类型）
+    // mem/truncate（TRUNCATE：清空条目，保留类型；须 confirm=<类型名> 二次确认）
     let sTrunc = schemaBuilder()
     sTrunc.addField("type", "string", "类型名", required: true)
-    let tTrunc = Tool("mem/truncate", "清空类型全部条目（原始 + 总结，TRUNCATE 语义），保留类型本身", sTrunc)
+    sTrunc.addField("confirm", "string",
+        "二次确认：必须与 type 逐字相同。本操作删除该类型全部条目且不可恢复，不给 confirm 一律拒绝", required: true)
+    let tTrunc = Tool("mem/truncate",
+        "清空类型全部条目（原始 + 总结，TRUNCATE 语义），保留类型本身。**须 confirm=<类型名>**；"
+        + "只想删部分条目请用 mem/delete", sTrunc)
     server.addTool(tTrunc, { params => handleTruncate(svc, params.arguments) })
+
+    // mem/delete（按身份删一条 / 按条件批量删；默认 dry-run）
+    let sDelOne = schemaBuilder()
+    sDelOne.addField("type", "string", "类型名", required: true)
+    sDelOne.addField("ts", "integer", "条目时间戳毫秒（单条删除时必填；见 mem/query 输出的时间）")
+    sDelOne.addField("seq", "integer", "同一 ts 内的序号（见 mem/query 输出的 #n；省略时该 ts 必须唯一）")
+    sDelOne.addField("from", "integer", "批量删除：起始 ts（含），省略 = 不限")
+    sDelOne.addField("to", "integer", "批量删除：结束 ts（含），省略 = 不限")
+    sDelOne.addField("tag", "string", "批量删除：tag 条件，语法同 mem/query（空格 AND、逗号 IN）")
+    sDelOne.addField("keyword", "string", "批量删除：关键词条件，语法同 mem/query（空格分隔 AND）")
+    sDelOne.addField("dry_run", "boolean",
+        "默认 true = 只返回将删条数与样本，不真删。真删必须显式传 false")
+    sDelOne.addField("confirm", "integer",
+        "真删时必填：预期删除的条数。与实际命中数不符则整批回滚，一条都不删")
+    let tDelOne = Tool("mem/delete",
+        "删除指定条目。两种用法：① 单条——给 ts（+ seq，同 ts 多条时必填）；"
+        + "② 批量——给 tag / keyword / from / to 的任意组合。"
+        + "**默认 dry_run=true 只预览不删**；真删要 dry_run=false 且批量还需 confirm=<预期条数>。"
+        + "不允许无条件删全部（清空请用 mem/truncate）", sDelOne)
+    server.addTool(tDelOne, { params => handleDelete(svc, params.arguments) })
 
     // mem/type_delete（DROP：删类型；守卫：原始与总结序列必须为空）
     let sDel = schemaBuilder()
