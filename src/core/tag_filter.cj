@@ -158,3 +158,31 @@ func splitByComma(s: String): ArrayList<String> {
     out.add(String.fromUtf8(bytes[start..bytes.size]))
     out
 }
+
+// 单条记忆是否满足全部条件：tag 条件（AND，同 tag 多值 IN）+ 关键词（AND）。
+//
+// 存在的意义：删除路径要在**事务内部**逐条判断（tsdb.deletePointsWhere 的 predicate），
+// 那里拿不到 Query 对象，只有解出来的 Point。于是把「一条命不命中」抽成这个函数，
+// 让查询路径（走 tsdb 索引）与删除路径（走逐条判断）共用同一个判据——
+// 两边口径一旦分叉，就会出现「查得到却删不掉」或更糟的「查不到却被删掉」。
+public func pointMatchesAll(p: Point, filters: ArrayList<TagFilter>,
+    keywords: ArrayList<String>): Bool {
+    for (f in filters) {
+        match (tagValueOf(p.tags, f.tag)) {
+            case None => return false
+            case Some(v) =>
+                // 同 tag 多值 = IN；单值也是 size==1 的 IN，不必分两种写法
+                if (!f.values.contains(v)) { return false }
+        }
+    }
+    matchesKeywords(p.payload, keywords)
+}
+
+// 取单条 tag 的值（无该 tag → None）。故意不复用 tsdb 的 tagsPairs：
+// 这里要的是「按 key 取值」的语义，而 tagsPairs 每次都会把整个 tags 解析成列表。
+func tagValueOf(tagsJson: String, key: String): Option<String> {
+    for ((k, v) in tagsPairs(tagsJson)) {
+        if (k == key) { return Some(v) }
+    }
+    None
+}

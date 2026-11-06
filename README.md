@@ -228,8 +228,9 @@ CHRONOLOG_DIR=~/.chronolog ./target/release/bin/chronomem.cli
 | `mem/summarize` | **异步总结**：立即返回 `job_id`，LLM 后台跑，不阻塞其它请求 |
 | `mem/summarize_status` | 查总结任务状态 |
 | `mem/summaries` | 查总结记录（最新在前） |
-| `mem/truncate` | 清空类型全部条目（保留类型） |
-| `mem/type_delete` | 删除类型（**守卫**：两个 series 都须为空） |
+| `mem/delete` | 删除指定条目：单条给 `ts`(+`seq`)，批量给 `tag`/`keyword`/`from`/`to`。**默认 dry-run 只预览** |
+| `mem/truncate` | 清空类型全部条目（保留类型）；**须 `confirm=<类型名>`** |
+| `mem/type_delete` | 删除类型（**守卫**：两个 series 都须为空；须 `confirm=<类型名>`） |
 
 ### `tag` 语法
 
@@ -241,6 +242,32 @@ CHRONOLOG_DIR=~/.chronolog ./target/release/bin/chronomem.cli
 
 条件间一律 AND，没有 OR 运算符（需要 OR 用同 tag 多值 IN）。
 **语法错误一律报错**——静默降级为「无过滤」会把「查某个项目」变成「查全部」，而调用方毫无察觉。
+
+### 删除条目
+
+删错了才想删，所以这里的每道护栏都是"少删"优先：
+
+```text
+# 1) 先看：默认 dry-run，只回显将删多少条 + 前几条样本
+mem/delete { type: "worklog", tag: "proj=test" }
+mem/delete { type: "worklog", ts: 1730000000000 }
+
+# 2) 再删：显式 dry_run=false；批量还要带 confirm=<上面看到的条数>
+mem/delete { type: "worklog", tag: "proj=test", dry_run: false, confirm: 7 }
+mem/delete { type: "worklog", ts: 1730000000000, dry_run: false }
+```
+
+| 护栏 | 作用 |
+|---|---|
+| 默认 `dry_run=true` | 忘了传参数的调用不会删掉任何东西 |
+| 批量必须 `confirm=<条数>` | 实际命中数与预期不符 → 整批回滚，一条都不删 |
+| `ts` 不唯一必须给 `seq` | 同一毫秒有多条时**不替你猜**，而是把 `seq` 列出来让你选 |
+| 无条件删被拒 | 想清空就走 `mem/truncate`，它要 `confirm=<类型名>` |
+
+**为什么条目要 `seq`**：忆时塔的条目身份是 `(type, ts, seq)`，不是单纯的「时间」。
+同一毫秒内可以有多条记录（批量导入、并发写都会撞上），此时只给 `ts` 只能定位到「那一毫秒的全部」。
+`mem/query` 的输出里 `seq>0` 的条目会带 ` #n` 后缀（`seq=0` 省略不写，因为绝大多数条目都是 0），
+把它原样带上就是精确删那一条。
 
 ### `keyword` 内容搜索
 

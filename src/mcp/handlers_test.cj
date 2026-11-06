@@ -438,7 +438,7 @@ func handlers_truncateClearsEntries() {
     handleTypeCreate(s, argsFromJson("{\"name\":\"t\"}"))
     handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{},\"ts\":1704067200000}"))
     handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{},\"ts\":1704067260000}"))
-    let r = handleTruncate(s, argsFromJson("{\"type\":\"t\"}"))
+    let r = handleTruncate(s, argsFromJson("{\"type\":\"t\",\"confirm\":\"t\"}"))
     @Expect(resultText(r).indexOf("已清空") != None, true)
     @Expect(s.registry.countEntries("t"), Int64(0))
     // 类型仍在，可继续写
@@ -461,7 +461,7 @@ func handlers_truncateResetsWatermarkAllowsBackfill() {
     handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"n\":2},\"ts\":1792000600000}"))
     @Expect(s.registry.countEntries("t"), Int64(2))
     // 清空后回填**更早**的 ts：水位应已重置为 0，不该被乱序拒绝
-    handleTruncate(s, argsFromJson("{\"type\":\"t\"}"))
+    handleTruncate(s, argsFromJson("{\"type\":\"t\",\"confirm\":\"t\"}"))
     @Expect(s.registry.countEntries("t"), Int64(0))
     let r = handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"n\":3},\"ts\":1791000000000}"))
     @Expect(r.isError, false)
@@ -480,7 +480,7 @@ func handlers_truncateAllowsFullHistoricalReplay() {
     // 第一轮：晚的时间段
     handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"n\":1},\"ts\":1792000000000}"))
     handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"n\":2},\"ts\":1792100000000}"))
-    handleTruncate(s, argsFromJson("{\"type\":\"t\"}"))
+    handleTruncate(s, argsFromJson("{\"type\":\"t\",\"confirm\":\"t\"}"))
     // 第二轮：从更早开始铺满一周（升序）
     var i = Int64(0)
     while (i < 7) {
@@ -512,7 +512,7 @@ func handlers_typeDeleteNonEmptyRejected() {
     @Expect(r.isError, true)
     @Expect(resultText(r).indexOf("非空") != None, true)
     // truncate 后再删成功
-    handleTruncate(s, argsFromJson("{\"type\":\"t\"}"))
+    handleTruncate(s, argsFromJson("{\"type\":\"t\",\"confirm\":\"t\"}"))
     let r2 = handleTypeDelete(s, argsFromJson("{\"type\":\"t\"}"))
     @Expect(resultText(r2).indexOf("已删除") != None, true)
     s.close()
@@ -878,5 +878,167 @@ func handlers_queryKeywordIsCaseInsensitiveAndLabelled() {
     @Expect(t.indexOf("共 1 条") != None, true)
     // 命中口径必须写出来，否则 same total 在有无关键词下含义不同
     @Expect(t.indexOf("关键词命中：nftables") != None, true)
+    s.close()
+}
+
+// ---------- mem/delete：删除指定条目 ----------
+//
+// 这一组钉住四件事：
+//   ① 默认 dry_run 只预览、零变更（误用的第一道防线）
+//   ② 单条删除要么 ts 唯一、要么必须给 seq（不替调用方猜）
+//   ③ 批量删除必须有 confirm，且与命中数不符时一条都不删
+//   ④ 无条件删被拒绝（清空是 mem/truncate 的职责）
+@Test
+func handlers_deleteDryRunByDefault() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"t\"}"))
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"task\":\"A\"},\"ts\":1704110400000}"))
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"task\":\"B\"},\"ts\":1704110460000}"))
+    // 不给 dry_run → 默认预览，什么都不能删
+    let r = handleDelete(s, argsFromJson("{\"type\":\"t\",\"tag\":\"proj=x\"}"))
+    let _ = r
+    // tag 不匹配 → 没有可删的
+    @Expect(resultText(r).indexOf("没有匹配") != None, true)
+    @Expect(s.registry.countEntries("t"), Int64(2))
+    // 给时间窗 → 预览 2 条，仍不删
+    let r2 = handleDelete(s, argsFromJson("{\"type\":\"t\",\"from\":1704110400000}"))
+    @Expect(resultText(r2).indexOf("dry-run") != None, true)
+    @Expect(resultText(r2).indexOf("将删除 2 条") != None, true)
+    @Expect(s.registry.countEntries("t"), Int64(2))
+    s.close()
+}
+
+@Test
+func handlers_deleteSingleByTs() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"t\"}"))
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"task\":\"A\"},\"ts\":1704110400000}"))
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"task\":\"B\"},\"ts\":1704110460000}"))
+    // ts 唯一 → 单条删除，dry_run=false 才真删
+    let r = handleDelete(s, argsFromJson(
+        "{\"type\":\"t\",\"ts\":1704110400000,\"dry_run\":false}"))
+    @Expect(resultText(r).indexOf("已删除 1 条") != None, true)
+    @Expect(s.registry.countEntries("t"), Int64(1))
+    // 剩下的是 B
+    let q = resultText(handleQuery(s, argsFromJson("{\"type\":\"t\"}")))
+    @Expect(q.indexOf("\"task\":\"B\"") != None, true)
+    @Expect(q.indexOf("\"task\":\"A\"") == None, true)
+    s.close()
+}
+
+@Test
+func handlers_deleteRejectsAmbiguousTs() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"t\"}"))
+    // 同 ts 三条（seq 0/1/2）
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"n\":1},\"ts\":1704110400000}"))
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"n\":2},\"ts\":1704110400000}"))
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"n\":3},\"ts\":1704110400000}"))
+    // 只给 ts：必须拒绝，并把 seq 列出来让人选
+    let r = handleDelete(s, argsFromJson("{\"type\":\"t\",\"ts\":1704110400000,\"dry_run\":false}"))
+    @Expect(r.isError, true)
+    let t = resultText(r)
+    @Expect(t.indexOf("请用 seq") != None, true)
+    @Expect(t.indexOf("#1") != None, true)
+    @Expect(s.registry.countEntries("t"), Int64(3))
+    // 给 seq 才删得掉，且只删那一条
+    let r2 = handleDelete(s, argsFromJson(
+        "{\"type\":\"t\",\"ts\":1704110400000,\"seq\":1,\"dry_run\":false}"))
+    @Expect(resultText(r2).indexOf("已删除 1 条") != None, true)
+    @Expect(s.registry.countEntries("t"), Int64(2))
+    s.close()
+}
+
+@Test
+func handlers_deleteRejectsNoCondition() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"t\"}"))
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"a\":1},\"ts\":1704110400000}"))
+    // 什么都不给 → 拒绝，并指向 mem/truncate
+    let r = handleDelete(s, argsFromJson("{\"type\":\"t\",\"dry_run\":false}"))
+    @Expect(r.isError, true)
+    @Expect(resultText(r).indexOf("mem/truncate") != None, true)
+    @Expect(s.registry.countEntries("t"), Int64(1))
+    s.close()
+}
+
+@Test
+func handlers_deleteBatchRequiresConfirm() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"t\"}"))
+    for (i in 0..3) {
+        handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"n\":" + i.toString()
+            + "},\"ts\":" + (1704110400000 + i * 1000).toString() + "}"))
+    }
+    // 批量真删但没给 confirm → 拒绝，一条都不能少
+    let r = handleDelete(s, argsFromJson("{\"type\":\"t\",\"from\":1704110400000,\"dry_run\":false}"))
+    @Expect(r.isError, true)
+    @Expect(resultText(r).indexOf("confirm") != None, true)
+    @Expect(s.registry.countEntries("t"), Int64(3))
+    // confirm 与实际不符 → 拒绝
+    let r2 = handleDelete(s, argsFromJson(
+        "{\"type\":\"t\",\"from\":1704110400000,\"dry_run\":false,\"confirm\":9}"))
+    @Expect(r2.isError, true)
+    @Expect(resultText(r2).indexOf("不符") != None, true)
+    @Expect(s.registry.countEntries("t"), Int64(3))
+    // confirm 正确 → 真删
+    let r3 = handleDelete(s, argsFromJson(
+        "{\"type\":\"t\",\"from\":1704110400000,\"dry_run\":false,\"confirm\":3}"))
+    @Expect(resultText(r3).indexOf("已删除 3 条") != None, true)
+    @Expect(s.registry.countEntries("t"), Int64(0))
+    s.close()
+}
+
+@Test
+func handlers_deleteBatchByTag() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"t\"}"))
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"n\":1},\"tags\":{\"kind\":\"tmp\"},\"ts\":1704110400000}"))
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"n\":2},\"tags\":{\"kind\":\"real\"},\"ts\":1704110460000}"))
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"n\":3},\"tags\":{\"kind\":\"tmp\"},\"ts\":1704110520000}"))
+    let r = handleDelete(s, argsFromJson(
+        "{\"type\":\"t\",\"tag\":\"kind=tmp\",\"dry_run\":false,\"confirm\":2}"))
+    @Expect(resultText(r).indexOf("已删除 2 条") != None, true)
+    @Expect(s.registry.countEntries("t"), Int64(1))
+    let q = resultText(handleQuery(s, argsFromJson("{\"type\":\"t\"}")))
+    @Expect(q.indexOf("\"n\":2") != None, true)
+    s.close()
+}
+
+// 顶层 @Test func（非 class 风格），调用点写成 'Xxx' 简名亦可。
+@Test
+func handlers_deleteByKeyword() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"t\"}"))
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"task\":\"写文档\"},\"ts\":1704110400000}"))
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"task\":\"改代码\"},\"ts\":1704110460000}"))
+    let r = handleDelete(s, argsFromJson(
+        "{\"type\":\"t\",\"keyword\":\"文档\",\"dry_run\":false,\"confirm\":1}"))
+    @Expect(resultText(r).indexOf("已删除 1 条") != None, true)
+    @Expect(s.registry.countEntries("t"), Int64(1))
+    s.close()
+}
+
+// ---------- mem/truncate 的 confirm 护栏 ----------
+@Test
+func handlers_truncateRequiresConfirm() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"t\"}"))
+    handleAppend(s, argsFromJson("{\"type\":\"t\",\"payload\":{\"a\":1},\"ts\":1704110400000}"))
+    // 没给 confirm → 拒绝，并报出将删多少条
+    let r = handleTruncate(s, argsFromJson("{\"type\":\"t\"}"))
+    @Expect(r.isError, true)
+    let t = resultText(r)
+    @Expect(t.indexOf("confirm") != None, true)
+    @Expect(t.indexOf("原始 1 条") != None, true)
+    @Expect(s.registry.countEntries("t"), Int64(1))
+    // confirm 写错类型名 → 拒绝
+    let r2 = handleTruncate(s, argsFromJson("{\"type\":\"t\",\"confirm\":\"other\"}"))
+    @Expect(r2.isError, true)
+    @Expect(s.registry.countEntries("t"), Int64(1))
+    // confirm 正确 → 执行
+    let r3 = handleTruncate(s, argsFromJson("{\"type\":\"t\",\"confirm\":\"t\"}"))
+    @Expect(r3.isError, false)
+    @Expect(s.registry.countEntries("t"), Int64(0))
     s.close()
 }

@@ -262,17 +262,31 @@ public func uiSummarizeStatus(svc: MemoryService, jobId: Int64): String {
     }
 }
 
-public func uiTruncate(svc: MemoryService, name: String): UiResult {
+// 清空类型（TRUNCATE）。confirm 必须与 name 逐字相同——与 MCP 的 mem/truncate 同一口护栏。
+//
+// 为什么这个校验放在数据层而不是只在界面上：界面上"输名字才让点"是给人看的，
+// 但这两个函数也会被别处调用（测试、脚本、后续的新页面）。护栏放在这里，
+// 任何一条调用路径都绕不过去。
+public func uiTruncate(svc: MemoryService, name: String, confirm!: String): UiResult {
     if (svc.registry.timelineOf(name).isNone()) {
         return UiResult.error("类型不存在：${name}")
+    }
+    if (confirm != name) {
+        let raw = svc.registry.countEntries(name)
+        let sum = svc.registry.countSummaries(name)
+        return UiResult.error("清空被拒绝：确认串与类型名不一致（需手输 " + name + "）；将删除原始 "
+            + raw.toString() + " 条 + 总结 " + sum.toString() + " 条，不可恢复")
     }
     let n = svc.registry.truncate(name)
     UiResult.success("已清空（TRUNCATE）：删除 ${n.toString()} 条，类型保留")
 }
 
-public func uiDeleteType(svc: MemoryService, name: String): UiResult {
+public func uiDeleteType(svc: MemoryService, name: String, confirm!: String): UiResult {
     if (svc.registry.timelineOf(name).isNone()) {
         return UiResult.error("类型不存在：${name}")
+    }
+    if (confirm != name) {
+        return UiResult.error("删除被拒绝：确认串与类型名不一致（需手输 " + name + "）")
     }
     let entries = svc.registry.countEntries(name)
     let summaries = svc.registry.countSummaries(name)

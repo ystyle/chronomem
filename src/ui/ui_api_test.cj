@@ -225,14 +225,14 @@ func uiApiTriggerSummarizeNoLlm() {
 func uiApiTruncateAndDeleteGuard() {
     let svc = uiTestSvcWithWorklog([(1788019200000, "{\"task\":\"a\"}", "{}")])
     // 清空前删除被守卫拒绝
-    let del = uiDeleteType(svc, "worklog")
+    let del = uiDeleteType(svc, "worklog", confirm: "worklog")
     @Expect(del.ok, false)
     @Expect(del.message.contains("守卫"), true)
     // 清空后再删
-    let tr = uiTruncate(svc, "worklog")
+    let tr = uiTruncate(svc, "worklog", confirm: "worklog")
     @Expect(tr.ok, true)
     @Expect(uiCount(svc, "worklog"), Int64(0))
-    let del2 = uiDeleteType(svc, "worklog")
+    let del2 = uiDeleteType(svc, "worklog", confirm: "worklog")
     @Expect(del2.ok, true)
     @Expect(uiListTypes(svc).size, Int64(0))
     svc.close()

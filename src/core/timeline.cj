@@ -321,7 +321,7 @@ public class Timeline {
         this.tsdb.query(this.series).range(from, to).count()
     }
 
-    // ---------- 删除（TRUNCATE / DROP，委托 tsdb） ----------
+    // ---------- 删除（TRUNCATE / DROP / 精确删条目，委托 tsdb） ----------
 
     // TRUNCATE：清空本系列全部数据（点/索引/桶），保留系列
     public func clearAll(): Int64 {
@@ -331,6 +331,25 @@ public class Timeline {
     // DROP：彻底删除本系列（数据 + meta + 标签索引）
     public func deleteAll(): Unit {
         this.tsdb.deleteSeries(this.series)
+    }
+
+    // 删**一条**：按完整身份 (ts, seq)。seq 由 mem/query 的输出带出，
+    // 调用方原样传回即可；不要自己编。
+    public func deletePointAt(ts: Int64, seq: Int64): Int64 {
+        this.tsdb.deletePoint(this.series, ts, seq)
+    }
+
+    // 范围批量删：窗口 + tag 条件 + 关键词（与 mem/query 的过滤口径完全一致）。
+    // 复用 queryPointsPageFiltered 的判断逻辑，保证「查得到就能删掉、查不到就不会误删」。
+    //
+    // 为什么走 tsdb 的 deletePointsWhere 而不是「先查再逐条删」：
+    // 后者在两步之间插进来的新条目会被漏掉，且水位要算两次；单事务一次扫既原子又一致。
+    public func deletePointsMatching(from: Int64, to: Int64,
+        tagFilters: ArrayList<TagFilter>, keywords: ArrayList<String>,
+        expectCount!: Int64 = -1, dryRun!: Bool = false): Int64 {
+        this.tsdb.deletePointsWhere(this.series, from, to,
+            { p => pointMatchesAll(p, tagFilters, keywords) },
+            expectCount: expectCount, dryRun: dryRun)
     }
 
     // ---------- 分层物化（幂等覆盖，每层落盘不删下层） ----------
