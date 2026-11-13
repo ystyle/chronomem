@@ -59,6 +59,12 @@ LLM_BASE_URL=... LLM_API_KEY=... LLM_MODEL=... \
 - **自然窗口（§5.2）**：day/week/month 按日历对齐（`CHRONOLOG_TIMEZONE`），桶 key 用 `windowKeyOf`（非 tsdb.bucketKeyOf）；只有 10min/30min/1h/3h 才用 `ts % windowMs`。
 - **cron-cj 增量缓存损坏**：`cjpm build` 报 `DataModelException: This data is not DataModelSeq` 时 `cjpm clean` 可解（badgercj 同样出现过）。
 - **cron `@every` 描述符**：cron-cj 的 `addFunc` 不解析 `@every <dur>`，需走 `addCronEntry`（→ `Every()` + `addSchedule`）。
+- **Docker 部署一律走 `./scripts/deploy.sh`**（别手动 `cjpm build && docker compose build && up -d`）：
+  它把两个"静默错"变成硬校验——① `cjpm test` 绿 **不等于** release 二进制已刷新
+  （测试编的是测试二进制，`target/release/bin/*` 只有 `cjpm build` 才更新）；② compose 的镜像 tag
+  恒为 `:latest`，不 `--force-recreate` 就不会换容器。两个都不报错，现象只是"部署完了版本没变"。
+  脚本会校验「本地二进制版本 == cjpm.toml」与「容器内二进制 sha256 == 本地 sha256」。
+  部署前如涉及依赖/存储层升级，先用生产数据的**副本**跑一遍（AGENTS.md 规定生产数据不能拿来做测试）。
 - **Docker 部署**：镜像内绑 `0.0.0.0`（`CHRONOLOG_ADDR`，否则端口映射连不上）；compose 栈数据目录 `~/docker/chronomem/data` 先建好并 chown 1000:1000 再 up（docker 自动建会 root/nobody）；`--static` 只消除 libcangjie-runtime 依赖，glibc/liburing 仍需 archlinux + `liburing` 包。
 - **`--static` 仅对可执行文件生效**：库包会出现无害 warning（-Woff driver-arg 可压）。
 - **`-lstdx.crypto.digest`**：stdx.net.http 链接符号，chronomem [package] link-option 已带。
