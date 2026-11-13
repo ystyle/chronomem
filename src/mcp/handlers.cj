@@ -1413,7 +1413,8 @@ public func registerTools(server: McpServer, svc: MemoryService): Unit {
     // mem/brief（紧凑简报：动手前"看一眼"的廉价入口）
     let sB = schemaBuilder()
     sB.addField("type", "string",
-        "只看某个类型（如 dsh/lesson）；不给 = 默认 dsh/lesson + worklog（「最该被读」的两个）")
+        "只看某个类型（如 dsh/lesson）；不给 = 默认 dsh/lesson + agent/self-correction + worklog"
+        + "（「最该被读」的三类：外部坑 / 我自己的判断偏差 / 任务账）")
     sB.addField("proj", "string", "项目名（等价于 tag 里的 proj=xxx）——最常用的入口，如 \"cjreg\"")
     sB.addField("keyword", "string", "内容关键词过滤。" + KEYWORD_SYNTAX_HINT
         + "——教训的 tag 是自由词，猜不中就用这个")
@@ -1423,7 +1424,8 @@ public func registerTools(server: McpServer, svc: MemoryService): Unit {
     let tB = Tool("mem/brief",
         "紧凑简报：一句话一条列出「有哪些事」，不含全文（每次几百到一两千字符）。"
         + "**动手前先扫一眼用这个**，确定相关再 mem/query 看全文。"
-        + "不填 type 时看 dsh/lesson + worklog；activity 请用 mem/recall 的摘要视角", sB)
+        + "不填 type 时看 dsh/lesson + agent/self-correction + worklog；"
+        + "dsh/activity 是自动账本，看某段经过请用 mem/recall 的摘要视角", sB)
     server.addTool(tB, { params => handleBrief(svc, params.arguments) })
 
     // mem/query
