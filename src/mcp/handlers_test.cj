@@ -1042,3 +1042,91 @@ func handlers_truncateRequiresConfirm() {
     @Expect(s.registry.countEntries("t"), Int64(0))
     s.close()
 }
+
+// ---------- mem/brief：紧凑简报 ----------
+//
+// 这一组钉住"brief 为什么值得存在"：它必须**比 query 便宜一个量级**，
+// 且在没有命中时要能说清"是没有，还是查错了"。
+@Test
+func handlers_briefListsLessonsAndWorklog() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"dsh/lesson\"}"))
+    handleTypeCreate(s, argsFromJson("{\"name\":\"worklog\"}"))
+    handleAppend(s, argsFromJson("{\"type\":\"dsh/lesson\",\"payload\":{\"title\":\"cjpm 的 replace 不认版本号\",\"cause\":\"很长的根因\"},\"tags\":{\"proj\":\"chronomem\"},\"ts\":1704110400000}"))
+    handleAppend(s, argsFromJson("{\"type\":\"worklog\",\"payload\":{\"task\":\"打了 Windows 二进制\",\"status\":\"完成\"},\"tags\":{\"proj\":\"chronomem\"},\"ts\":1704110460000}"))
+    let r = handleBrief(s, argsFromJson("{\"proj\":\"chronomem\",\"days\":0}"))
+    let t = resultText(r)
+    // 两个默认类型都要出现，且都是"一句话标题"而不是全文
+    @Expect(t.indexOf("dsh/lesson") != None, true)
+    @Expect(t.indexOf("worklog") != None, true)
+    @Expect(t.indexOf("cjpm 的 replace 不认版本号") != None, true)
+    @Expect(t.indexOf("打了 Windows 二进制") != None, true)
+    // 全文里的长字段不该出现在简报里（那正是它便宜的原因）
+    @Expect(t.indexOf("很长的根因") == None, true)
+    @Expect(r.isError, false)
+    s.close()
+}
+
+// 简报必须比全文查询便宜一个量级——这是它存在的全部理由。
+@Test
+func handlers_briefIsMuchCheaperThanQuery() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"dsh/lesson\"}"))
+    for (i in 0..12) {
+        // 每条都带一段长正文，模拟真实的教训条目（cause/fix/prevention 都很长）
+        let unit = "但愿这段很长的正文不要出现在简报里"
+        let sb = StringBuilder()
+        for (_ in 0..20) { sb.append(unit) }
+        let body = sb.toString()
+        handleAppend(s, argsFromJson("{\"type\":\"dsh/lesson\",\"payload\":{\"title\":\"教训 " + i.toString()
+            + "\",\"cause\":\"" + body + "\"},\"tags\":{\"proj\":\"x\"},\"ts\":" + (1704110400000 + i * 1000).toString() + "}"))
+    }
+    let briefLen = resultText(handleBrief(s, argsFromJson("{\"proj\":\"x\",\"days\":0}"))).size
+    let queryLen = resultText(handleQuery(s, argsFromJson("{\"type\":\"dsh/lesson\",\"tag\":\"proj=x\"}"))).size
+    // 至少省一个量级；实测真实数据是 1.7 万 → 1 千量级
+    @Expect(briefLen * 5 < queryLen, true)
+    s.close()
+}
+
+// 空结果必须说清边界 + 给下一步，否则"没有"会被误读成"从来没有"
+@Test
+func handlers_briefEmptyResultIsActionable() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"dsh/lesson\"}"))
+    let r = handleBrief(s, argsFromJson("{\"proj\":\"never-existed\",\"days\":30}"))
+    let t = resultText(r)
+    @Expect(r.isError, false)
+    @Expect(t.indexOf("没有匹配条目") != None, true)
+    @Expect(t.indexOf("近 30 天") != None, true)     // 边界写清楚
+    @Expect(t.indexOf("放宽") != None, true)         // 给下一步
+    s.close()
+}
+
+// keyword 是教训检索的可靠入口（topic 标签是自由词汇，猜不中就查不到）
+@Test
+func handlers_briefByKeyword() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"dsh/lesson\"}"))
+    handleAppend(s, argsFromJson("{\"type\":\"dsh/lesson\",\"payload\":{\"title\":\"cjpm 的 replace 不认版本号\"},\"ts\":1704110400000}"))
+    handleAppend(s, argsFromJson("{\"type\":\"dsh/lesson\",\"payload\":{\"title\":\"泛型推断的坑\"},\"ts\":1704110460000}"))
+    let r = handleBrief(s, argsFromJson("{\"keyword\":\"replace\",\"days\":0}"))
+    let t = resultText(r)
+    @Expect(t.indexOf("replace 不认版本号") != None, true)
+    @Expect(t.indexOf("泛型推断") == None, true)
+    s.close()
+}
+
+// 显式指定 type 时只看它，不走默认的两个
+@Test
+func handlers_briefExplicitType() {
+    let s = svc()
+    handleTypeCreate(s, argsFromJson("{\"name\":\"worklog\"}"))
+    handleTypeCreate(s, argsFromJson("{\"name\":\"dsh/lesson\"}"))
+    handleAppend(s, argsFromJson("{\"type\":\"worklog\",\"payload\":{\"task\":\"某任务\"},\"ts\":1704110400000}"))
+    let r = handleBrief(s, argsFromJson("{\"type\":\"worklog\",\"days\":0}"))
+    let t = resultText(r)
+    @Expect(t.indexOf("某任务") != None, true)
+    // 只看 worklog：不该出现 lesson 这一节
+    @Expect(t.indexOf("■ dsh/lesson") == None, true)
+    s.close()
+}

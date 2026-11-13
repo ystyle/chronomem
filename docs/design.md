@@ -112,11 +112,18 @@ public struct TypeMeta <: JsonSerializable & JsonDeserializable<TypeMeta> {
 | `mem/type_delete` | 删除类型（DROP 语义；**守卫：原始+总结序列必须为空**） | `type`(必填) |
 | `mem/delete` | 删除指定条目：单条（`ts` + `seq`）或按条件批量（`tag`/`keyword`/`from`/`to`）。**默认 `dry_run=true` 只预览**；批量真删还要 `confirm=<预期条数>`，与实际不符则整批回滚 | `type`(必填), `ts`?, `seq`?, `from`?, `to`?, `tag`?, `keyword`?, `dry_run`?(默认 true), `confirm`? |
 | `mem/append` | 追加一条原始条目 | `type`(必填), `payload`(对象,必填), `tags`?, `ts`?(缺省=now) |
+| `mem/brief` | **紧凑简报**：一行一条列出"有哪些事"，**不含全文**（几百到一两千字符）。动手前先扫它，确定相关再用 `mem/query` 看全文 | `type`?(缺省 = dsh/lesson + worklog), `proj`?, `keyword`?, `tag`?, `days`?(默认30，0=不限), `limit`?(默认15) |
 | `mem/query` | 结构回想：最近 / 时间范围 / tag 过滤（多条件） | `type`(必填), `from`?, `to`?, `limit`?(默认20), `tag`?（语法见下） |
 | `mem/recall` | 回想：`mode=exact` 下钻原始条目（零 LLM）；`mode=summary` 返回时段语义摘要（依赖已生成或现算） | `type`(必填), `granularity`(必填，须在类型 levels 内), `windowStartMs`?, `mode`?(exact/summary，默认 exact), `summarize_on_miss`?(默认 false，仅 summary 模式), `group`?(summary 模式按分组过滤，如 proj 值；"未分组"查无 tag 条目) |
 | `mem/buckets` | 列某粒度物化桶（发现可用窗口 + 桶摘要） | `type`(必填), `granularity`(必填), `from`?, `to`? |
 | `mem/summarize` | 语义总结（见 §7）：**按粒度**总结（须在类型 levels 内）或**按显式窗口**总结（`from/to`，任意不规则时段 = 任务阶段） | `type`(必填), `from`?, `to`?, `granularity`?, `instructions`?, `model`?, `recompute`?, `store`?(默认true) |
 | `mem/summaries` | 查某类型的总结记录（最新在前） | `type`(必填), `from`?, `to`?, `limit`? |
+
+> **两级成本是刻意的**：`mem/brief` 出"索引"（一行一条，几千分之一），`mem/query` 出全文。
+> 实测同一份数据（某项目 17 条教训）：brief **1644 字符** vs query **17125 字符**。
+> 记忆"写了没人读"的头号原因是读一次太贵——把第一步做便宜，比多写几遍规则有用。
+> 因此 `dsh/activity` **不在 brief 的默认类型里**：它是自动账本（条目量高一个数量级），
+> 逐条翻没有意义；要看某段时间的经过走语义摘要（`mem/recall mode=summary`）。
 
 > 前缀统一 `mem/`：语义中立（任何工具的通用记忆），且不与具体客户端命令冲突。**只读工具**（query / recall(mode=exact，或 mode=summary 且 summarize_on_miss=false) / buckets / summaries / list / type_info）不改变任何状态；**写工具**（type_create / append / delete / truncate / type_delete / summarize / recall(mode=summary 且 summarize_on_miss=true)）显式落盘。
 

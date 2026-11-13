@@ -1018,6 +1018,126 @@ public func handleQuery(svc: MemoryService, args: HashMap<String, JsonValue>): C
     CallToolResult.text(sb.toString(), meta)
 }
 
+// ---------------------------------------------------------------------------
+// mem/brief：紧凑简报（"这些事有哪些"，不含全文）
+//
+// 存在的唯一理由：**让"看一眼记忆"这件事便宜到愿意做**。
+// mem/query 一个项目的 17 条教训就是 1.7 万字符（≈8k tokens），
+// 而人（和 agent）在动手前只想知道"有没有相关的、叫什么"，不需要全文。
+// 简报把同一份信息的"索引"压到几百到一两千字符，要细节再走 mem/query。
+//
+// 两级成本是刻意的设计，不是妥协：
+//   第一级 brief  —— 便宜，用于"我该不该细看"
+//   第二级 query  —— 贵，只在确定相关后用
+// 只有第一级足够便宜，"动手前先看一眼"才可能成为习惯。
+// ---------------------------------------------------------------------------
+public func handleBrief(svc: MemoryService, args: HashMap<String, JsonValue>): CallToolResult {
+    let tz = svc.store.timeZoneOf()
+    let now = nowMs()
+    let days = argIntOr(args, "days", 30)
+    let limitArg = argIntOr(args, "limit", 15)
+    let limit = if (limitArg <= 0) { Int64(15) } else { limitArg }
+
+    // 类型：显式给就只看它；不给就按"最该被读"的默认顺序（lesson → worklog）。
+    // 刻意不接受"全部类型"：类型多起来之后，全量罗列会把真正该看的挤出去。
+    let typeArg = argStr(args, "type")
+    let types = if (typeArg != "") {
+        let l = ArrayList<String>()
+        l.add(typeArg)
+        l
+    } else {
+        defaultBriefTypes()
+    }
+
+    // 条件：proj 是糖（写 tag 时要敲 proj=xxx），tag 支持 mem/query 的全套语法，
+    // keyword 走内容搜索——**这是最容易用错的地方**：教训的 topic 标签是自由词汇
+    // （实测 102 条有 140 种），猜不中就等于查不到，所以 keyword 是更可靠的入口。
+    let projArg = argStr(args, "proj")
+    var tagStr = argStr(args, "tag")
+    if (projArg != "") {
+        tagStr = if (tagStr == "") { "proj=" + projArg } else { tagStr + " proj=" + projArg }
+    }
+    let tagParsed = parseTagFilters(tagStr)
+    if (!tagParsed.isOk()) {
+        return toolError(tagParsed.error)
+    }
+    let kwParsed = parseKeywords(argStr(args, "keyword"))
+    if (!kwParsed.isOk()) {
+        return toolError(kwParsed.error)
+    }
+    let from = briefFromMs(now, days)
+
+    let sb = StringBuilder()
+    // 抬头：把"这次简报的边界"写清楚，否则调用方会把"最近 30 天没有"
+    // 误读成"从来没有"——那是两个完全不同的结论。
+    let scope = StringBuilder()
+    if (days > 0) { scope.append("近 " + days.toString() + " 天") } else { scope.append("全部时间") }
+    if (projArg != "") { scope.append(" · 项目 " + projArg) }
+    if (kwParsed.keywords.size > 0) {
+        scope.append(" · 关键词：")
+        var first = true
+        for (k in kwParsed.keywords) {
+            if (!first) { scope.append(" + ") }
+            scope.append(k)
+            first = false
+        }
+    }
+    sb.append("【简报】" + scope.toString() + "\n")
+
+    var shownTotal = Int64(0)
+    var matchedTotal = Int64(0)
+    for (t in types) {
+        if (!svc.registry.has(t)) {
+            sb.append("\n（类型 " + t + " 不存在，已跳过）\n")
+            continue
+        }
+        let tl = svc.registry.timelineOf(t).getOrThrow()
+        // 有关键词必须走 filtered 版本：命中数只有扫完才知道，下推 limit 会把
+        // total 变成"容器里多少条"，于是"共 3 条"其实是"前 N 条里有 3 条命中"。
+        let (points, total) = if (kwParsed.keywords.size == 0) {
+            tl.queryPointsPage(from, 0, 1, limit, tagParsed.filters)
+        } else {
+            tl.queryPointsPageFiltered(from, 0, 1, limit, tagParsed.filters, kwParsed.keywords)
+        }
+        matchedTotal += total
+        if (total == 0) {
+            continue
+        }
+        let head = if (total > points.size) {
+            "（共 " + total.toString() + " 条，这里列最近 " + points.size.toString() + " 条）"
+        } else {
+            "（共 " + total.toString() + " 条）"
+        }
+        sb.append("\n■ " + t + " " + head + "\n")
+        for (p in points) {
+            sb.append("  " + briefLine(p.ts, p.payload, tz) + "\n")
+            shownTotal += 1
+        }
+    }
+
+    if (matchedTotal == 0) {
+        // 空结果也要给下一步：否则调用方只知道"没有"，不知道"是没有还是查错了"
+        sb.append("\n（没有匹配条目）\n")
+        sb.append("换个角度再试：放宽 days、去掉 proj/keyword，或直接按 keyword 搜内容。\n")
+        return CallToolResult.text(sb.toString(), briefMeta(matchedTotal, shownTotal, days, types))
+    }
+    sb.append("\n看全文：mem/query { type: \"<上面某个类型>\", tag: \""
+        + (if (projArg != "") { "proj=" + projArg } else { "…" }) + "\" }\n")
+    CallToolResult.text(sb.toString(), briefMeta(matchedTotal, shownTotal, days, types))
+}
+
+// 简报的结构化视图：调用方据此判断"要不要再问一次"，不必解析文本。
+func briefMeta(matched: Int64, shown: Int64, days: Int64, types: ArrayList<String>): JsonValue {
+    let m = HashMap<String, JsonValue>()
+    m["matched"] = JsonValue.Number(Float64(matched))
+    m["shown"] = JsonValue.Number(Float64(shown))
+    m["days"] = JsonValue.Number(Float64(days))
+    let ts = ArrayList<JsonValue>()
+    for (t in types) { ts.add(JsonValue.String(t)) }
+    m["types"] = JsonValue.Array(ts)
+    JsonValue.Map(m)
+}
+
 // 分页信息的结构化视图（mem/query 的 structuredContent）。
 // 字段名与文本头一一对应，便于调用方不解析字符串就能决定要不要继续翻页。
 func paginationMeta(total: Int64, page: Int64, pageSize: Int64, totalPages: Int64,
@@ -1289,6 +1409,22 @@ public func registerTools(server: McpServer, svc: MemoryService): Unit {
     s4.addField("ts", "integer", "时间戳毫秒（缺省=当前时间）")
     let t4 = Tool("mem/append", "追加一条原始条目到记忆类型", s4)
     server.addTool(t4, { params => handleAppend(svc, params.arguments) })
+
+    // mem/brief（紧凑简报：动手前"看一眼"的廉价入口）
+    let sB = schemaBuilder()
+    sB.addField("type", "string",
+        "只看某个类型（如 dsh/lesson）；不给 = 默认 dsh/lesson + worklog（「最该被读」的两个）")
+    sB.addField("proj", "string", "项目名（等价于 tag 里的 proj=xxx）——最常用的入口，如 \"cjreg\"")
+    sB.addField("keyword", "string", "内容关键词过滤。" + KEYWORD_SYNTAX_HINT
+        + "——教训的 tag 是自由词，猜不中就用这个")
+    sB.addField("tag", "string", "标签过滤（与 keyword 可叠加）。" + TAG_SYNTAX_HINT)
+    sB.addField("days", "integer", "只看最近多少天（默认 30；0 = 不限）")
+    sB.addField("limit", "integer", "每类最多列几条（默认 15）")
+    let tB = Tool("mem/brief",
+        "紧凑简报：一句话一条列出「有哪些事」，不含全文（每次几百到一两千字符）。"
+        + "**动手前先扫一眼用这个**，确定相关再 mem/query 看全文。"
+        + "不填 type 时看 dsh/lesson + worklog；activity 请用 mem/recall 的摘要视角", sB)
+    server.addTool(tB, { params => handleBrief(svc, params.arguments) })
 
     // mem/query
     let s5 = schemaBuilder()
