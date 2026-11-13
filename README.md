@@ -222,6 +222,7 @@ CHRONOLOG_DIR=~/.chronolog ./target/release/bin/chronomem.cli
 | `mem/list_types` | 类型列表 |
 | `mem/type_info` | 单类型详情（meta + 条目数 + 各粒度桶数） |
 | `mem/append` | 追加条目（`type` + `payload` 必填；`tags`? `ts`?） |
+| `mem/brief` | **紧凑简报**：一行一条"有哪些事"，不含全文。动手前先扫它 |
 | `mem/query` | 结构回想：`from`? `to`? `limit`? `page`? `tag`? `keyword`? |
 | `mem/recall` | `mode=exact` 下钻原条目 / `mode=summary` 语义回顾；`granularity` 须在类型 levels 内 |
 | `mem/buckets` | 列某粒度的物化桶（发现可用窗口） |
