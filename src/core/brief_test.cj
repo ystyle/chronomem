@@ -94,9 +94,11 @@ class BriefTest {
     @TestCase
     func defaultTypesOrder() {
         let t = defaultBriefTypes()
-        @Expect(t.size, Int64(2))
+        @Expect(t.size, Int64(3))
         @Expect(t[0], "dsh/lesson")
-        @Expect(t[1], "worklog")
+        // 纠错账本必须进默认：它记的是"我自己的判断偏差"，与 lesson 互补
+        @Expect(t[1], "agent/self-correction")
+        @Expect(t[2], "worklog")
         // activity 刻意不在默认里：账本量级高一个数量级，塞进来会挤掉该看的
         var hasActivity = false
         for (x in t) {
@@ -141,5 +143,27 @@ class BriefTest {
         let h = headlineOf(p)
         @Expect(h.indexOf("\n") == None, true)
         @Expect(Int64(h.toRuneArray().size) <= 91, true)
+    }
+
+    // 纠错账本的一句话在 error 上，不在 kind 上。
+    // kind 是分类标签（"无根据断言"），拿它当标题等于每行都说同一句废话。
+    @TestCase
+    func headlinePrefersErrorOverKind() {
+        let p = "{\"error\":\"把分组输出当成了污染\",\"kind\":\"无根据断言\",\"rule\":\"先看分组键再判断\"}"
+        @Expect(headlineOf(p), "把分组输出当成了污染")
+    }
+
+    // error 优先于 rule（error 说"错在哪"，rule 说"以后怎么做"，前者更适合当标题）
+    @TestCase
+    func headlineErrorBeforeRule() {
+        let p = "{\"rule\":\"规则描述\",\"error\":\"错误发生了什么\"}"
+        @Expect(headlineOf(p), "错误发生了什么")
+    }
+
+    // kind 只作为最后兜底：只有 kind 时才用它
+    @TestCase
+    func headlineKindAsLastResort() {
+        let p = "{\"kind\":\"turn\"}"
+        @Expect(headlineOf(p), "turn")
     }
 }

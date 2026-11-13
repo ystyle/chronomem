@@ -20,16 +20,19 @@ import std.time.*
 // 按此顺序取第一个非空字符串。
 //
 // 顺序分两段，语义不同：
-//   ① 「这就是一句话」的字段（title/task/summary/name）：优先，命中即用；
-//   ② 「这是正文」的字段（event/kind/cause/decisions/outcome/fix/context/text）：
-//      兜底，用于历史条目或没按约定写 title 的条目。
+//   ① 「这就是一句话」的字段（title/task/summary/name/error/rule）：优先，命中即用；
+//   ② 「这是正文」的字段（event/cause/root_cause/decisions/outcome/fix/context/text/prompt）：
+//      兜底，用于历史条目或没按约定写 title 的条目；
+//   ③ `kind` 放最后：它是**分类标签**（"无根据断言"/"turn"），不是一句话。
+//      放前面会让纠错账本每一行都显示成同一个分类名，等于什么都没说。
 //
 // 为什么要有第②段：真实数据里总有条目缺 title/task（早期写法不同、或写入时忘了）。
 // 没有兜底时 headlineOf 会退化成把整段 JSON 塞进一行——`{"cause":"...` 这种开头
 // 既占宽度又没信息量，一次能把简报的身价打回原形。
 public let BRIEF_HEADLINE_FIELDS: Array<String> = [
-    "title", "task", "summary", "name",
-    "event", "kind", "cause", "decisions", "outcome", "fix", "context", "text", "prompt"
+    "title", "task", "summary", "name", "error", "rule",
+    "event", "cause", "root_cause", "decisions", "outcome", "fix", "context", "text", "prompt",
+    "kind"
 ]
 
 // 从 payload 里取一句话标题。
@@ -103,7 +106,9 @@ public func briefLine(ts: Int64, payload: String, tz: TimeZone): String {
 // 记忆类型在简报里的默认顺序（"最该被读"的在前）。
 //
 // dsh/lesson 第一：它是"别重复踩坑"的唯一载体，价值随复用次数增长；
-// worklog 第二：任务账，用来回答"这个项目做到哪了"。
+// agent/self-correction 第二：记的是"我自己的判断偏差"（换个问题还会重犯），
+//   与 lesson 的"外部环境的坑"是两回事，两者都要看才算完整；
+// worklog 第三：任务账，用来回答"这个项目做到哪了"。
 //
 // dsh/activity **刻意不在默认里**：它是自动账本，条目量比另两者高一个量级
 // （3000+ vs 100 量级），塞进"一行一条"的视图只会把真正该看的挤出去。
@@ -112,6 +117,7 @@ public func briefLine(ts: Int64, payload: String, tz: TimeZone): String {
 public func defaultBriefTypes(): ArrayList<String> {
     let l = ArrayList<String>()
     l.add("dsh/lesson")
+    l.add("agent/self-correction")
     l.add("worklog")
     l
 }
